@@ -44,7 +44,7 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 - [x] Search — deterministic ⌘K parser ("swiggy in march", "upi expenses")
 - [x] Analytics — trends, balance history, top categories/merchants
 - [ ] Receipts (upload/view/replace/delete via Supabase Storage)
-- [ ] Reports export (CSV / XLSX / PDF)
+- [ ] Reports export by period (day/week/month/quarter/year/custom range, PDF/XLSX) — full-ledger CSV export exists (see Data & polish below); per-period report generation does not yet
 
 ### Phase 2 — Shared expenses
 
@@ -58,16 +58,16 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 
 ### Phase 3 — Data & polish
 
-- [ ] Monito import wizard (CSV/XLSX, column mapping, dedupe, undo) — **not started**; `ImportBatch`/`ImportMapping` tables exist in the schema, ready for it
-- [ ] Generic import adapter interface for other sources (Splitwise, bank statements, Google Sheets)
+- [x] Generic import wizard — upload CSV/XLSX → auto-detected column mapping (header heuristics + value-shape scoring) → category/account resolution → preview with duplicate detection (date+amount+merchant, ±1 day) and per-row validation → commit → one-click undo. Works for Monito exports, Indian bank statements (handles separate Debit/Credit columns, DD/MM/YYYY dates, Dr/Cr suffixes), or any spreadsheet — the mapping step *is* the generic adapter, so new sources need no code changes. Remembers mappings per named source for next time.
 - [ ] PWA / offline logging
 
 ### Cross-cutting
 
 - [x] Auth (Better Auth, email/password, per-user data scoping)
 - [x] Dark mode (persisted), responsive layout (sidebar ↔ bottom nav + FAB)
-- [x] 24 unit tests (money math, split rounding, settlement engine, search parser)
-- [x] End-to-end Playwright walkthrough (18 checks against a seeded DB)
+- [x] Settings — full data export (CSV/JSON), clear-all-transactions (reset the ledger without losing account/category/budget setup), self-serve account deletion — all behind a type-to-confirm modal
+- [x] 52 unit tests (money math, split rounding, settlement engine, search parser, import parsing/column-detection/dedupe)
+- [x] End-to-end Playwright walkthrough (18 prototype-parity checks + 12 import/export/data-management checks, all against a seeded DB)
 - [ ] Supabase Row-Level Security policies (service-layer scoping is in place; RLS as defense-in-depth is not yet added)
 - [ ] Rate limiting on auth/import routes
 

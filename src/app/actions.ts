@@ -8,6 +8,14 @@ import { requireUser } from "@/server/session";
 import { createAccount } from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
+import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
+import {
+  commitImport,
+  getSavedMapping,
+  previewImport,
+  undoImport,
+  type CommitInput,
+} from "@/server/services/import";
 import { addParticipant, recordSettlement } from "@/server/services/shared";
 import {
   addExpense,
@@ -17,6 +25,7 @@ import {
   softDeleteTransaction,
 } from "@/server/services/transactions";
 import { askLedgerly } from "@/server/services/search";
+import type { ColumnMapping } from "@/lib/import/types";
 import {
   accountSchema,
   billSchema,
@@ -174,4 +183,62 @@ export async function addParticipantAction(input: unknown): Promise<ActionResult
 export async function askLedgerlyAction(query: string) {
   const user = await requireUser();
   return askLedgerly(user.id, query);
+}
+
+// ─────────── Import wizard ───────────
+
+export async function getSavedMappingAction(source: string) {
+  const user = await requireUser();
+  if (!source.trim()) return null;
+  return getSavedMapping(user.id, source.trim());
+}
+
+export async function previewImportAction(rows: Record<string, unknown>[], mapping: ColumnMapping) {
+  const user = await requireUser();
+  return previewImport(user.id, rows, mapping);
+}
+
+export async function commitImportAction(input: CommitInput): Promise<ActionResult & { batchId?: string; imported?: number }> {
+  try {
+    const user = await requireUser();
+    const result = await commitImport(user.id, input);
+    refresh();
+    return { ok: true, batchId: result.batchId, imported: result.imported };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function undoImportAction(batchId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await undoImport(user.id, batchId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Data management ───────────
+
+export async function clearTransactionsAction(): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await clearAllTransactions(user.id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteMyAccountAction(): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await deleteUserAccount(user.id);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
 }

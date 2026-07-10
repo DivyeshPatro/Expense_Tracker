@@ -19,6 +19,7 @@ const NAV = [
   { href: "/bills", icon: "▦", label: "Bills" },
   { href: "/shared", icon: "◫", label: "Shared" },
   { href: "/analytics", icon: "◵", label: "Analytics" },
+  { href: "/settings", icon: "⚙", label: "Settings" },
 ];
 
 const TX_SUBS = [
@@ -39,7 +40,7 @@ export function AppShell({ refData, badge, children }: { refData: RefData; badge
 function ShellInner({ badge, children }: { badge: number; children: React.ReactNode }) {
   const { openModal, setPaletteOpen, closeModal, refData } = useUI();
   const pathname = usePathname();
-  const title = NAV.find((n) => pathname.startsWith(n.href))?.label ?? "Ledgerly";
+  const title = NAV.find((n) => pathname.startsWith(n.href))?.label ?? (pathname.startsWith("/import") ? "Import data" : "Ledgerly");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -200,7 +201,7 @@ const MOBILE_NAV = [
 function BottomNav({ badge }: { badge: number }) {
   const pathname = usePathname();
   const [sheet, setSheet] = useState(false);
-  const moreActive = ["/accounts", "/budgets", "/bills"].some((h) => pathname.startsWith(h));
+  const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import"].some((h) => pathname.startsWith(h));
   return (
     <>
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)]">
@@ -231,6 +232,7 @@ function MoreSheet({ close }: { close: () => void }) {
     { href: "/accounts", icon: "▤", label: "Accounts" },
     { href: "/budgets", icon: "◔", label: "Budgets" },
     { href: "/bills", icon: "▦", label: "Bills" },
+    { href: "/settings", icon: "⚙", label: "Settings" },
   ];
   return (
     <div onClick={close} className="fixed inset-0 z-[55] flex items-end" style={{ background: "var(--ov)" }}>
