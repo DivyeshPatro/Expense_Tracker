@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Schibsted Grotesk',system-ui,sans-serif;color:#16181d}
+a{color:#2a63f6}a:hover{opacity:.8}
+doc-page:not(:defined){visibility:hidden}
+doc-page{font-family:'Schibsted Grotesk',system-ui,sans-serif !important}
+</style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="a4" orientation="portrait" margin="0.8in" style="font-family:'Schibsted Grotesk',system-ui,sans-serif" hint-size="100%,100%">
+
+<h1 style="font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Ledgerly — Architecture &amp; Database Design</h1>
+<p style="font-size:13px;color:#7a8091;margin:0 0 26px">Personal finance &amp; shared expense tracker · v1.0 · July 2026 · No AI/LLM dependencies anywhere</p>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">1 · Product shape &amp; phasing</h2>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">Ledgerly launches as a single-user personal finance app and grows into a shared-expense platform (Splitwise-style) without schema rewrites. Everything below is deterministic and rule-based — no LLM, no external ML services, in any phase.</p>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 10px;padding-left:22px">
+  <li><strong>Phase 1 — Personal:</strong> accounts, transactions, transfers, budgets, bills, recurring rules, reports, analytics, receipts.</li>
+  <li><strong>Phase 2 — Shared:</strong> friends, groups, splits, settlement engine, notifications, invitations.</li>
+  <li><strong>Phase 3 — Data &amp; polish:</strong> Monito import wizard (generic migration engine), exports (PDF/CSV/XLSX), audit log, advanced analytics.</li>
+</ul>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">The critical decision enabling this: <strong>every table carries ownership from day 1</strong> (<code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">userId</code> or group linkage), and transactions are modeled so a personal expense and a shared expense are the same row with an optional split attached — Phase 2 adds tables, it never alters Phase 1 rows.</p>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">2 · Stack decisions &amp; trade-offs</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.5;margin:0 0 12px">
+  <thead><tr style="border-bottom:2px solid #16181d;text-align:left">
+    <th style="padding:7px 10px 7px 0;font-weight:800">Layer</th><th style="padding:7px 10px;font-weight:800">Choice</th><th style="padding:7px 0;font-weight:800">Why / trade-off</th>
+  </tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Frontend</td><td style="padding:8px 10px">Next.js 15 (App Router), TypeScript, Tailwind, shadcn/ui, Framer Motion</td><td style="padding:8px 0">One codebase, RSC for fast dashboards, shadcn gives owned (not installed) components matching the Glass &amp; Ink design.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Backend</td><td style="padding:8px 10px">Next.js API routes + server actions</td><td style="padding:8px 0">NestJS is overkill for one developer; revisit only if a mobile app needs a standalone API. Keep domain logic in <code style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f1f3f6;padding:1px 5px;border-radius:4px">src/server/services</code> so it could move to NestJS untouched.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Database</td><td style="padding:8px 10px">Supabase Postgres + Prisma ORM</td><td style="padding:8px 0">Prisma for typed queries/migrations; Supabase for hosting, RLS, storage. Prisma connects via the pooled connection string (PgBouncer).</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Auth</td><td style="padding:8px 10px"><strong>Better Auth</strong> (recommended)</td><td style="padding:8px 0">Self-hosted, no per-MAU pricing (vs Clerk), first-class Prisma adapter, owns the user table in your DB. Clerk is faster to ship but couples your user identity to a vendor.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Charts</td><td style="padding:8px 10px">Recharts</td><td style="padding:8px 0">Declarative, fine for bar/line/donut. Swap per-chart to visx only if the expense heatmap needs it.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Storage</td><td style="padding:8px 10px">Supabase Storage</td><td style="padding:8px 0">Receipts in a private bucket, path <code style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f1f3f6;padding:1px 5px;border-radius:4px">receipts/{userId}/{txId}</code>, served via short-lived signed URLs.</td></tr>
+    <tr><td style="padding:8px 10px 8px 0;font-weight:700">Jobs</td><td style="padding:8px 10px">Vercel Cron → internal route</td><td style="padding:8px 0">Daily 00:30 IST: materialize recurring transactions, generate bill instances, fire notification rules. Idempotent (keyed on rule id + period).</td></tr>
+  </tbody>
+</table>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">3 · Application architecture</h2>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">Three strict layers. UI never touches Prisma directly; services never touch HTTP. This is what keeps the codebase beginner-friendly and portable.</p>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.6;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">src/
+├─ app/                    # routes (App Router)
+│  ├─ (app)/dashboard, transactions, accounts, budgets,
+│  │        bills, shared, analytics, settings, import/
+│  ├─ (auth)/sign-in, sign-up/
+│  └─ api/                 # route handlers: REST-ish JSON + cron
+├─ components/             # ui/ (shadcn), charts/, forms/, layout/
+├─ server/
+│  ├─ services/            # domain logic: transactions.ts, budgets.ts,
+│  │                       #   settlements.ts, recurring.ts, import/
+│  ├─ auth.ts              # Better Auth config
+│  └─ db.ts                # Prisma client (singleton)
+├─ lib/                    # money.ts (paise math), dates.ts, search-parser.ts
+├─ validators/             # zod schemas — single source for API + forms
+└─ prisma/schema.prisma</pre>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 10px;padding-left:22px">
+  <li><strong>Money is integer paise</strong> (<code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">BigInt</code> in Prisma, ₹1 = 100). Never floats. Formatting via <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">Intl.NumberFormat('en-IN')</code> at the edge only.</li>
+  <li><strong>Account balances are derived</strong>, not stored: a materialized running balance is maintained per account inside the same DB transaction that writes a Transaction row, and can always be rebuilt from <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">openingBalance + Σ ledger</code>. Corruption-proof and auditable.</li>
+  <li><strong>Optimistic UI</strong> via TanStack Query mutations with rollback; pagination is cursor-based (id + date) everywhere.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">4 · Database schema (Prisma)</h2>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">Key modeling decisions, then the schema. Enums are abbreviated for readability.</p>
+<ol style="font-size:14.5px;line-height:1.65;margin:0 0 12px;padding-left:22px">
+  <li><strong>One <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">Transaction</code> table</strong> for expense / income / transfer (a <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">type</code> enum + nullable <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">toAccountId</code> for transfers). Reports, search and import all query one table.</li>
+  <li><strong>Splits attach to transactions.</strong> A shared expense is a normal Transaction plus <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">ExpenseSplit</code> rows (one per participant, storing owed paise). Works for equal / percent / exact / ratio — the split method is metadata; the stored truth is always exact paise per participant, which must sum to the total (DB check constraint).</li>
+  <li><strong>Participants can be non-users.</strong> <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">Participant</code> rows have a nullable <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">linkedUserId</code> — you can split with "Rohan" before Rohan ever signs up; when he accepts an invitation his participant record links to his account and history follows him.</li>
+  <li><strong>Categories are per-user rows</strong> seeded from a default set at signup (not a global table), so renames/custom categories never collide between users.</li>
+</ol>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.58;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  currency      String   @default("INR")
+  createdAt     DateTime @default(now())
+  accounts      Account[]
+  transactions  Transaction[]
+  categories    Category[]
+  // budgets, bills, recurringRules, participantsOwned, notifications…
+}
+
+enum AccountType { BANK CASH WALLET CREDIT_CARD INVESTMENT }
+
+model Account {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
+  name           String      // "HDFC Savings"
+  type           AccountType
+  bankName       String?
+  openingBalance BigInt      @default(0)   // paise
+  balance        BigInt      @default(0)   // maintained in-tx, rebuildable
+  color          String?
+  icon           String?
+  isArchived     Boolean     @default(false)
+  @@index([userId])
+}
+
+enum TxType { EXPENSE INCOME TRANSFER }
+
+model Transaction {
+  id            String    @id @default(cuid())
+  userId        String    // who recorded it
+  type          TxType
+  amount        BigInt    // paise, always positive
+  accountId     String?   // source account (null: paid by someone else)
+  toAccountId   String?   // TRANSFER only
+  categoryId    String?
+  merchant      String
+  occurredAt    DateTime
+  notes         String?
+  location      String?
+  isRecurring   Boolean   @default(false)
+  recurringRuleId String?
+  importBatchId String?
+  groupId       String?   // shared context, optional
+  paidByParticipantId String? // null ⇒ paid by owner
+  splits        ExpenseSplit[]
+  tags          TransactionTag[]
+  receipts      Receipt[]
+  deletedAt     DateTime? // soft delete → undo
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, categoryId]) @@index([userId, accountId])
+  @@index([userId, merchant])
+}
+
+model Category {
+  id        String  @id @default(cuid())
+  userId    String
+  name      String  // seeded defaults + custom
+  kind      TxType  // EXPENSE or INCOME
+  parentId  String? // subcategories
+  icon      String?
+  color     String?
+  @@unique([userId, name, kind])
+}
+
+model Budget {
+  id         String  @id @default(cuid())
+  userId     String
+  categoryId String? // null ⇒ overall budget
+  accountId  String? // account-scoped budgets
+  period     BudgetPeriod // WEEKLY MONTHLY YEARLY
+  limit      BigInt
+  alertAt    Int     @default(80) // % threshold notification
+  @@unique([userId, categoryId, accountId, period])
+}
+
+model Bill {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  amount      BigInt
+  categoryId  String?
+  dueDate     DateTime
+  recurringRuleId String? // auto-regenerated after payment
+  status      BillStatus @default(UPCOMING) // UPCOMING PAID OVERDUE
+  paidTxId    String?  // links the payment transaction
+}
+
+model RecurringRule {
+  id        String   @id @default(cuid())
+  userId    String
+  cadence   Cadence  // DAILY WEEKLY MONTHLY QUARTERLY YEARLY
+  interval  Int      @default(1)
+  nextRunAt DateTime
+  endsAt    DateTime?
+  template  Json     // transaction/bill payload to materialize
+  kind      RuleKind // TRANSACTION or BILL
+  @@index([nextRunAt])
+}
+
+model Tag { id String @id @default(cuid()); userId String; name String
+  @@unique([userId, name]) }
+model TransactionTag { txId String; tagId String; @@id([txId, tagId]) }
+
+model Receipt {
+  id String @id @default(cuid()); txId String; userId String
+  storagePath String; mimeType String; sizeBytes Int
+  uploadedAt DateTime @default(now())
+}</pre>
+<p style="font-size:13px;color:#7a8091;margin:0 0 6px">Phase 2 — sharing, groups, settlements:</p>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.58;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">model Participant {           // a person you split with
+  id           String  @id @default(cuid())
+  ownerId      String  // whose contact list
+  displayName  String
+  linkedUserId String? // set when they join via invitation
+  @@unique([ownerId, linkedUserId])
+}
+
+model Group {
+  id String @id @default(cuid()); name String; createdById String
+  members GroupMember[]
+}
+model GroupMember {
+  groupId String; participantId String
+  role    GroupRole @default(MEMBER) // OWNER ADMIN MEMBER
+  @@id([groupId, participantId])
+}
+
+model Invitation {
+  id String @id @default(cuid()); email String; invitedById String
+  participantId String; token String @unique; status InviteStatus
+  expiresAt DateTime
+}
+
+model ExpenseSplit {              // truth = exact paise per head
+  id            String @id @default(cuid())
+  txId          String
+  participantId String? // null ⇒ the owner's own share
+  owedAmount    BigInt  // Σ per tx must equal tx.amount (CHECK)
+  method        SplitMethod // EQUAL PERCENT EXACT RATIO CUSTOM
+  isSettled     Boolean @default(false)
+  @@index([participantId, isSettled])
+}
+
+model Settlement {
+  id        String   @id @default(cuid())
+  payerParticipantId String  // who paid
+  payeeParticipantId String  // who received
+  amount    BigInt
+  method    SettleMethod // UPI CASH BANK
+  settledAt DateTime @default(now())
+  note      String?
+}
+
+model Notification {
+  id String @id @default(cuid()); userId String
+  kind NotifKind // BUDGET_EXCEEDED BILL_DUE SETTLE_REMINDER
+                 // RECURRING_CREATED MONTHLY_SUMMARY LARGE_EXPENSE
+  payload Json; readAt DateTime?; createdAt DateTime @default(now())
+  @@index([userId, readAt])
+}</pre>
+<p style="font-size:13px;color:#7a8091;margin:0 0 6px">Phase 3 — import engine &amp; audit:</p>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.58;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">model ImportBatch {
+  id String @id @default(cuid()); userId String
+  source String        // "monito" | "csv" | "splitwise" | …
+  fileName String; importedCount Int; skippedCount Int
+  errors Json?; status ImportStatus // PREVIEW COMMITTED UNDONE
+  createdAt DateTime @default(now())
+  // undo = soft-delete all tx where importBatchId = id
+}
+
+model ImportMapping {   // remembered column + category mappings
+  id String @id @default(cuid()); userId String; source String
+  columnMap Json        // {"Date":"occurredAt","Note":"merchant",…}
+  categoryMap Json      // {"Eating Out":"Food", …}
+  @@unique([userId, source])
+}
+
+model AuditLog {
+  id String @id @default(cuid()); userId String; action String
+  entity String; entityId String; before Json?; after Json?
+  at DateTime @default(now())
+  @@index([userId, at(sort: Desc)])
+}</pre>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">5 · Deterministic engines (no AI, by design)</h2>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 12px;padding-left:22px">
+  <li><strong>Settlement engine:</strong> compute net balance per participant from unsettled splits minus settlements; minimize transactions with the greedy max-debtor→max-creditor algorithm (optimal count ≤ n−1). Pure function in <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">services/settlements.ts</code>, unit-tested against paise-rounding edge cases (remainder paise assigned to the payer).</li>
+  <li><strong>Search parser:</strong> tokenizer → matchers against the user's own merchants, categories, accounts, tags, date phrases ("last month", "in March", "this year"), amount ranges ("above ₹500"), and type keywords — compiled to a Prisma <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">where</code> object. Falls back to Postgres full-text search on merchant + notes. "Show my UPI expenses" = account-type matcher, zero AI.</li>
+  <li><strong>Auto-categorization:</strong> a per-user <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">merchant → category</code> rule table, seeded with a common-merchant dictionary (Swiggy→Food, BESCOM→Electricity…) and updated every time the user re-categorizes. Deterministic and self-improving.</li>
+  <li><strong>Import engine:</strong> adapter pattern — <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">ImportAdapter</code> interface (<code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">detect · parse · mapColumns · validate</code>) with a MonitoAdapter first; Splitwise/bank-statement adapters plug in later. Wizard flow: upload → auto-detect columns (header heuristics + value-shape scoring) → mapping UI (persisted to ImportMapping) → preview with duplicate detection (hash of date+amount+merchant±1 day) → row-level skip/edit → commit as one ImportBatch → one-click undo.</li>
+  <li><strong>Recurring engine:</strong> cron reads <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">RecurringRule.nextRunAt ≤ now</code>, materializes the row inside a transaction, advances <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">nextRunAt</code>. Unique constraint on (ruleId, period) makes re-runs idempotent.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">6 · Security &amp; performance</h2>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 12px;padding-left:22px">
+  <li><strong>Authorization:</strong> every service function takes the session user and scopes queries by <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">userId</code>; Supabase <strong>RLS policies mirror the same rules</strong> as defense-in-depth (shared rows readable by group members only).</li>
+  <li><strong>Validation:</strong> zod schemas shared between forms and API; all money parsed to paise at the boundary. Rate limiting via Upstash on auth + import routes. File uploads: type/size allowlist, private bucket, signed URLs.</li>
+  <li><strong>Audit:</strong> writes to money-bearing tables append an AuditLog row (before/after JSON).</li>
+  <li><strong>Performance:</strong> covering indexes above match every dashboard query; monthly aggregates served from a <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">month × category × account</code> rollup view (refreshed on write, cheap at personal scale); cursor pagination; charts lazy-loaded; receipts via <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">next/image</code>.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">7 · Build order</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.5">
+  <thead><tr style="border-bottom:2px solid #16181d;text-align:left">
+    <th style="padding:7px 10px 7px 0;font-weight:800">Milestone</th><th style="padding:7px 0;font-weight:800">Scope</th>
+  </tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M1 · Skeleton</td><td style="padding:8px 0">Repo, Prisma schema (all phases — migrate once), Better Auth, seed script, app shell + dark mode matching the prototype.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M2 · Ledger core</td><td style="padding:8px 0">Accounts CRUD, transactions (expense/income/transfer), balance maintenance, transaction list + filters + search parser.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M3 · Dashboard</td><td style="padding:8px 0">Stat cards, cash flow, category donut, attention strip, budgets + alerts, bills + recurring engine (cron).</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M4 · Analytics</td><td style="padding:8px 0">Trends, merchant analysis, balance trend, reports + CSV/XLSX/PDF export, receipts.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M5 · Shared</td><td style="padding:8px 0">Participants, groups, invitations, splits, settlement engine, notifications.</td></tr>
+    <tr><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M6 · Import</td><td style="padding:8px 0">Monito adapter + wizard, import history, undo. Then real-data migration.</td></tr>
+  </tbody>
+</table>
+
+</x-import>
+
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style data-omelette-print-defaults>
+@media print {
+  @page { margin: 0.5in; }
+  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  figure, table, pre, blockquote, img, svg, tr, [class~="card" i] { break-inside: avoid; }
+  img, svg { max-width: 100%; }
+  p { orphans: 3; widows: 3; }
+}
+</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Schibsted Grotesk',system-ui,sans-serif;color:#16181d}
+a{color:#2a63f6}a:hover{opacity:.8}
+doc-page:not(:defined){visibility:hidden}
+</style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="a4" orientation="portrait" margin="0.8in" style="font-family:'Schibsted Grotesk',system-ui,sans-serif" hint-size="100%,100%">
+
+<h1 style="font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Ledgerly — Architecture &amp; Database Design</h1>
+<p style="font-size:13px;color:#7a8091;margin:0 0 26px">Personal finance &amp; shared expense tracker · v1.0 · July 2026 · No AI/LLM dependencies anywhere</p>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">1 · Product shape &amp; phasing</h2>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">Ledgerly launches as a single-user personal finance app and grows into a shared-expense platform (Splitwise-style) without schema rewrites. Everything below is deterministic and rule-based — no LLM, no external ML services, in any phase.</p>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 10px;padding-left:22px">
+  <li><strong>Phase 1 — Personal:</strong> accounts, transactions, transfers, budgets, bills, recurring rules, reports, analytics, receipts.</li>
+  <li><strong>Phase 2 — Shared:</strong> friends, groups, splits, settlement engine, notifications, invitations.</li>
+  <li><strong>Phase 3 — Data &amp; polish:</strong> Monito import wizard (generic migration engine), exports (PDF/CSV/XLSX), audit log, advanced analytics.</li>
+</ul>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">The critical decision enabling this: <strong>every table carries ownership from day 1</strong> (<code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">userId</code> or group linkage), and transactions are modeled so a personal expense and a shared expense are the same row with an optional split attached — Phase 2 adds tables, it never alters Phase 1 rows.</p>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">2 · Stack decisions &amp; trade-offs</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.5;margin:0 0 12px">
+  <thead><tr style="border-bottom:2px solid #16181d;text-align:left">
+    <th style="padding:7px 10px 7px 0;font-weight:800">Layer</th><th style="padding:7px 10px;font-weight:800">Choice</th><th style="padding:7px 0;font-weight:800">Why / trade-off</th>
+  </tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Frontend</td><td style="padding:8px 10px">Next.js 15 (App Router), TypeScript, Tailwind, shadcn/ui, Framer Motion</td><td style="padding:8px 0">One codebase, RSC for fast dashboards, shadcn gives owned (not installed) components matching the Glass &amp; Ink design.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Backend</td><td style="padding:8px 10px">Next.js API routes + server actions</td><td style="padding:8px 0">NestJS is overkill for one developer; revisit only if a mobile app needs a standalone API. Keep domain logic in <code style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f1f3f6;padding:1px 5px;border-radius:4px">src/server/services</code> so it could move to NestJS untouched.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Database</td><td style="padding:8px 10px">Supabase Postgres + Prisma ORM</td><td style="padding:8px 0">Prisma for typed queries/migrations; Supabase for hosting, RLS, storage. Prisma connects via the pooled connection string (PgBouncer).</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Auth</td><td style="padding:8px 10px"><strong>Better Auth</strong> (recommended)</td><td style="padding:8px 0">Self-hosted, no per-MAU pricing (vs Clerk), first-class Prisma adapter, owns the user table in your DB. Clerk is faster to ship but couples your user identity to a vendor.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Charts</td><td style="padding:8px 10px">Recharts</td><td style="padding:8px 0">Declarative, fine for bar/line/donut. Swap per-chart to visx only if the expense heatmap needs it.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Storage</td><td style="padding:8px 10px">Supabase Storage</td><td style="padding:8px 0">Receipts in a private bucket, path <code style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f1f3f6;padding:1px 5px;border-radius:4px">receipts/{userId}/{txId}</code>, served via short-lived signed URLs.</td></tr>
+    <tr><td style="padding:8px 10px 8px 0;font-weight:700">Jobs</td><td style="padding:8px 10px">Vercel Cron → internal route</td><td style="padding:8px 0">Daily 00:30 IST: materialize recurring transactions, generate bill instances, fire notification rules. Idempotent (keyed on rule id + period).</td></tr>
+  </tbody>
+</table>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">3 · Application architecture</h2>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">Three strict layers. UI never touches Prisma directly; services never touch HTTP. This is what keeps the codebase beginner-friendly and portable.</p>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.6;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">src/
+├─ app/                    # routes (App Router)
+│  ├─ (app)/dashboard, transactions, accounts, budgets,
+│  │        bills, shared, analytics, settings, import/
+│  ├─ (auth)/sign-in, sign-up/
+│  └─ api/                 # route handlers: REST-ish JSON + cron
+├─ components/             # ui/ (shadcn), charts/, forms/, layout/
+├─ server/
+│  ├─ services/            # domain logic: transactions.ts, budgets.ts,
+│  │                       #   settlements.ts, recurring.ts, import/
+│  ├─ auth.ts              # Better Auth config
+│  └─ db.ts                # Prisma client (singleton)
+├─ lib/                    # money.ts (paise math), dates.ts, search-parser.ts
+├─ validators/             # zod schemas — single source for API + forms
+└─ prisma/schema.prisma</pre>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 10px;padding-left:22px">
+  <li><strong>Money is integer paise</strong> (<code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">BigInt</code> in Prisma, ₹1 = 100). Never floats. Formatting via <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">Intl.NumberFormat('en-IN')</code> at the edge only.</li>
+  <li><strong>Account balances are derived</strong>, not stored: a materialized running balance is maintained per account inside the same DB transaction that writes a Transaction row, and can always be rebuilt from <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">openingBalance + Σ ledger</code>. Corruption-proof and auditable.</li>
+  <li><strong>Optimistic UI</strong> via TanStack Query mutations with rollback; pagination is cursor-based (id + date) everywhere.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">4 · Database schema (Prisma)</h2>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">Key modeling decisions, then the schema. Enums are abbreviated for readability.</p>
+<ol style="font-size:14.5px;line-height:1.65;margin:0 0 12px;padding-left:22px">
+  <li><strong>One <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">Transaction</code> table</strong> for expense / income / transfer (a <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">type</code> enum + nullable <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">toAccountId</code> for transfers). Reports, search and import all query one table.</li>
+  <li><strong>Splits attach to transactions.</strong> A shared expense is a normal Transaction plus <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">ExpenseSplit</code> rows (one per participant, storing owed paise). Works for equal / percent / exact / ratio — the split method is metadata; the stored truth is always exact paise per participant, which must sum to the total (DB check constraint).</li>
+  <li><strong>Participants can be non-users.</strong> <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">Participant</code> rows have a nullable <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">linkedUserId</code> — you can split with "Rohan" before Rohan ever signs up; when he accepts an invitation his participant record links to his account and history follows him.</li>
+  <li><strong>Categories are per-user rows</strong> seeded from a default set at signup (not a global table), so renames/custom categories never collide between users.</li>
+</ol>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.58;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  currency      String   @default("INR")
+  createdAt     DateTime @default(now())
+  accounts      Account[]
+  transactions  Transaction[]
+  categories    Category[]
+  // budgets, bills, recurringRules, participantsOwned, notifications…
+}
+
+enum AccountType { BANK CASH WALLET CREDIT_CARD INVESTMENT }
+
+model Account {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
+  name           String      // "HDFC Savings"
+  type           AccountType
+  bankName       String?
+  openingBalance BigInt      @default(0)   // paise
+  balance        BigInt      @default(0)   // maintained in-tx, rebuildable
+  color          String?
+  icon           String?
+  isArchived     Boolean     @default(false)
+  @@index([userId])
+}
+
+enum TxType { EXPENSE INCOME TRANSFER }
+
+model Transaction {
+  id            String    @id @default(cuid())
+  userId        String    // who recorded it
+  type          TxType
+  amount        BigInt    // paise, always positive
+  accountId     String?   // source account (null: paid by someone else)
+  toAccountId   String?   // TRANSFER only
+  categoryId    String?
+  merchant      String
+  occurredAt    DateTime
+  notes         String?
+  location      String?
+  isRecurring   Boolean   @default(false)
+  recurringRuleId String?
+  importBatchId String?
+  groupId       String?   // shared context, optional
+  paidByParticipantId String? // null ⇒ paid by owner
+  splits        ExpenseSplit[]
+  tags          TransactionTag[]
+  receipts      Receipt[]
+  deletedAt     DateTime? // soft delete → undo
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, categoryId]) @@index([userId, accountId])
+  @@index([userId, merchant])
+}
+
+model Category {
+  id        String  @id @default(cuid())
+  userId    String
+  name      String  // seeded defaults + custom
+  kind      TxType  // EXPENSE or INCOME
+  parentId  String? // subcategories
+  icon      String?
+  color     String?
+  @@unique([userId, name, kind])
+}
+
+model Budget {
+  id         String  @id @default(cuid())
+  userId     String
+  categoryId String? // null ⇒ overall budget
+  accountId  String? // account-scoped budgets
+  period     BudgetPeriod // WEEKLY MONTHLY YEARLY
+  limit      BigInt
+  alertAt    Int     @default(80) // % threshold notification
+  @@unique([userId, categoryId, accountId, period])
+}
+
+model Bill {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  amount      BigInt
+  categoryId  String?
+  dueDate     DateTime
+  recurringRuleId String? // auto-regenerated after payment
+  status      BillStatus @default(UPCOMING) // UPCOMING PAID OVERDUE
+  paidTxId    String?  // links the payment transaction
+}
+
+model RecurringRule {
+  id        String   @id @default(cuid())
+  userId    String
+  cadence   Cadence  // DAILY WEEKLY MONTHLY QUARTERLY YEARLY
+  interval  Int      @default(1)
+  nextRunAt DateTime
+  endsAt    DateTime?
+  template  Json     // transaction/bill payload to materialize
+  kind      RuleKind // TRANSACTION or BILL
+  @@index([nextRunAt])
+}
+
+model Tag { id String @id @default(cuid()); userId String; name String
+  @@unique([userId, name]) }
+model TransactionTag { txId String; tagId String; @@id([txId, tagId]) }
+
+model Receipt {
+  id String @id @default(cuid()); txId String; userId String
+  storagePath String; mimeType String; sizeBytes Int
+  uploadedAt DateTime @default(now())
+}</pre>
+<p style="font-size:13px;color:#7a8091;margin:0 0 6px">Phase 2 — sharing, groups, settlements:</p>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.58;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">model Participant {           // a person you split with
+  id           String  @id @default(cuid())
+  ownerId      String  // whose contact list
+  displayName  String
+  linkedUserId String? // set when they join via invitation
+  @@unique([ownerId, linkedUserId])
+}
+
+model Group {
+  id String @id @default(cuid()); name String; createdById String
+  members GroupMember[]
+}
+model GroupMember {
+  groupId String; participantId String
+  role    GroupRole @default(MEMBER) // OWNER ADMIN MEMBER
+  @@id([groupId, participantId])
+}
+
+model Invitation {
+  id String @id @default(cuid()); email String; invitedById String
+  participantId String; token String @unique; status InviteStatus
+  expiresAt DateTime
+}
+
+model ExpenseSplit {              // truth = exact paise per head
+  id            String @id @default(cuid())
+  txId          String
+  participantId String? // null ⇒ the owner's own share
+  owedAmount    BigInt  // Σ per tx must equal tx.amount (CHECK)
+  method        SplitMethod // EQUAL PERCENT EXACT RATIO CUSTOM
+  isSettled     Boolean @default(false)
+  @@index([participantId, isSettled])
+}
+
+model Settlement {
+  id        String   @id @default(cuid())
+  payerParticipantId String  // who paid
+  payeeParticipantId String  // who received
+  amount    BigInt
+  method    SettleMethod // UPI CASH BANK
+  settledAt DateTime @default(now())
+  note      String?
+}
+
+model Notification {
+  id String @id @default(cuid()); userId String
+  kind NotifKind // BUDGET_EXCEEDED BILL_DUE SETTLE_REMINDER
+                 // RECURRING_CREATED MONTHLY_SUMMARY LARGE_EXPENSE
+  payload Json; readAt DateTime?; createdAt DateTime @default(now())
+  @@index([userId, readAt])
+}</pre>
+<p style="font-size:13px;color:#7a8091;margin:0 0 6px">Phase 3 — import engine &amp; audit:</p>
+<pre style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.58;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:10px;padding:16px;overflow-x:auto;margin:0 0 14px">model ImportBatch {
+  id String @id @default(cuid()); userId String
+  source String        // "monito" | "csv" | "splitwise" | …
+  fileName String; importedCount Int; skippedCount Int
+  errors Json?; status ImportStatus // PREVIEW COMMITTED UNDONE
+  createdAt DateTime @default(now())
+  // undo = soft-delete all tx where importBatchId = id
+}
+
+model ImportMapping {   // remembered column + category mappings
+  id String @id @default(cuid()); userId String; source String
+  columnMap Json        // {"Date":"occurredAt","Note":"merchant",…}
+  categoryMap Json      // {"Eating Out":"Food", …}
+  @@unique([userId, source])
+}
+
+model AuditLog {
+  id String @id @default(cuid()); userId String; action String
+  entity String; entityId String; before Json?; after Json?
+  at DateTime @default(now())
+  @@index([userId, at(sort: Desc)])
+}</pre>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">5 · Deterministic engines (no AI, by design)</h2>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 12px;padding-left:22px">
+  <li><strong>Settlement engine:</strong> compute net balance per participant from unsettled splits minus settlements; minimize transactions with the greedy max-debtor→max-creditor algorithm (optimal count ≤ n−1). Pure function in <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">services/settlements.ts</code>, unit-tested against paise-rounding edge cases (remainder paise assigned to the payer).</li>
+  <li><strong>Search parser:</strong> tokenizer → matchers against the user's own merchants, categories, accounts, tags, date phrases ("last month", "in March", "this year"), amount ranges ("above ₹500"), and type keywords — compiled to a Prisma <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">where</code> object. Falls back to Postgres full-text search on merchant + notes. "Show my UPI expenses" = account-type matcher, zero AI.</li>
+  <li><strong>Auto-categorization:</strong> a per-user <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">merchant → category</code> rule table, seeded with a common-merchant dictionary (Swiggy→Food, BESCOM→Electricity…) and updated every time the user re-categorizes. Deterministic and self-improving.</li>
+  <li><strong>Import engine:</strong> adapter pattern — <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">ImportAdapter</code> interface (<code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">detect · parse · mapColumns · validate</code>) with a MonitoAdapter first; Splitwise/bank-statement adapters plug in later. Wizard flow: upload → auto-detect columns (header heuristics + value-shape scoring) → mapping UI (persisted to ImportMapping) → preview with duplicate detection (hash of date+amount+merchant±1 day) → row-level skip/edit → commit as one ImportBatch → one-click undo.</li>
+  <li><strong>Recurring engine:</strong> cron reads <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">RecurringRule.nextRunAt ≤ now</code>, materializes the row inside a transaction, advances <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">nextRunAt</code>. Unique constraint on (ruleId, period) makes re-runs idempotent.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">6 · Security &amp; performance</h2>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 12px;padding-left:22px">
+  <li><strong>Authorization:</strong> every service function takes the session user and scopes queries by <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">userId</code>; Supabase <strong>RLS policies mirror the same rules</strong> as defense-in-depth (shared rows readable by group members only).</li>
+  <li><strong>Validation:</strong> zod schemas shared between forms and API; all money parsed to paise at the boundary. Rate limiting via Upstash on auth + import routes. File uploads: type/size allowlist, private bucket, signed URLs.</li>
+  <li><strong>Audit:</strong> writes to money-bearing tables append an AuditLog row (before/after JSON).</li>
+  <li><strong>Performance:</strong> covering indexes above match every dashboard query; monthly aggregates served from a <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">month × category × account</code> rollup view (refreshed on write, cheap at personal scale); cursor pagination; charts lazy-loaded; receipts via <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f1f3f6;padding:1px 5px;border-radius:4px">next/image</code>.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">7 · Build order</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.5">
+  <thead><tr style="border-bottom:2px solid #16181d;text-align:left">
+    <th style="padding:7px 10px 7px 0;font-weight:800">Milestone</th><th style="padding:7px 0;font-weight:800">Scope</th>
+  </tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M1 · Skeleton</td><td style="padding:8px 0">Repo, Prisma schema (all phases — migrate once), Better Auth, seed script, app shell + dark mode matching the prototype.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M2 · Ledger core</td><td style="padding:8px 0">Accounts CRUD, transactions (expense/income/transfer), balance maintenance, transaction list + filters + search parser.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M3 · Dashboard</td><td style="padding:8px 0">Stat cards, cash flow, category donut, attention strip, budgets + alerts, bills + recurring engine (cron).</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M4 · Analytics</td><td style="padding:8px 0">Trends, merchant analysis, balance trend, reports + CSV/XLSX/PDF export, receipts.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M5 · Shared</td><td style="padding:8px 0">Participants, groups, invitations, splits, settlement engine, notifications.</td></tr>
+    <tr><td style="padding:8px 10px 8px 0;font-weight:700;white-space:nowrap">M6 · Import</td><td style="padding:8px 0">Monito adapter + wizard, import history, undo. Then real-data migration.</td></tr>
+  </tbody>
+</table>
+
+</x-import>
+
+</x-dc>
+<script>
+(async () => {
+  if (!document.title || !document.title.trim()) document.title = "Ledgerly Architecture";
+  // Prepend so page-supplied @page / break rules (deck-stage's margin:0,
+  // author CSS) keep source-order precedence over the baseline.
+  const baseCss = document.createElement('style');
+  baseCss.textContent = "@media print {\n  figure, table { break-inside: avoid; }\n  *, *::before, *::after {\n    print-color-adjust: exact; -webkit-print-color-adjust: exact;\n    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;\n    animation-delay: -99s !important; animation-duration: .001s !important;\n    animation-iteration-count: 1 !important; animation-fill-mode: both !important;\n    animation-play-state: running !important; transition-duration: 0s !important;\n  }\n}";
+  document.head.prepend(baseCss);
+  if (document.readyState === 'loading') {
+    await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+  }
+  let ds = document.querySelector('deck-stage');
+  // whenDefined never resolves when nothing registers the element, so only
+  // await it when a <deck-stage> tag exists (and race a timeout regardless).
+  if (ds && !customElements.get('deck-stage')) {
+    try {
+      await Promise.race([
+        customElements.whenDefined('deck-stage'),
+        new Promise((r) => setTimeout(r, 3000)),
+      ]);
+    } catch (e) {}
+    ds = document.querySelector('deck-stage');
+  }
+  // dc-runtime assigns window.DCLogic at init and mounts into #dc-root on
+  // DOMContentLoaded; settle on that subtree so React has rendered before
+  // print(). Non-DC pages fall through to weighing body.
+  const isDc = !ds && 'DCLogic' in window;
+  const settleRoot = ds || (isDc ? document.getElementById('dc-root') : null) || document.body;
+  if (settleRoot) {
+    // Weigh only content children — skip script/style/template so inline
+    // Babel/CSS doesn't register as stable "content" before the framework
+    // has mounted anything.
+    const MEDIA = 'img,svg,canvas,video,picture,iframe,embed,object';
+    const weigh = () => {
+      let text = 0, media = 0;
+      for (const c of settleRoot.children) {
+        const t = c.tagName;
+        if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') continue;
+        text += (c.textContent || '').trim().length;
+        media += c.querySelectorAll(MEDIA).length + (c.matches(MEDIA) ? 1 : 0);
+      }
+      return text + media * 100;
+    };
+    // "Non-zero and stable" alone is not sufficient to mean rendered: generic
+    // body can carry a static shell while async main content is pending, and
+    // #dc-root can carry the root DC's static text while child refs are still
+    // .sc-placeholder boxes. Gate generic on readyState 'complete', and never
+    // accept stability while a dc-runtime placeholder is present.
+    const isGeneric = settleRoot === document.body;
+    const deadline = Date.now() + 15000;
+    let last = -1, stable = 0;
+    while (Date.now() < deadline) {
+      const n = weigh();
+      const ready =
+        (!isGeneric || document.readyState === 'complete') &&
+        !settleRoot.querySelector('.sc-placeholder');
+      if (n > 0 && n === last && ready) { if (++stable >= 2) break; } else { stable = 0; }
+      last = n;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  // Project support.js may predate runtime default-seeding; push via bridge.
+  if (isDc && window.__dcSetProps && window.__dcRootName) {
+    try {
+      const dpEl = document.querySelector('script[data-dc-script]');
+      const meta = JSON.parse((dpEl && dpEl.getAttribute('data-props')) || '{}');
+      const bag = {};
+      for (const k in meta)
+        if (k[0] !== '$' && meta[k] && meta[k].default !== undefined)
+          bag[k] = meta[k].default;
+      if (Object.keys(bag).length) {
+        window.__dcSetProps(window.__dcRootName(), bag);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    } catch (e) {}
+  }
+  // Reveal content gated on scroll or visibility before printing. Lazy <img>,
+  // IntersectionObserver fade-ins, and collapsed <details> don't render while
+  // off-screen, so a long page would print with them blank or closed. Open
+  // every <details>, force native-lazy images eager, and scroll the document
+  // through its full height to trip lazy-load + IO; then wait (bounded) for the
+  // newly-triggered images. Inert for deck-stage (slides aren't scroll-gated).
+  try {
+    for (const d of document.querySelectorAll('details')) d.open = true;
+    for (const img of document.querySelectorAll('img[loading="lazy"]'))
+      img.loading = 'eager';
+    const scroller = document.scrollingElement || document.documentElement;
+    const full = Math.max(scroller.scrollHeight, document.body.scrollHeight);
+    const step = window.innerHeight || 800;
+    for (let y = 0; y <= full; y += step) {
+      window.scrollTo(0, y);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    window.scrollTo(0, 0);
+    await Promise.race([
+      Promise.all(
+        [...document.images].map((img) =>
+          img.complete
+            ? null
+            : new Promise((res) => {
+                img.addEventListener('load', res, { once: true });
+                img.addEventListener('error', res, { once: true });
+              })
+        )
+      ),
+      new Promise((r) => setTimeout(r, 4000)),
+    ]);
+  } catch (e) {}
+  try { await document.fonts.ready; } catch (e) {}
+  // Jump every animation to its end state so print() never captures a slide
+  // mid-entrance. Ordering matters: the 0s-transition style must be live
+  // BEFORE data-deck-active is set so attribute-keyed transitions don't
+  // start a (now-0s) run from the pre-active base.
+  const st = document.createElement('style');
+  st.textContent = '*,*::before,*::after{animation-delay:-99s !important;animation-duration:.001s !important;animation-iteration-count:1 !important;animation-fill-mode:both !important;animation-play-state:running !important;transition-duration:0s !important}';
+  document.head.appendChild(st);
+  for (const d of document.querySelectorAll('deck-stage')) {
+    for (const c of d.children) {
+      const t = c.tagName;
+      if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') continue;
+      c.setAttribute('data-deck-active', '');
+    }
+  }
+  // Re-append deck-stage's @page last so no author @page can add a margin and
+  // spill each full-bleed slide onto two sheets. Backstop for old copies.
+  if (ds) {
+    let pg = document.getElementById('deck-stage-print-page');
+    if (!pg) {
+      pg = document.createElement('style');
+      pg.textContent = '@page{size:' + (+ds.getAttribute('width') || 1920) +
+        'px ' + (+ds.getAttribute('height') || 1080) + 'px;margin:0}';
+    }
+    document.body.appendChild(pg);
+  }
+  try {
+    const sweep = () => {
+      for (const a of document.getAnimations()) {
+        try { a.finish(); } catch (e) {
+          try { a.currentTime = (a.effect && a.effect.getComputedTiming().duration) || 0; a.pause(); } catch (e2) {}
+        }
+      }
+    };
+    sweep();
+    await new Promise((r) => requestAnimationFrame(r));
+    sweep();
+    await new Promise((r) => requestAnimationFrame(r));
+  } catch (e) {}
+  // A document that owns its print CSS (the doc-page starter injects the
+  // meta at runtime; hand-rolled print designs author it) gets no automatic
+  // page geometry and keeps its forced breaks: strip the injected default
+  // @page — write time cannot see a runtime-injected meta — skip the frame
+  // override below, and skip the fakepage-flattening further down. What
+  // still applies: the print baseline and break-hygiene defaults (no @page
+  // in either; low specificity, so the document's own print CSS wins) and
+  // the break-inside relaxation on >page elements (avoid on those cannot
+  // be honored whoever authored it).
+  var ownsPrint = !!document.querySelector('meta[name="omelette-owns-print" i]');
+  if (ownsPrint) {
+    var dst = document.querySelector('style[data-omelette-print-defaults]');
+    if (dst && dst.textContent) {
+      dst.textContent = dst.textContent.replace(/@page\b[^{}]*\{[^}]*\}/, '');
+    }
+  }
+  // Size the PDF page to the rendered design unless the file opted into
+  // standard paper via @page{size:letter|A4|…} or declared print ownership
+  // via the meta above. Decks own their own @page.
+  // Wrappers (body, …) lose padding+margin so the frame sits at (0,0); the
+  // frame itself loses only margin — its padding is INSIDE the measured
+  // rect and must stay, or content shifts and leaves a gap at bottom/right.
+  var __m = null;
+  try { __m = (() => {
+  var STAMP = true;
+  var docEl = document.documentElement;
+  var doc = { width: docEl.scrollWidth, height: docEl.scrollHeight };
+
+  var ds = document.querySelector('deck-stage');
+  if (ds) {
+    var dw = Number(ds.getAttribute('width')) || 1920;
+    var dh = Number(ds.getAttribute('height')) || 1080;
+    var n = typeof ds.length === 'number' ? ds.length : ds.children.length;
+    var idx = typeof ds.index === 'number' ? ds.index : 0;
+    var frames = [];
+    for (var i = 0; i < n; i++) frames.push({ left: 0, top: 0, width: dw, height: dh });
+    return { kind: 'deck', source: 'declared', doc: doc, frames: frames,
+      authored: frames.map(function(){return{width:true,height:true}}),
+      deck: { width: dw, height: dh, slideCount: n, index: idx },
+      signals: { paperPage: false, pxPage: false } };
+  }
+
+  // Declared kind: a doc-page tag names the kind outright, so no signal
+  // heuristics run (like the deck branch above, signals report false —
+  // they describe inferred classifications only). The tag alone is not
+  // trusted: the element must have upgraded (shadowRoot present), so a
+  // leftover tag whose script was deleted falls through to the heuristics
+  // that handle plain markup.
+  var stageSx = window.scrollX || 0, stageSy = window.scrollY || 0;
+  var dp = document.querySelector('doc-page');
+  if (dp && dp.shadowRoot) {
+    // Crop to the sheet, not the host — the desk around it is screen-only
+    // chrome that must not land in PNG exports.
+    var sheet = dp.shadowRoot.querySelector('.sheet');
+    var sr = (sheet || dp).getBoundingClientRect();
+    return { kind: 'paper-doc', source: 'declared', doc: doc,
+      frames: [{ left: sr.left + stageSx, top: sr.top + stageSy,
+        width: sr.width, height: sr.height }],
+      authored: [{ width: false, height: false }],
+      signals: { paperPage: false, pxPage: false } };
+  }
+  var paperPage = false, pxPage = false;
+  var eachRule = function (fn) {
+    for (var s = 0; s < document.styleSheets.length; s++) {
+      var rs; try { rs = document.styleSheets[s].cssRules; } catch (e) { continue; }
+      for (var r = 0; r < rs.length; r++) {
+        fn(rs[r]);
+        if (rs[r].cssRules) for (var n = 0; n < rs[r].cssRules.length; n++) fn(rs[r].cssRules[n]);
+      }
+    }
+  };
+  eachRule(function (r) {
+    if (r.type !== 6) return;
+    var m = /\bsize\s*:\s*([^;}]+)/i.exec(r.cssText || '');
+    if (!m) return;
+    if (/\b(letter|a[3-5]|legal|ledger)\b/i.test(m[1])) paperPage = true;
+    if (/\d+(?:\.\d+)?px\b/i.test(m[1])) pxPage = true;
+  });
+  var signals = { paperPage: paperPage, pxPage: pxPage };
+
+  var pxVal = function (v) {
+    var m = /^(\d+(?:\.\d+)?)px$/.exec(v || ''); return m ? +m[1] : 0;
+  };
+  var authoredPx = function (el, prop) {
+    if (pxVal(el.style[prop])) return true;
+    var attr = el.getAttribute(prop);
+    if (attr && /^\d+$/.test(attr)) return true;
+    var hit = false;
+    eachRule(function (r) {
+      if (hit || r.type !== 1 || !r.style) return;
+      try { if (el.matches(r.selectorText) && pxVal(r.style[prop])) hit = true; } catch (e) {}
+    });
+    return hit;
+  };
+
+  var el = document.body, rootPxW = false;
+  for (;;) {
+    var kids = [];
+    for (var c = 0; c < el.children.length; c++) {
+      var t = el.children[c].tagName;
+      if (t !== 'SCRIPT' && t !== 'STYLE' && t !== 'TEMPLATE') kids.push(el.children[c]);
+    }
+    if (kids.length !== 1 || !(kids[0] instanceof HTMLElement)) break;
+    if (STAMP) el.setAttribute('data-om-frame-wrap', '');
+    el = kids[0];
+    rootPxW = authoredPx(el, 'width');
+    if (rootPxW) break;
+  }
+  if (!rootPxW) rootPxW = authoredPx(el, 'width');
+
+  // @page{size:letter} alone is a flowing doc; with a px-width root it's a
+  // fixed sheet pretending to be paper — fall through and size to render.
+  if (paperPage && !rootPxW) {
+    return { kind: 'paper-doc', source: 'inferred', doc: doc, signals: signals,
+      frames: [{ left: 0, top: 0, width: doc.width, height: doc.height }],
+      authored: [{ width: false, height: false }] };
+  }
+
+  var sx = window.scrollX || 0, sy = window.scrollY || 0;
+  var rectOf = function (e) {
+    var r = e.getBoundingClientRect();
+    var oy; try { oy = getComputedStyle(e).overflowY; } catch (err) {}
+    var h = oy === 'visible' ? Math.max(r.height, e.scrollHeight || 0) : r.height;
+    return { left: r.left + sx, top: r.top + sy, width: r.width, height: h };
+  };
+
+  // Multi-frame: off unless the page opts in via data-om-multi-frame on the
+  // stop element — the explicit opt-in is what guards against card grids
+  // and pricing tables that match the geometry but aren't separate
+  // canvases. Two ways to name the frames, explicit first:
+  // 1. Descendants marked data-om-frame-export (the social-frames starter
+  //    marks each asset frame; shells/panels around them are presentation,
+  //    so nesting is expected). Document order.
+  // 2. Fallback, no marked descendants: direct children with an authored px
+  //    width AND height (the original geometry heuristic).
+  // Frames may be different sizes (a gallery mixes 1080×1920 stories with
+  // 728×90 banners); data-om-frame-label rides along for export filenames.
+  if (el.hasAttribute('data-om-multi-frame')) {
+    var visOk = function (e) {
+      var cs; try { cs = getComputedStyle(e); } catch (err) { return false; }
+      return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.position !== 'fixed';
+    };
+    // A frame's crop is its VISUAL box — never the scrollHeight-inflated
+    // rect that rectOf computes for page roots. Shadow-DOM hover controls
+    // (image-slot's Replace bar parks 29px below its host) and similar
+    // escaping UI contribute scrollable overflow to the frame, and the
+    // inflated height both squashes the nominal-size resize and drags
+    // content below the frame into the crop. Zoom-independent; bit every
+    // slot-bearing frame.
+    var frameRectOf = function (e) {
+      var r = e.getBoundingClientRect();
+      return { left: r.left + sx, top: r.top + sy, width: r.width, height: r.height };
+    };
+    var pushCand = function (list, e) {
+      if (!visOk(e)) return;
+      var rc = frameRectOf(e);
+      if (rc.width < 2 || rc.height < 2) return;
+      var lbl = e.getAttribute('data-om-frame-label');
+      if (lbl) rc.label = lbl;
+      list.push(rc);
+    };
+    var cands = [];
+    var marked = el.querySelectorAll('[data-om-frame-export]');
+    if (marked.length) {
+      for (var mk = 0; mk < marked.length; mk++) pushCand(cands, marked[mk]);
+    } else {
+      for (var k = 0; k < el.children.length; k++) {
+        var ch = el.children[k];
+        if (!authoredPx(ch, 'width') || !authoredPx(ch, 'height')) continue;
+        pushCand(cands, ch);
+      }
+    }
+    if (cands.length >= 2) {
+      return { kind: 'multi-frame', source: 'inferred', doc: doc, signals: signals,
+        frames: cands, authored: cands.map(function(){return{width:true,height:true}}) };
+    }
+  }
+
+  if (STAMP) el.setAttribute('data-om-frame', '');
+  return { kind: 'single-canvas', source: 'inferred', doc: doc, signals: signals,
+    frames: [rectOf(el)],
+    authored: [{ width: rootPxW, height: authoredPx(el, 'height') }] };
+})(); } catch (e) {}
+  var frame = null;
+  if (!ownsPrint && __m && __m.kind === 'single-canvas') {
+    var f = __m.frames && __m.frames[0];
+    if (f && f.width >= 200 && f.height >= 200) {
+      frame = f;
+      var fst = document.createElement('style');
+      fst.textContent = '@media print{@page{size:' + Math.ceil(f.width) + 'px ' +
+        Math.ceil(f.height) + 'px;margin:0}' +
+        'html,body,[data-om-frame-wrap]{padding:0!important;margin:0!important;background:none!important}' +
+        '[data-om-frame]{margin:0!important}}';
+      document.body.appendChild(fst);
+    }
+  }
+  // Relax break-inside on oversized elements. An element taller than a
+  // printable page can't honor break-inside: avoid — browsers either overflow
+  // it or push it whole to the next page, leaving a blank gap, then break it
+  // anyway at an arbitrary point. After the final layout (content revealed,
+  // animations jumped), find elements taller than a page that still compute
+  // break-inside: avoid and reset them to auto, so the browser breaks them at
+  // their children's boundaries instead (children keep their own avoid). PAGE_PX
+  // is a conservative portrait estimate at 96 CSS px/in — Letter/A4 usable
+  // height minus our 0.5in margins — so only clearly-oversized elements are
+  // touched and under-page elements still stay whole. Skipped for decks (slides
+  // are sized to the page) and for fixed-size canvases (frame set, or an author
+  // px-based @page) — runs as before for flowing docs on letter/A4.
+  try {
+    if (!ds && !frame && !(__m && __m.signals && __m.signals.pxPage)) {
+      const PAGE_PX = 1024;
+      // Our print defaults add a real @page margin only when the source has
+      // no @page of its own; computed style can't tell us (it reports screen
+      // media), so read the injected rule directly.
+      const defaults = document.querySelector('style[data-omelette-print-defaults]');
+      const pageInset = /@page\s*\{[^}]*margin/.test(defaults ? defaults.textContent || '' : '');
+      const SEL = 'section,article,figure,table,pre,blockquote,[class~="card" i],[class~="page" i],[class~="sheet" i]';
+      for (const el of document.body.querySelectorAll(SEL)) {
+        if (el instanceof HTMLElement && el.offsetHeight > PAGE_PX) {
+          el.setAttribute('data-om-oversized', '');
+          // Fake-paged docs simulate sheets with over-tall break-after:page
+          // boxes; honoring the break spills half-blank pages and ends a
+          // colored box mid-sheet. Flow them, and (only when we own the page
+          // inset) drop the redundant padding/background via the rule below.
+          const cs = getComputedStyle(el);
+          // An owns-print doc's forced breaks are intentional sheet
+          // boundaries, never fake-paged simulation — don't strip them.
+          // The break-inside relaxation above still applies: avoid on a
+          // >page element is impossible to honor whoever authored it.
+          if (
+            !ownsPrint &&
+            (cs.breakAfter === 'page' || cs.pageBreakAfter === 'always')
+          ) {
+            el.setAttribute('data-om-fakepage', '');
+          }
+        }
+      }
+      const ost = document.createElement('style');
+      ost.textContent = '@media print{' +
+        '[data-om-oversized]{break-inside:auto !important;page-break-inside:auto !important}' +
+        '[data-om-fakepage]{break-after:auto !important;page-break-after:auto !important}' +
+        (pageInset ? '[data-om-fakepage]{padding:0 !important;background:none !important}' : '') +
+        '}';
+      document.head.appendChild(ost);
+    }
+  } catch (e) {}
+  // macOS Preview renders Skia-PDF Luminosity soft-masks as opaque grey boxes;
+  // swap the CSS that triggers them for Preview-safe forms.
+  try {
+    for (const el of document.body.querySelectorAll('*')) {
+      const cs = getComputedStyle(el);
+
+      if (cs.boxShadow !== 'none' && cs.filter === 'none') {
+        const outs = [], kept = [];
+        for (const s of cs.boxShadow.split(/,(?![^(]*[)])/)) {
+          const t = s.trim();
+          const m = t.match(/^(rgba?[(][^)]+[)]) (-?[0-9.]+px) (-?[0-9.]+px) ([0-9.]+px) -?[0-9.]+px$/);
+          if (m && parseFloat(m[4]) > 0) outs.push('drop-shadow(' + m[2] + ' ' + m[3] + ' ' + m[4] + ' ' + m[1] + ')');
+          else kept.push(t);
+        }
+        if (outs.length) {
+          el.style.setProperty('filter', outs.join(' '), 'important');
+          el.style.setProperty('box-shadow', kept.join(', ') || 'none', 'important');
+        }
+      }
+
+      const mask = cs.maskImage && cs.maskImage !== 'none' ? cs.maskImage : cs.webkitMaskImage;
+      if (mask && mask !== 'none' && cs.filter === 'none') el.style.setProperty('filter', 'opacity(1)', 'important');
+    }
+  } catch (e) {}
+  setTimeout(() => { try { window.print(); } catch (e) {} }, 200);
+})();
+</script>
+</body>
+</html>

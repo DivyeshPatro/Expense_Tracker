@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+/* Glass & Ink — design tokens lifted verbatim from the prototype (Ledgerly.dc.html) */
+:root {
+  --bg: #f6f7f9;
+  --side: #fbfcfd;
+  --card: #ffffff;
+  --ink: #16181d;
+  --mut: #7a8091;
+  --mut2: #9aa0ae;
+  --line: rgba(22, 24, 29, 0.07);
+  --line2: rgba(22, 24, 29, 0.14);
+  --acc: #2a63f6;
+  --accSoft: color-mix(in oklab, var(--acc) 10%, var(--card));
+  --accSoft2: color-mix(in oklab, var(--acc) 24%, var(--card));
+  --green: #149356;
+  --greenSoft: #e5f5ec;
+  --red: #d13f45;
+  --redSoft: #fdecec;
+  --amber: #b97d10;
+  --amberSoft: #fdf3dd;
+  --dark1: #1c2740;
+  --dark2: #25355c;
+  --sh: 0 1px 3px rgba(22, 24, 29, 0.05);
+  --shLg: 0 16px 44px rgba(22, 24, 29, 0.18);
+  --ov: rgba(22, 24, 29, 0.38);
+  --pad: 18px;
+}
+
+[data-theme="dark"] {
+  --bg: #0f1115;
+  --side: #13161b;
+  --card: #191d24;
+  --ink: #eceef2;
+  --mut: #98a0b0;
+  --mut2: #69707f;
+  --line: rgba(255, 255, 255, 0.07);
+  --line2: rgba(255, 255, 255, 0.15);
+  --acc: #4d7ef8;
+  --green: #3fce8e;
+  --greenSoft: #12301f;
+  --red: #f07579;
+  --redSoft: #3a1a1c;
+  --amber: #e0a63d;
+  --amberSoft: #332711;
+  --dark1: #222d4b;
+  --dark2: #2c3f6e;
+  --sh: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shLg: 0 16px 44px rgba(0, 0, 0, 0.55);
+  --ov: rgba(0, 0, 0, 0.55);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-side: var(--side);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-mut: var(--mut);
+  --color-mut2: var(--mut2);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-acc: var(--acc);
+  --color-accsoft: var(--accSoft);
+  --color-accsoft2: var(--accSoft2);
+  --color-green: var(--green);
+  --color-greensoft: var(--greenSoft);
+  --color-red: var(--red);
+  --color-redsoft: var(--redSoft);
+  --color-amber: var(--amber);
+  --color-ambersoft: var(--amberSoft);
+  --breakpoint-md: 760px;
+  --font-sans: var(--font-schibsted), system-ui, sans-serif;
+}
+
+/* element defaults live in the base layer so Tailwind utilities always win */
+@layer base {
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-schibsted), system-ui, sans-serif;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+
+  a { color: var(--acc); }
+  a:hover { opacity: 0.8; }
+  input, select, textarea, button { font-family: inherit; }
+  input::placeholder { color: var(--mut2); }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@utility card {
+  background: var(--card);
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  box-shadow: var(--sh);
+}
+
+@utility field {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+  outline: none;
+}
+.field:focus { border-color: var(--acc); }
+
+@utility label-caps {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--mut);
+  margin-bottom: 5px;
+}
+
+@utility btn-primary {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--acc);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  white-space: nowrap;
+}
+.btn-primary:hover { filter: brightness(1.08); }

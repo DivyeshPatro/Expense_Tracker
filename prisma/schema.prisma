@@ -1,0 +1,465 @@
+// Ledgerly — full schema across all phases (migrate once, per Architecture doc §4).
+// All money fields are integer paise (₹1 = 100). Never floats.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Auth (Better Auth) ─────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  currency      String    @default("INR")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions      Session[]
+  authAccounts  AuthAccount[]
+  accounts      Account[]
+  transactions  Transaction[]
+  categories    Category[]
+  budgets       Budget[]
+  bills         Bill[]
+  recurringRules RecurringRule[]
+  tags          Tag[]
+  participants  Participant[]
+  settlements   Settlement[]
+  notifications Notification[]
+  merchantRules MerchantRule[]
+  importBatches ImportBatch[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model AuthAccount {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ───────────────────────── Phase 1 — Personal ledger ─────────────────────────
+
+enum AccountType {
+  BANK
+  CASH
+  WALLET
+  CREDIT_CARD
+  INVESTMENT
+}
+
+model Account {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String // "HDFC Savings"
+  type           AccountType
+  bankName       String?
+  openingBalance BigInt      @default(0) // paise
+  balance        BigInt      @default(0) // maintained in-tx, rebuildable from openingBalance + Σ ledger
+  color          String?
+  icon           String?
+  isArchived     Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+
+  transactionsFrom Transaction[] @relation("txAccount")
+  transactionsTo   Transaction[] @relation("txToAccount")
+  budgets          Budget[]
+
+  @@index([userId])
+}
+
+enum TxType {
+  EXPENSE
+  INCOME
+  TRANSFER
+}
+
+model Transaction {
+  id                  String    @id @default(cuid())
+  userId              String // who recorded it
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type                TxType
+  amount              BigInt // paise, always positive
+  accountId           String? // source account (null: paid by someone else)
+  account             Account?  @relation("txAccount", fields: [accountId], references: [id])
+  toAccountId         String? // TRANSFER only
+  toAccount           Account?  @relation("txToAccount", fields: [toAccountId], references: [id])
+  categoryId          String?
+  category            Category? @relation(fields: [categoryId], references: [id])
+  merchant            String
+  occurredAt          DateTime
+  notes               String?
+  location            String?
+  paymentMethod       String?
+  isRecurring         Boolean   @default(false)
+  recurringRuleId     String?
+  importBatchId       String?
+  groupId             String? // shared context, optional
+  paidByParticipantId String? // null ⇒ paid by owner
+  paidBy              Participant? @relation("paidBy", fields: [paidByParticipantId], references: [id])
+  splits              ExpenseSplit[]
+  tags                TransactionTag[]
+  receipts            Receipt[]
+  deletedAt           DateTime? // soft delete → undo
+  createdAt           DateTime  @default(now())
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, categoryId])
+  @@index([userId, accountId])
+  @@index([userId, merchant])
+  @@index([importBatchId])
+}
+
+model Category {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name     String // seeded defaults + custom
+  kind     TxType // EXPENSE or INCOME
+  parentId String? // subcategories
+  icon     String?
+  color    String?
+
+  transactions  Transaction[]
+  budgets       Budget[]
+  merchantRules MerchantRule[]
+
+  @@unique([userId, name, kind])
+}
+
+// Rule-based auto-categorization: merchant → category, self-improving on re-categorization.
+model MerchantRule {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchant   String // normalized lowercase
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  hits       Int      @default(1)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, merchant])
+}
+
+enum BudgetPeriod {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+model Budget {
+  id         String       @id @default(cuid())
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId String? // null ⇒ overall budget
+  category   Category?    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  accountId  String? // account-scoped budgets
+  account    Account?     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  period     BudgetPeriod @default(MONTHLY)
+  limit      BigInt // paise
+  alertAt    Int          @default(80) // % threshold notification
+
+  @@unique([userId, categoryId, accountId, period])
+}
+
+enum BillStatus {
+  UPCOMING
+  PAID
+  OVERDUE
+}
+
+enum Cadence {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+model Bill {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  amount          BigInt // paise
+  categoryId      String?
+  accountId       String? // default account to pay from
+  dueDate         DateTime
+  cadence         Cadence? // null ⇒ one-off; else due date rolls forward on payment
+  recurringRuleId String?
+  status          BillStatus @default(UPCOMING)
+  paidTxId        String? // links the payment transaction
+
+  @@index([userId, dueDate])
+}
+
+enum RuleKind {
+  TRANSACTION
+  BILL
+}
+
+model RecurringRule {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cadence   Cadence
+  interval  Int       @default(1)
+  nextRunAt DateTime
+  endsAt    DateTime?
+  template  Json // transaction/bill payload to materialize
+  kind      RuleKind
+
+  @@index([nextRunAt])
+}
+
+model Tag {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+
+  transactions TransactionTag[]
+
+  @@unique([userId, name])
+}
+
+model TransactionTag {
+  txId  String
+  tx    Transaction @relation(fields: [txId], references: [id], onDelete: Cascade)
+  tagId String
+  tag   Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([txId, tagId])
+}
+
+model Receipt {
+  id          String   @id @default(cuid())
+  txId        String
+  tx          Transaction @relation(fields: [txId], references: [id], onDelete: Cascade)
+  userId      String
+  storagePath String
+  mimeType    String
+  sizeBytes   Int
+  uploadedAt  DateTime @default(now())
+}
+
+// ───────────────────────── Phase 2 — Shared ─────────────────────────
+
+// A person you split with. linkedUserId is set when they join via invitation —
+// you can split with "Rohan" before Rohan ever signs up.
+model Participant {
+  id           String  @id @default(cuid())
+  ownerId      String // whose contact list
+  owner        User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  displayName  String
+  color        String?
+  linkedUserId String?
+
+  splits       ExpenseSplit[]
+  paidTx       Transaction[]  @relation("paidBy")
+  groupMembers GroupMember[]
+  settlements  Settlement[]
+
+  @@index([ownerId])
+}
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Group {
+  id          String        @id @default(cuid())
+  name        String
+  createdById String
+  members     GroupMember[]
+}
+
+model GroupMember {
+  groupId       String
+  group         Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  role          GroupRole   @default(MEMBER)
+
+  @@id([groupId, participantId])
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+}
+
+model Invitation {
+  id            String       @id @default(cuid())
+  email         String
+  invitedById   String
+  participantId String
+  token         String       @unique
+  status        InviteStatus @default(PENDING)
+  expiresAt     DateTime
+}
+
+enum SplitMethod {
+  EQUAL
+  PERCENT
+  EXACT
+  RATIO
+  CUSTOM
+}
+
+// Truth = exact paise per head; Σ owedAmount per tx equals tx.amount
+// (enforced by a DB trigger added in the initial migration).
+model ExpenseSplit {
+  id            String       @id @default(cuid())
+  txId          String
+  tx            Transaction  @relation(fields: [txId], references: [id], onDelete: Cascade)
+  participantId String? // null ⇒ the owner's own share
+  participant   Participant? @relation(fields: [participantId], references: [id])
+  owedAmount    BigInt // paise
+  method        SplitMethod  @default(EQUAL)
+  isSettled     Boolean      @default(false)
+
+  @@index([participantId, isSettled])
+  @@index([txId])
+}
+
+enum SettleMethod {
+  UPI
+  CASH
+  BANK
+}
+
+enum SettleDirection {
+  TO_OWNER // participant paid the owner back
+  FROM_OWNER // owner paid the participant back
+}
+
+model Settlement {
+  id            String          @id @default(cuid())
+  userId        String // owner whose ledger this settles
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant     @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  direction     SettleDirection
+  amount        BigInt // paise
+  method        SettleMethod
+  settledAt     DateTime        @default(now())
+  note          String?
+
+  @@index([userId, settledAt(sort: Desc)])
+}
+
+enum NotifKind {
+  BUDGET_EXCEEDED
+  BUDGET_WARNING
+  BILL_DUE
+  SETTLE_REMINDER
+  RECURRING_CREATED
+  MONTHLY_SUMMARY
+  LARGE_EXPENSE
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      NotifKind
+  payload   Json
+  dedupeKey String? // e.g. "budget:<id>:2026-07:100" → exactly-once per budget per period
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+}
+
+// ───────────────────────── Phase 3 — Import & audit ─────────────────────────
+
+enum ImportStatus {
+  PREVIEW
+  COMMITTED
+  UNDONE
+}
+
+model ImportBatch {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source        String // "monito" | "csv" | "splitwise" | …
+  fileName      String
+  importedCount Int          @default(0)
+  skippedCount  Int          @default(0)
+  errors        Json?
+  status        ImportStatus @default(PREVIEW)
+  createdAt     DateTime     @default(now())
+  // undo = soft-delete all tx where importBatchId = id
+}
+
+model ImportMapping {
+  id          String @id @default(cuid())
+  userId      String
+  source      String
+  columnMap   Json // {"Date":"occurredAt","Note":"merchant",…}
+  categoryMap Json // {"Eating Out":"Food",…}
+
+  @@unique([userId, source])
+}
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  userId   String
+  action   String
+  entity   String
+  entityId String
+  before   Json?
+  after    Json?
+  at       DateTime @default(now())
+
+  @@index([userId, at(sort: Desc)])
+}

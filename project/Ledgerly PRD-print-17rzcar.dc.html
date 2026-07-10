@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style data-omelette-print-defaults>
+@media print {
+  @page { margin: 0.5in; }
+  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  figure, table, pre, blockquote, img, svg, tr, [class~="card" i] { break-inside: avoid; }
+  img, svg { max-width: 100%; }
+  p { orphans: 3; widows: 3; }
+}
+</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Schibsted Grotesk',system-ui,sans-serif;color:#16181d}
+a{color:#2a63f6}a:hover{opacity:.8}
+doc-page:not(:defined){visibility:hidden}
+doc-page{font-family:'Schibsted Grotesk',system-ui,sans-serif !important}
+</style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="a4" orientation="portrait" margin="0.8in" style="font-family:'Schibsted Grotesk',system-ui,sans-serif" hint-size="100%,100%">
+
+<h1 style="font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px">Ledgerly — Product Requirements Document</h1>
+<p style="font-size:13px;color:#7a8091;margin:0 0 4px">v1.0 · July 2026 · Owner: Arjun · Status: Approved for build</p>
+<p style="font-size:13px;color:#7a8091;margin:0 0 26px">Companion docs: <em>Ledgerly Architecture &amp; Database Design</em> · Interactive prototype (<em>Ledgerly.dc.html</em>) is the visual + behavioral spec</p>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">1 · Problem &amp; vision</h2>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px">Existing tools each solve half the problem: Splitwise handles group splits but has no real personal finance; Money Manager/Walnut/Monito track personal spend but can't settle with flatmates. Ledgerly is one system: <strong>a personal ledger first, a shared-expense platform second</strong>, on the same data.</p>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px"><strong>Vision statement:</strong> every rupee I earn, hold, spend, or am owed — visible in one place, in under 3 taps to log, with my flatmates able to join later without me migrating anything.</p>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">2 · Users &amp; context</h2>
+<ul style="font-size:14.5px;line-height:1.65;margin:0 0 10px;padding-left:22px">
+  <li><strong>P0 — Owner (me):</strong> salaried, Bengaluru, 5 payment instruments (2 banks, cash, UPI wallet, credit card), currently on Monito. Logs 5–10 transactions/day. Wants dashboards that answer "what needs my attention today".</li>
+  <li><strong>P1 — Flatmates (Phase 2):</strong> 2–3 friends. Join via invite. Care only about shared expenses, balances, and settling. Must be able to participate <em>before</em> registering (ghost participants).</li>
+</ul>
+<p style="font-size:14.5px;line-height:1.65;margin:0 0 10px"><strong>Currency &amp; locale:</strong> INR only at launch, en-IN digit grouping (₹1,23,456) everywhere. Timezone Asia/Kolkata.</p>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">3 · Goals &amp; non-goals</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.55;margin:0 0 12px">
+  <thead><tr style="border-bottom:2px solid #16181d;text-align:left">
+    <th style="padding:7px 10px 7px 0;font-weight:800;width:50%">Goals</th><th style="padding:7px 0;font-weight:800">Non-goals (explicit)</th>
+  </tr></thead>
+  <tbody><tr>
+    <td style="padding:10px 14px 0 0;vertical-align:top">
+      <ul style="margin:0;padding-left:18px">
+        <li>Log an expense in ≤ 3 taps / ≤ 5 seconds</li>
+        <li>Account-level truth: balances always reconcile</li>
+        <li>Decision-oriented dashboard (bills due, budgets breached, who owes whom)</li>
+        <li>Full Monito history imported losslessly</li>
+        <li>Shared expenses added without redesign (schema ready day 1)</li>
+        <li>Works well on phone; installable PWA</li>
+      </ul>
+    </td>
+    <td style="padding:10px 0 0 0;vertical-align:top">
+      <ul style="margin:0;padding-left:18px">
+        <li><strong>No AI/LLM/ML anywhere</strong> — all features deterministic and rule-based (standing product rule)</li>
+        <li>No bank account linking / statement sync at launch</li>
+        <li>No multi-currency at launch</li>
+        <li>No native mobile apps (responsive web + PWA)</li>
+        <li>No monetization features</li>
+        <li>No OCR at launch (receipt images stored as-is)</li>
+      </ul>
+    </td>
+  </tr></tbody>
+</table>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">4 · Functional requirements — Phase 1 (Personal)</h2>
+<p style="font-size:13px;color:#7a8091;margin:0 0 10px">Priority: P0 = launch blocker, P1 = fast-follow. Each requirement has acceptance criteria (AC).</p>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.1 Accounts &amp; transfers — P0</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>CRUD financial accounts: type (bank / cash / UPI wallet / credit card / investment), bank name, nickname, opening balance, color/icon, archive.</li>
+  <li>Internal transfers between any two accounts, including credit-card bill payment; transfers are excluded from income/expense totals.</li>
+  <li><strong>AC:</strong> after any sequence of operations, <code style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f1f3f6;padding:1px 5px;border-radius:4px">balance = openingBalance + Σ ledger</code> holds for every account; deleting a transaction restores balances exactly.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.2 Transactions — P0</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Expense fields: amount, account, category, subcategory, merchant, date+time, payment method, tags, notes, receipt, location (optional), recurring flag, personal/shared.</li>
+  <li>Income sources: salary, bonus, freelancing, cashback, interest, refund, gift, rental, investment returns, other.</li>
+  <li>Quick-add: FAB and ⌘K palette from any screen; amount + category + account is enough (merchant defaults from category rule table). Soft delete with 5-second undo toast.</li>
+  <li><strong>AC:</strong> add-expense happy path ≤ 3 interactions; every transaction row shows split/recurring/receipt badges as in the prototype.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.3 Categories — P0</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>18 seeded defaults (Food, Groceries, Rent, Electricity, Water, Gas, Internet, Fuel, Shopping, Medical, Travel, Entertainment, Education, Insurance, Investment, EMI, Subscription, Misc) + custom categories and one level of subcategories.</li>
+  <li>Rule-based auto-categorization: merchant→category mapping table, seeded with a common-merchant dictionary, updated on every manual re-categorization. <strong>AC:</strong> re-categorizing a merchant twice makes the third occurrence auto-assign.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.4 Budgets — P0</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Weekly / monthly / yearly, per category or per account or overall. Progress bars with 80% (amber) and 100% (red) thresholds.</li>
+  <li><strong>AC:</strong> crossing a threshold creates a notification exactly once per budget per period; breached budgets appear in the dashboard attention strip.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.5 Bills &amp; recurring — P0</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Bills with due date, recurrence, reminder offsets (7d / 3d / due day); "mark paid" creates the payment transaction and rolls the due date.</li>
+  <li>Recurring transactions: daily / weekly / monthly / quarterly / yearly with interval; materialized by the daily job, idempotent.</li>
+  <li><strong>AC:</strong> a bill due within 7 days appears in the attention strip with correct urgency color; a recurring rule never double-creates for a period.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.6 Dashboard — P0</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>As built in the prototype: attention strip; Total Balance (dark card) + Income + Expenses + Saved/rate; cash flow (income vs expense, 6M/8W/14D toggle); accounts widget; category donut; upcoming bills; settlements; recent transactions; budget bars. "Net Worth" label is reserved until liabilities tracking exists.</li>
+  <li><strong>AC:</strong> dashboard answers "what needs my action today" above the fold on a 390px viewport.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.7 Search — P0</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Filter by merchant, category, amount range, notes, account, tags, payment method, date range, type. ⌘K palette with the deterministic phrase parser ("swiggy in march", "upi expenses", "income in june") compiling to the same filters.</li>
+  <li><strong>AC:</strong> parser answers with total + count inline and one click opens the filtered list; unparseable queries fall back to full-text search — never an error state.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.8 Analytics &amp; reports — P1</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Monthly spending trend, category breakdown, merchant analysis, avg daily spend, balance trend, budget usage, payment-account usage, expense heatmap (P1).</li>
+  <li>Reports for day/week/month/quarter/year/custom range; export CSV, XLSX, PDF.</li>
+</ul>
+
+<h3 style="font-size:15.5px;font-weight:800;margin:18px 0 8px">4.9 Receipts — P1</h3>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Upload (camera or file), view, replace, delete; private storage with signed URLs; 10 MB / image-or-PDF allowlist.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">5 · Functional requirements — Phase 2 (Shared)</h2>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li><strong>Participants &amp; groups — P0:</strong> add friends by name (no account required); groups (e.g. "Flat 402") with owner/admin/member roles; email invitations that link a ghost participant to a real user on acceptance, preserving history.</li>
+  <li><strong>Splits — P0:</strong> equal, percentage, exact, ratio, custom; exclude participants; payer can be anyone. Stored truth is exact paise per participant summing to the total; remainder paise go to the payer. <strong>AC:</strong> ₹2,500 ÷ 4 equal = 625 each; ₹1,000 ÷ 3 equal = 334/333/333 with the 334 on the payer.</li>
+  <li><strong>Settlement engine — P0:</strong> net balances per person; minimum-transaction suggestion (greedy max-debtor→max-creditor); record settlements (UPI/cash/bank) with history; partial settlements allowed. <strong>AC:</strong> after settling all suggested transactions every net balance is zero.</li>
+  <li><strong>Notifications — P1:</strong> budget exceeded, bill due, settlement reminder, recurring created, monthly summary, large-expense alert (threshold configurable). In-app first; email digest P2.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">6 · Functional requirements — Phase 3 (Import)</h2>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li><strong>Monito import — P0 for migration:</strong> CSV/XLSX wizard: upload → structure auto-detection (header heuristics + value-shape scoring) → column mapping UI → category mapping (remembered in ImportMapping) → preview with duplicate detection (date+amount+merchant hash, ±1 day) → row-level validate/skip/edit → commit as a batch.</li>
+  <li><strong>Import history &amp; undo:</strong> every batch records counts + errors; one-click undo soft-deletes the whole batch. <strong>AC:</strong> import → undo → re-import produces zero duplicates.</li>
+  <li><strong>Generic engine:</strong> adapter interface so Splitwise / Walnut / bank-CSV adapters are additive modules.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">7 · UX requirements</h2>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Visual spec = prototype: "Glass &amp; Ink" — porcelain white, #2a63f6 accent, Schibsted Grotesk, dark mode toggle (persisted), 14px radius cards.</li>
+  <li>Responsive: sidebar ≥ 760px; bottom tab bar + FAB + bottom-sheet modals below. Touch targets ≥ 44px.</li>
+  <li>⌘K command palette (all actions + search), keyboard shortcuts, toast notifications with undo, skeleton loaders, designed empty states for every list, WCAG 2.1 AA (contrast, focus rings, semantic landmarks, full keyboard operability).</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">8 · Non-functional requirements</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.5;margin:0 0 12px">
+  <thead><tr style="border-bottom:2px solid #16181d;text-align:left"><th style="padding:7px 10px 7px 0;font-weight:800">Area</th><th style="padding:7px 0;font-weight:800">Requirement</th></tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Performance</td><td style="padding:8px 0">Dashboard LCP &lt; 2s on 4G; transaction list paginated (cursor, 50/page); optimistic mutations.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Correctness</td><td style="padding:8px 0">All money integer paise; split sums enforced by DB constraint; balances rebuildable; unit tests on settlement + split rounding + parser.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Security</td><td style="padding:8px 0">Better Auth sessions; per-user scoping in services + Supabase RLS; zod validation; rate limiting on auth/import; signed URLs for receipts; audit log on money-bearing writes.</td></tr>
+    <tr style="border-bottom:1px solid #e4e7ec"><td style="padding:8px 10px 8px 0;font-weight:700">Privacy</td><td style="padding:8px 0">No third-party analytics on financial data; full data export (CSV/JSON) and account deletion self-serve.</td></tr>
+    <tr><td style="padding:8px 10px 8px 0;font-weight:700">Reliability</td><td style="padding:8px 0">Daily Supabase backups; recurring job idempotent; import undo-able.</td></tr>
+  </tbody>
+</table>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">9 · Success metrics &amp; release criteria</h2>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li><strong>Adoption (self):</strong> 100% of daily spends logged for 30 consecutive days; Monito fully retired after M6.</li>
+  <li><strong>Speed:</strong> median add-expense time &lt; 5s (instrumented client-side).</li>
+  <li><strong>Trust:</strong> zero balance-reconciliation discrepancies over the first 90 days.</li>
+  <li><strong>Phase 2 gate:</strong> ship shared features only after 30 days of stable personal use.</li>
+  <li><strong>Release criteria per milestone (M1–M6, see Architecture doc §7):</strong> ACs above pass, unit tests green on money math, no P0 bugs open.</li>
+</ul>
+
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.01em;border-bottom:2px solid #16181d;padding-bottom:6px;margin:26px 0 12px">10 · Open questions</h2>
+<ul style="font-size:14px;line-height:1.6;margin:0 0 10px;padding-left:22px">
+  <li>Credit-card statement cycles: model as simple negative-balance account (current plan) or add statement periods + due tracking in Phase 1.5?</li>
+  <li>PWA offline logging (queue writes, sync later) — M4 or later?</li>
+  <li>Should ghost participants see a read-only share link of their balance before signing up?</li>
+</ul>
+
+</x-import>
+
+</x-dc>
+<script>
+(async () => {
+  if (!document.title || !document.title.trim()) document.title = "Ledgerly PRD";
+  // Prepend so page-supplied @page / break rules (deck-stage's margin:0,
+  // author CSS) keep source-order precedence over the baseline.
+  const baseCss = document.createElement('style');
+  baseCss.textContent = "@media print {\n  figure, table { break-inside: avoid; }\n  *, *::before, *::after {\n    print-color-adjust: exact; -webkit-print-color-adjust: exact;\n    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;\n    animation-delay: -99s !important; animation-duration: .001s !important;\n    animation-iteration-count: 1 !important; animation-fill-mode: both !important;\n    animation-play-state: running !important; transition-duration: 0s !important;\n  }\n}";
+  document.head.prepend(baseCss);
+  if (document.readyState === 'loading') {
+    await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+  }
+  let ds = document.querySelector('deck-stage');
+  // whenDefined never resolves when nothing registers the element, so only
+  // await it when a <deck-stage> tag exists (and race a timeout regardless).
+  if (ds && !customElements.get('deck-stage')) {
+    try {
+      await Promise.race([
+        customElements.whenDefined('deck-stage'),
+        new Promise((r) => setTimeout(r, 3000)),
+      ]);
+    } catch (e) {}
+    ds = document.querySelector('deck-stage');
+  }
+  // dc-runtime assigns window.DCLogic at init and mounts into #dc-root on
+  // DOMContentLoaded; settle on that subtree so React has rendered before
+  // print(). Non-DC pages fall through to weighing body.
+  const isDc = !ds && 'DCLogic' in window;
+  const settleRoot = ds || (isDc ? document.getElementById('dc-root') : null) || document.body;
+  if (settleRoot) {
+    // Weigh only content children — skip script/style/template so inline
+    // Babel/CSS doesn't register as stable "content" before the framework
+    // has mounted anything.
+    const MEDIA = 'img,svg,canvas,video,picture,iframe,embed,object';
+    const weigh = () => {
+      let text = 0, media = 0;
+      for (const c of settleRoot.children) {
+        const t = c.tagName;
+        if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') continue;
+        text += (c.textContent || '').trim().length;
+        media += c.querySelectorAll(MEDIA).length + (c.matches(MEDIA) ? 1 : 0);
+      }
+      return text + media * 100;
+    };
+    // "Non-zero and stable" alone is not sufficient to mean rendered: generic
+    // body can carry a static shell while async main content is pending, and
+    // #dc-root can carry the root DC's static text while child refs are still
+    // .sc-placeholder boxes. Gate generic on readyState 'complete', and never
+    // accept stability while a dc-runtime placeholder is present.
+    const isGeneric = settleRoot === document.body;
+    const deadline = Date.now() + 15000;
+    let last = -1, stable = 0;
+    while (Date.now() < deadline) {
+      const n = weigh();
+      const ready =
+        (!isGeneric || document.readyState === 'complete') &&
+        !settleRoot.querySelector('.sc-placeholder');
+      if (n > 0 && n === last && ready) { if (++stable >= 2) break; } else { stable = 0; }
+      last = n;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  // Project support.js may predate runtime default-seeding; push via bridge.
+  if (isDc && window.__dcSetProps && window.__dcRootName) {
+    try {
+      const dpEl = document.querySelector('script[data-dc-script]');
+      const meta = JSON.parse((dpEl && dpEl.getAttribute('data-props')) || '{}');
+      const bag = {};
+      for (const k in meta)
+        if (k[0] !== '$' && meta[k] && meta[k].default !== undefined)
+          bag[k] = meta[k].default;
+      if (Object.keys(bag).length) {
+        window.__dcSetProps(window.__dcRootName(), bag);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    } catch (e) {}
+  }
+  // Reveal content gated on scroll or visibility before printing. Lazy <img>,
+  // IntersectionObserver fade-ins, and collapsed <details> don't render while
+  // off-screen, so a long page would print with them blank or closed. Open
+  // every <details>, force native-lazy images eager, and scroll the document
+  // through its full height to trip lazy-load + IO; then wait (bounded) for the
+  // newly-triggered images. Inert for deck-stage (slides aren't scroll-gated).
+  try {
+    for (const d of document.querySelectorAll('details')) d.open = true;
+    for (const img of document.querySelectorAll('img[loading="lazy"]'))
+      img.loading = 'eager';
+    const scroller = document.scrollingElement || document.documentElement;
+    const full = Math.max(scroller.scrollHeight, document.body.scrollHeight);
+    const step = window.innerHeight || 800;
+    for (let y = 0; y <= full; y += step) {
+      window.scrollTo(0, y);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    window.scrollTo(0, 0);
+    await Promise.race([
+      Promise.all(
+        [...document.images].map((img) =>
+          img.complete
+            ? null
+            : new Promise((res) => {
+                img.addEventListener('load', res, { once: true });
+                img.addEventListener('error', res, { once: true });
+              })
+        )
+      ),
+      new Promise((r) => setTimeout(r, 4000)),
+    ]);
+  } catch (e) {}
+  try { await document.fonts.ready; } catch (e) {}
+  // Jump every animation to its end state so print() never captures a slide
+  // mid-entrance. Ordering matters: the 0s-transition style must be live
+  // BEFORE data-deck-active is set so attribute-keyed transitions don't
+  // start a (now-0s) run from the pre-active base.
+  const st = document.createElement('style');
+  st.textContent = '*,*::before,*::after{animation-delay:-99s !important;animation-duration:.001s !important;animation-iteration-count:1 !important;animation-fill-mode:both !important;animation-play-state:running !important;transition-duration:0s !important}';
+  document.head.appendChild(st);
+  for (const d of document.querySelectorAll('deck-stage')) {
+    for (const c of d.children) {
+      const t = c.tagName;
+      if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') continue;
+      c.setAttribute('data-deck-active', '');
+    }
+  }
+  // Re-append deck-stage's @page last so no author @page can add a margin and
+  // spill each full-bleed slide onto two sheets. Backstop for old copies.
+  if (ds) {
+    let pg = document.getElementById('deck-stage-print-page');
+    if (!pg) {
+      pg = document.createElement('style');
+      pg.textContent = '@page{size:' + (+ds.getAttribute('width') || 1920) +
+        'px ' + (+ds.getAttribute('height') || 1080) + 'px;margin:0}';
+    }
+    document.body.appendChild(pg);
+  }
+  try {
+    const sweep = () => {
+      for (const a of document.getAnimations()) {
+        try { a.finish(); } catch (e) {
+          try { a.currentTime = (a.effect && a.effect.getComputedTiming().duration) || 0; a.pause(); } catch (e2) {}
+        }
+      }
+    };
+    sweep();
+    await new Promise((r) => requestAnimationFrame(r));
+    sweep();
+    await new Promise((r) => requestAnimationFrame(r));
+  } catch (e) {}
+  // A document that owns its print CSS (the doc-page starter injects the
+  // meta at runtime; hand-rolled print designs author it) gets no automatic
+  // page geometry and keeps its forced breaks: strip the injected default
+  // @page — write time cannot see a runtime-injected meta — skip the frame
+  // override below, and skip the fakepage-flattening further down. What
+  // still applies: the print baseline and break-hygiene defaults (no @page
+  // in either; low specificity, so the document's own print CSS wins) and
+  // the break-inside relaxation on >page elements (avoid on those cannot
+  // be honored whoever authored it).
+  var ownsPrint = !!document.querySelector('meta[name="omelette-owns-print" i]');
+  if (ownsPrint) {
+    var dst = document.querySelector('style[data-omelette-print-defaults]');
+    if (dst && dst.textContent) {
+      dst.textContent = dst.textContent.replace(/@page\b[^{}]*\{[^}]*\}/, '');
+    }
+  }
+  // Size the PDF page to the rendered design unless the file opted into
+  // standard paper via @page{size:letter|A4|…} or declared print ownership
+  // via the meta above. Decks own their own @page.
+  // Wrappers (body, …) lose padding+margin so the frame sits at (0,0); the
+  // frame itself loses only margin — its padding is INSIDE the measured
+  // rect and must stay, or content shifts and leaves a gap at bottom/right.
+  var __m = null;
+  try { __m = (() => {
+  var STAMP = true;
+  var docEl = document.documentElement;
+  var doc = { width: docEl.scrollWidth, height: docEl.scrollHeight };
+
+  var ds = document.querySelector('deck-stage');
+  if (ds) {
+    var dw = Number(ds.getAttribute('width')) || 1920;
+    var dh = Number(ds.getAttribute('height')) || 1080;
+    var n = typeof ds.length === 'number' ? ds.length : ds.children.length;
+    var idx = typeof ds.index === 'number' ? ds.index : 0;
+    var frames = [];
+    for (var i = 0; i < n; i++) frames.push({ left: 0, top: 0, width: dw, height: dh });
+    return { kind: 'deck', source: 'declared', doc: doc, frames: frames,
+      authored: frames.map(function(){return{width:true,height:true}}),
+      deck: { width: dw, height: dh, slideCount: n, index: idx },
+      signals: { paperPage: false, pxPage: false } };
+  }
+
+  // Declared kind: a doc-page tag names the kind outright, so no signal
+  // heuristics run (like the deck branch above, signals report false —
+  // they describe inferred classifications only). The tag alone is not
+  // trusted: the element must have upgraded (shadowRoot present), so a
+  // leftover tag whose script was deleted falls through to the heuristics
+  // that handle plain markup.
+  var stageSx = window.scrollX || 0, stageSy = window.scrollY || 0;
+  var dp = document.querySelector('doc-page');
+  if (dp && dp.shadowRoot) {
+    // Crop to the sheet, not the host — the desk around it is screen-only
+    // chrome that must not land in PNG exports.
+    var sheet = dp.shadowRoot.querySelector('.sheet');
+    var sr = (sheet || dp).getBoundingClientRect();
+    return { kind: 'paper-doc', source: 'declared', doc: doc,
+      frames: [{ left: sr.left + stageSx, top: sr.top + stageSy,
+        width: sr.width, height: sr.height }],
+      authored: [{ width: false, height: false }],
+      signals: { paperPage: false, pxPage: false } };
+  }
+  var paperPage = false, pxPage = false;
+  var eachRule = function (fn) {
+    for (var s = 0; s < document.styleSheets.length; s++) {
+      var rs; try { rs = document.styleSheets[s].cssRules; } catch (e) { continue; }
+      for (var r = 0; r < rs.length; r++) {
+        fn(rs[r]);
+        if (rs[r].cssRules) for (var n = 0; n < rs[r].cssRules.length; n++) fn(rs[r].cssRules[n]);
+      }
+    }
+  };
+  eachRule(function (r) {
+    if (r.type !== 6) return;
+    var m = /\bsize\s*:\s*([^;}]+)/i.exec(r.cssText || '');
+    if (!m) return;
+    if (/\b(letter|a[3-5]|legal|ledger)\b/i.test(m[1])) paperPage = true;
+    if (/\d+(?:\.\d+)?px\b/i.test(m[1])) pxPage = true;
+  });
+  var signals = { paperPage: paperPage, pxPage: pxPage };
+
+  var pxVal = function (v) {
+    var m = /^(\d+(?:\.\d+)?)px$/.exec(v || ''); return m ? +m[1] : 0;
+  };
+  var authoredPx = function (el, prop) {
+    if (pxVal(el.style[prop])) return true;
+    var attr = el.getAttribute(prop);
+    if (attr && /^\d+$/.test(attr)) return true;
+    var hit = false;
+    eachRule(function (r) {
+      if (hit || r.type !== 1 || !r.style) return;
+      try { if (el.matches(r.selectorText) && pxVal(r.style[prop])) hit = true; } catch (e) {}
+    });
+    return hit;
+  };
+
+  var el = document.body, rootPxW = false;
+  for (;;) {
+    var kids = [];
+    for (var c = 0; c < el.children.length; c++) {
+      var t = el.children[c].tagName;
+      if (t !== 'SCRIPT' && t !== 'STYLE' && t !== 'TEMPLATE') kids.push(el.children[c]);
+    }
+    if (kids.length !== 1 || !(kids[0] instanceof HTMLElement)) break;
+    if (STAMP) el.setAttribute('data-om-frame-wrap', '');
+    el = kids[0];
+    rootPxW = authoredPx(el, 'width');
+    if (rootPxW) break;
+  }
+  if (!rootPxW) rootPxW = authoredPx(el, 'width');
+
+  // @page{size:letter} alone is a flowing doc; with a px-width root it's a
+  // fixed sheet pretending to be paper — fall through and size to render.
+  if (paperPage && !rootPxW) {
+    return { kind: 'paper-doc', source: 'inferred', doc: doc, signals: signals,
+      frames: [{ left: 0, top: 0, width: doc.width, height: doc.height }],
+      authored: [{ width: false, height: false }] };
+  }
+
+  var sx = window.scrollX || 0, sy = window.scrollY || 0;
+  var rectOf = function (e) {
+    var r = e.getBoundingClientRect();
+    var oy; try { oy = getComputedStyle(e).overflowY; } catch (err) {}
+    var h = oy === 'visible' ? Math.max(r.height, e.scrollHeight || 0) : r.height;
+    return { left: r.left + sx, top: r.top + sy, width: r.width, height: h };
+  };
+
+  // Multi-frame: off unless the page opts in via data-om-multi-frame on the
+  // stop element — the explicit opt-in is what guards against card grids
+  // and pricing tables that match the geometry but aren't separate
+  // canvases. Two ways to name the frames, explicit first:
+  // 1. Descendants marked data-om-frame-export (the social-frames starter
+  //    marks each asset frame; shells/panels around them are presentation,
+  //    so nesting is expected). Document order.
+  // 2. Fallback, no marked descendants: direct children with an authored px
+  //    width AND height (the original geometry heuristic).
+  // Frames may be different sizes (a gallery mixes 1080×1920 stories with
+  // 728×90 banners); data-om-frame-label rides along for export filenames.
+  if (el.hasAttribute('data-om-multi-frame')) {
+    var visOk = function (e) {
+      var cs; try { cs = getComputedStyle(e); } catch (err) { return false; }
+      return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.position !== 'fixed';
+    };
+    // A frame's crop is its VISUAL box — never the scrollHeight-inflated
+    // rect that rectOf computes for page roots. Shadow-DOM hover controls
+    // (image-slot's Replace bar parks 29px below its host) and similar
+    // escaping UI contribute scrollable overflow to the frame, and the
+    // inflated height both squashes the nominal-size resize and drags
+    // content below the frame into the crop. Zoom-independent; bit every
+    // slot-bearing frame.
+    var frameRectOf = function (e) {
+      var r = e.getBoundingClientRect();
+      return { left: r.left + sx, top: r.top + sy, width: r.width, height: r.height };
+    };
+    var pushCand = function (list, e) {
+      if (!visOk(e)) return;
+      var rc = frameRectOf(e);
+      if (rc.width < 2 || rc.height < 2) return;
+      var lbl = e.getAttribute('data-om-frame-label');
+      if (lbl) rc.label = lbl;
+      list.push(rc);
+    };
+    var cands = [];
+    var marked = el.querySelectorAll('[data-om-frame-export]');
+    if (marked.length) {
+      for (var mk = 0; mk < marked.length; mk++) pushCand(cands, marked[mk]);
+    } else {
+      for (var k = 0; k < el.children.length; k++) {
+        var ch = el.children[k];
+        if (!authoredPx(ch, 'width') || !authoredPx(ch, 'height')) continue;
+        pushCand(cands, ch);
+      }
+    }
+    if (cands.length >= 2) {
+      return { kind: 'multi-frame', source: 'inferred', doc: doc, signals: signals,
+        frames: cands, authored: cands.map(function(){return{width:true,height:true}}) };
+    }
+  }
+
+  if (STAMP) el.setAttribute('data-om-frame', '');
+  return { kind: 'single-canvas', source: 'inferred', doc: doc, signals: signals,
+    frames: [rectOf(el)],
+    authored: [{ width: rootPxW, height: authoredPx(el, 'height') }] };
+})(); } catch (e) {}
+  var frame = null;
+  if (!ownsPrint && __m && __m.kind === 'single-canvas') {
+    var f = __m.frames && __m.frames[0];
+    if (f && f.width >= 200 && f.height >= 200) {
+      frame = f;
+      var fst = document.createElement('style');
+      fst.textContent = '@media print{@page{size:' + Math.ceil(f.width) + 'px ' +
+        Math.ceil(f.height) + 'px;margin:0}' +
+        'html,body,[data-om-frame-wrap]{padding:0!important;margin:0!important;background:none!important}' +
+        '[data-om-frame]{margin:0!important}}';
+      document.body.appendChild(fst);
+    }
+  }
+  // Relax break-inside on oversized elements. An element taller than a
+  // printable page can't honor break-inside: avoid — browsers either overflow
+  // it or push it whole to the next page, leaving a blank gap, then break it
+  // anyway at an arbitrary point. After the final layout (content revealed,
+  // animations jumped), find elements taller than a page that still compute
+  // break-inside: avoid and reset them to auto, so the browser breaks them at
+  // their children's boundaries instead (children keep their own avoid). PAGE_PX
+  // is a conservative portrait estimate at 96 CSS px/in — Letter/A4 usable
+  // height minus our 0.5in margins — so only clearly-oversized elements are
+  // touched and under-page elements still stay whole. Skipped for decks (slides
+  // are sized to the page) and for fixed-size canvases (frame set, or an author
+  // px-based @page) — runs as before for flowing docs on letter/A4.
+  try {
+    if (!ds && !frame && !(__m && __m.signals && __m.signals.pxPage)) {
+      const PAGE_PX = 1024;
+      // Our print defaults add a real @page margin only when the source has
+      // no @page of its own; computed style can't tell us (it reports screen
+      // media), so read the injected rule directly.
+      const defaults = document.querySelector('style[data-omelette-print-defaults]');
+      const pageInset = /@page\s*\{[^}]*margin/.test(defaults ? defaults.textContent || '' : '');
+      const SEL = 'section,article,figure,table,pre,blockquote,[class~="card" i],[class~="page" i],[class~="sheet" i]';
+      for (const el of document.body.querySelectorAll(SEL)) {
+        if (el instanceof HTMLElement && el.offsetHeight > PAGE_PX) {
+          el.setAttribute('data-om-oversized', '');
+          // Fake-paged docs simulate sheets with over-tall break-after:page
+          // boxes; honoring the break spills half-blank pages and ends a
+          // colored box mid-sheet. Flow them, and (only when we own the page
+          // inset) drop the redundant padding/background via the rule below.
+          const cs = getComputedStyle(el);
+          // An owns-print doc's forced breaks are intentional sheet
+          // boundaries, never fake-paged simulation — don't strip them.
+          // The break-inside relaxation above still applies: avoid on a
+          // >page element is impossible to honor whoever authored it.
+          if (
+            !ownsPrint &&
+            (cs.breakAfter === 'page' || cs.pageBreakAfter === 'always')
+          ) {
+            el.setAttribute('data-om-fakepage', '');
+          }
+        }
+      }
+      const ost = document.createElement('style');
+      ost.textContent = '@media print{' +
+        '[data-om-oversized]{break-inside:auto !important;page-break-inside:auto !important}' +
+        '[data-om-fakepage]{break-after:auto !important;page-break-after:auto !important}' +
+        (pageInset ? '[data-om-fakepage]{padding:0 !important;background:none !important}' : '') +
+        '}';
+      document.head.appendChild(ost);
+    }
+  } catch (e) {}
+  // macOS Preview renders Skia-PDF Luminosity soft-masks as opaque grey boxes;
+  // swap the CSS that triggers them for Preview-safe forms.
+  try {
+    for (const el of document.body.querySelectorAll('*')) {
+      const cs = getComputedStyle(el);
+
+      if (cs.boxShadow !== 'none' && cs.filter === 'none') {
+        const outs = [], kept = [];
+        for (const s of cs.boxShadow.split(/,(?![^(]*[)])/)) {
+          const t = s.trim();
+          const m = t.match(/^(rgba?[(][^)]+[)]) (-?[0-9.]+px) (-?[0-9.]+px) ([0-9.]+px) -?[0-9.]+px$/);
+          if (m && parseFloat(m[4]) > 0) outs.push('drop-shadow(' + m[2] + ' ' + m[3] + ' ' + m[4] + ' ' + m[1] + ')');
+          else kept.push(t);
+        }
+        if (outs.length) {
+          el.style.setProperty('filter', outs.join(' '), 'important');
+          el.style.setProperty('box-shadow', kept.join(', ') || 'none', 'important');
+        }
+      }
+
+      const mask = cs.maskImage && cs.maskImage !== 'none' ? cs.maskImage : cs.webkitMaskImage;
+      if (mask && mask !== 'none' && cs.filter === 'none') el.style.setProperty('filter', 'opacity(1)', 'important');
+    }
+  } catch (e) {}
+  setTimeout(() => { try { window.print(); } catch (e) {} }, 200);
+})();
+</script>
+</body>
+</html>
