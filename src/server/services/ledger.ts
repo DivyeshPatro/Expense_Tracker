@@ -166,6 +166,45 @@ export async function loadLedgerAgg(userId: string, monthsBack: number | null = 
   return rows.map(mapAggRow);
 }
 
+/** loadLedgerAgg for an explicit [start, end) window instead of a months-back one — for period-filtered views. */
+export async function loadLedgerAggRange(userId: string, start?: Date, end?: Date): Promise<AggRow[]> {
+  const occurredAt = start || end ? { ...(start ? { gte: start } : {}), ...(end ? { lt: end } : {}) } : undefined;
+  const rows = await prisma.transaction.findMany({
+    where: { userId, deletedAt: null, ...(occurredAt ? { occurredAt } : {}) },
+    select: TX_AGG_SELECT,
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+  });
+  return rows.map(mapAggRow);
+}
+
+/**
+ * Cash-movement totals for a window, as two DB aggregates — no rows loaded.
+ * "Cash" semantics match applyBalances: income counts in full, expenses count
+ * in full but only when you actually paid (rows paid by a friend never moved
+ * your money — you settle those later). Transfers between your own accounts
+ * net to zero and are excluded. With unassignedOnly, restricts to rows not
+ * posted to any account (imported history without account info), whose cash
+ * effect exists in the ledger but not in any account's balance.
+ */
+export async function cashTotals(
+  userId: string,
+  opts: { start?: Date; end?: Date; unassignedOnly?: boolean } = {}
+): Promise<{ income: number; expense: number }> {
+  const occurredAt =
+    opts.start || opts.end ? { ...(opts.start ? { gte: opts.start } : {}), ...(opts.end ? { lt: opts.end } : {}) } : undefined;
+  const base: Prisma.TransactionWhereInput = {
+    userId,
+    deletedAt: null,
+    ...(occurredAt ? { occurredAt } : {}),
+    ...(opts.unassignedOnly ? { accountId: null } : {}),
+  };
+  const [inc, exp] = await Promise.all([
+    prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...base, type: "INCOME" } }),
+    prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...base, type: "EXPENSE", paidByParticipantId: null } }),
+  ]);
+  return { income: Number(inc._sum.amount ?? 0), expense: Number(exp._sum.amount ?? 0) };
+}
+
 /** The last N transactions with full display fields — for "recent transactions" widgets that only ever show a handful. */
 export async function recentTransactions(userId: string, limit: number): Promise<LedgerRow[]> {
   const rows = await prisma.transaction.findMany({

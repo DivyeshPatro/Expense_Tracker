@@ -40,7 +40,7 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 - [x] Budgets — monthly, 80%/100% thresholds, exactly-once alerts
 - [x] Bills — due-date urgency, "mark paid" rolls the due date
 - [x] Recurring transactions — idempotent daily cron
-- [x] Dashboard — attention strip, cash flow, accounts, category donut, budgets, Total Balance broken down as Carry forward + Income − Expense
+- [x] Dashboard — attention strip, cash flow, accounts, category donut, budgets. Header cards show Current Balance / Carry forward / Income / Expense for a selectable period — this month by default, with a month picker, custom date range, and "To date" (first transaction → today). Balance math is transaction-derived (carry forward + income − expense), so imported history without account info still counts; all sums run as DB aggregates, not loaded rows.
 - [x] Search — deterministic ⌘K parser ("swiggy in march", "upi expenses", explicit years like "food in march 2023") — filters pushed to the DB query, not loaded-then-filtered in JS
 - [x] Analytics — trends, balance history, top categories/merchants
 - [ ] Receipts (upload/view/replace/delete via Supabase Storage)
@@ -68,7 +68,7 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 - [x] Settings — full data export (CSV/JSON), clear-all-transactions (reset the ledger without losing account/category/budget setup), self-serve account deletion — all behind a type-to-confirm modal
 - [x] Performance: the transaction list and search push filtering + pagination to Postgres (50/page) instead of loading full history into memory; the ⌘K palette's merchant suggestions are fetched on demand instead of a full-table scan on every navigation; the dashboard and analytics load a lean aggregation-only query (no account/toAccount/paidBy/receipt joins) instead of the full display shape, and cash-flow bars bucket in one pass instead of re-scanning the window per bar; the transaction list no longer fires a redundant client-side refetch (and a "Load more" race) immediately after every page load. Matters once you've imported years of history — dev mode (`next dev`) is still noticeably slower than a production build (`next build && next start`) regardless, since routes compile on first hit.
 - [x] 59 unit tests (money math, split rounding, settlement engine, search parser incl. explicit-year queries, import parsing/column-detection/dedupe/sheet-scanning)
-- [x] End-to-end Playwright walkthroughs (18 prototype-parity checks + 12 import/export/data-management checks + 11 checks reproducing a real Monito export end-to-end + 3 large-import/transaction-timeout checks + 7 category-edit/kind-switch/pagination checks, all against a seeded DB)
+- [x] End-to-end Playwright walkthroughs (18 prototype-parity checks + 12 import/export/data-management checks + 11 checks reproducing a real Monito export end-to-end + 3 large-import/transaction-timeout checks + 11 dashboard-period/category-edit/kind-switch/pagination checks, all against a seeded DB)
 - [ ] Supabase Row-Level Security policies (service-layer scoping is in place; RLS as defense-in-depth is not yet added)
 - [ ] Rate limiting on auth/import routes
 

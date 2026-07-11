@@ -46,6 +46,29 @@ try {
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
 
+  // ── Dashboard period cards (Current Balance / Carry forward / Income / Expense) ──
+  await page.waitForSelector("text=CARRY FORWARD");
+  const dashBody = await page.textContent("body");
+  ok(
+    "dashboard shows Carry forward / Income / Expense cards for the current month by default",
+    dashBody.includes("CARRY FORWARD") && dashBody.includes("INCOME ·") && dashBody.includes("EXPENSE ·") && dashBody.includes("TOTAL BALANCE")
+  );
+
+  await page.click('button:has-text("To date")');
+  await page.waitForSelector("text=BALANCE · TO DATE", { timeout: 8000 });
+  const allBody = await page.textContent("body");
+  ok("'To date' period shows all-time balance with opening-balance carry forward", allBody.includes("opening balances before tracking began"));
+
+  const prevKey = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 7);
+  await page.goto(`http://localhost:3000/dashboard?p=${prevKey}`);
+  await page.waitForSelector("text=/BALANCE · [A-Z]{3} \\d{4}/", { timeout: 8000 });
+  ok("a specific past month can be selected and relabels the cards", true);
+
+  await page.goto("http://localhost:3000/dashboard?from=2026-01-01&to=2026-03-31");
+  await page.waitForSelector("text=CARRY FORWARD", { timeout: 8000 });
+  const customBody = await page.textContent("body");
+  ok("custom date range renders period cards", customBody.includes("balance at the end of this period"));
+
   // ── Category rename ──
   await page.goto("http://localhost:3000/settings");
   await page.waitForSelector("text=Categories");
