@@ -11,6 +11,14 @@ import { prisma } from "../db";
 import { audit } from "./audit";
 import { applyBalances } from "./transactions";
 
+// commit/undo loop sequentially over every row (each a create + balance
+// update round trip) inside one DB transaction so a partial failure never
+// leaves balances or the batch half-applied. Prisma's default interactive
+// transaction timeout is 5s, which a real multi-year import blows through —
+// hence the generous explicit timeout here (Architecture doc's "robust
+// migration engine" needs to hold for a few thousand rows, not just a demo file).
+const TX_OPTIONS = { timeout: 300_000, maxWait: 15_000 };
+
 export async function getSavedMapping(userId: string, source: string) {
   return prisma.importMapping.findUnique({ where: { userId_source: { userId, source } } });
 }
@@ -144,7 +152,7 @@ export async function commitImport(userId: string, input: CommitInput): Promise<
     });
     await audit(db, userId, "import", "ImportBatch", b.id, undefined, { imported, skipped });
     return { batchId: b.id, imported, skipped };
-  });
+  }, TX_OPTIONS);
 
   return batch;
 }
@@ -165,5 +173,5 @@ export async function undoImport(userId: string, batchId: string): Promise<void>
     }
     await db.importBatch.update({ where: { id: batchId }, data: { status: "UNDONE" } });
     await audit(db, userId, "undo-import", "ImportBatch", batchId, undefined, { reversed: txs.length });
-  });
+  }, TX_OPTIONS);
 }
