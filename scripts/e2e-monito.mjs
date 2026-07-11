@@ -10,6 +10,11 @@ const ok = (name, pass, detail = "") => {
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
 };
 
+async function fillSearchStable(page, text) {
+  await page.fill('input[placeholder*="Search merchant"]', text);
+  await page.waitForTimeout(500);
+}
+
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
@@ -82,24 +87,32 @@ try {
   await page.waitForURL("**/transactions", { timeout: 10000 });
   await page.waitForTimeout(800);
 
+  // Transactions defaults to "this month" now (the shared period picker) — a
+  // March 2023 row needs "To date" before it's in scope at all, same as any
+  // other period-aware page.
+  await page.click("text=To date");
+  await page.waitForURL(/p=all/, { timeout: 8000 });
+  // the period switch is a fresh server navigation (client TransactionsList
+  // resyncs its local search/tab state to it) — wait for that round trip to
+  // actually land before typing, or the search box's own state can reset
+  // right out from under a search typed too early.
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(300);
+
   // the transactions list is unbounded now — search for the 2023 rows directly
   // rather than scrolling past ~65 rows of 2026 seed data to find them
-  await page.fill('input[placeholder*="Search merchant"]', "Dosa");
-  await page.waitForTimeout(400);
+  await fillSearchStable(page, "Dosa");
   let txBody = await page.textContent("body");
   ok("2023 imported row IS visible in the (now unbounded) transactions list", txBody.includes("Dosa"));
 
-  await page.fill('input[placeholder*="Search merchant"]', "Bristi");
-  await page.waitForTimeout(400);
+  await fillSearchStable(page, "Bristi");
   txBody = await page.textContent("body");
   ok("blank-note rows still show a sensible name (category as fallback: 'Rent')", txBody.includes("Bristi mandi"));
-  await page.fill('input[placeholder*="Search merchant"]', "Rent");
-  await page.waitForTimeout(400);
+  await fillSearchStable(page, "Rent");
   txBody = await page.textContent("body");
   ok("blank-note Rent row shows category as its name", txBody.includes("Rent"));
 
-  await page.fill('input[placeholder*="Search merchant"]', "Clothing");
-  await page.waitForTimeout(400);
+  await fillSearchStable(page, "Clothing");
   txBody = await page.textContent("body");
   ok("auto-categorized against real category names (e.g. Clothing, not left uncategorized)", txBody.includes("Clothing"));
   await page.screenshot({ path: `${SHOT}/monito-04-transactions.png`, fullPage: true });

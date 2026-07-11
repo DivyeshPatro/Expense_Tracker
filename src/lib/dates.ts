@@ -54,6 +54,11 @@ export function daysFromToday(d: Date, now = new Date()): number {
   return Math.round((b - a) / 86_400_000);
 }
 
+/** Whole days between two "YYYY-MM-DD" values (b − a), for period-length math. */
+export function daysBetweenYMD(a: string, b: string): number {
+  return Math.round((istNoon(b).getTime() - istNoon(a).getTime()) / 86_400_000);
+}
+
 export function addDaysYMD(ymd: string, days: number): string {
   const d = istNoon(ymd);
   d.setUTCDate(d.getUTCDate() + days);

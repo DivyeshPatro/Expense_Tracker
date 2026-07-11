@@ -1,10 +1,12 @@
 "use client";
 
 // Transaction list: All/Expenses/Income/Transfers tabs, live text filter,
-// month chip (set by "Ask Ledgerly"), day grouping, delete with 5s undo.
-// Filtering and pagination happen server-side (queryTransactionsAction) —
-// this screen can be browsing years of imported history, so it never loads
-// more than one page of rows into the browser at a time.
+// month/category chips (set by "Ask Ledgerly" / Analytics drill-down), the
+// shared period picker (header), day grouping, delete with a confirm step
+// (then a 5s undo). Filtering and pagination happen server-side
+// (queryTransactionsAction) — this screen can be browsing years of imported
+// history, so it never loads more than one page of rows into the browser at
+// a time.
 
 import { useEffect, useRef, useState } from "react";
 import { deleteTransactionAction, queryTransactionsAction, undoDeleteAction } from "@/app/actions";
@@ -14,6 +16,8 @@ import type { LedgerRow } from "@/server/services/ledger";
 import { txDisplay } from "@/lib/tx-display";
 
 type TxType = "EXPENSE" | "INCOME" | "TRANSFER";
+type Period = { p?: string; from?: string; to?: string };
+type CategoryRef = { id: string; name: string; icon: string };
 
 const TABS: { label: string; value: TxType | null }[] = [
   { label: "All", value: null },
@@ -28,12 +32,16 @@ export function TransactionsList({
   initialQ,
   initialTab,
   initialMonth,
+  initialCategory,
+  period,
 }: {
   initialRows: LedgerRow[];
   initialHasMore: boolean;
   initialQ: string;
   initialTab: TxType | null;
   initialMonth: string | null;
+  initialCategory: CategoryRef | null;
+  period: Period;
 }) {
   const { showToast } = useUI();
   const [rows, setRows] = useState(initialRows);
@@ -42,17 +50,24 @@ export function TransactionsList({
   const [q, setQ] = useState(initialQ);
   const [tab, setTab] = useState<TxType | null>(initialTab);
   const [month, setMonth] = useState<string | null>(initialMonth);
+  const [category, setCategory] = useState<CategoryRef | null>(initialCategory);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Skips the very first (re)fetch after mount / after a fresh server navigation —
-  // initialRows already reflects q/tab/month at that point, so refetching it
-  // client-side is both a wasted round trip and a race against "Load more".
-  const skipNextFetch = useRef(true);
+  // What filters produced the `rows` currently on screen — compared against
+  // live q/tab/month/category to decide whether a debounced refetch is
+  // actually needed. (A boolean "skip the next fetch" flag doesn't work here:
+  // a server resync that doesn't happen to change q/tab/month/category, e.g.
+  // switching the period picker with no active search, never gets "consumed"
+  // by the fetch effect — leaving it armed to silently swallow the *next*
+  // real change instead, such as a search typed right after switching period.)
+  const appliedFilter = useRef({ q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null });
+  const periodKey = `${period.p ?? ""}|${period.from ?? ""}|${period.to ?? ""}`;
 
-  async function refetch(filter: { type?: TxType; monthKey?: string | null; textQuery?: string }) {
+  async function refetch(filter: { type?: TxType; monthKey?: string | null; categoryId?: string | null; textQuery?: string }) {
     setLoading(true);
     const result = await queryTransactionsAction(
-      { type: filter.type, monthKey: filter.monthKey ?? undefined, textQuery: filter.textQuery },
+      { type: filter.type, monthKey: filter.monthKey ?? undefined, categoryId: filter.categoryId ?? undefined, period, textQuery: filter.textQuery },
       0
     );
     setRows(result.rows);
@@ -61,37 +76,45 @@ export function TransactionsList({
     setLoading(false);
   }
 
-  // palette navigation ("Ask Ledgerly") re-pushes this route with new params
+  // palette navigation ("Ask Ledgerly"), an Analytics category drill-down, or
+  // the header period picker all re-push this route with new params
   useEffect(() => {
     setQ(initialQ);
     setTab(initialTab);
     setMonth(initialMonth);
+    setCategory(initialCategory);
     setRows(initialRows);
     setHasMore(initialHasMore);
     setPage(0);
-    skipNextFetch.current = true;
+    setConfirmId(null);
+    appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQ, initialTab, initialMonth]);
+  }, [initialQ, initialTab, initialMonth, initialCategory?.id, periodKey]);
 
   useEffect(() => {
-    if (skipNextFetch.current) {
-      skipNextFetch.current = false;
-      return;
+    const categoryId = category?.id ?? null;
+    const applied = appliedFilter.current;
+    if (applied.q === q && applied.tab === tab && applied.month === month && applied.categoryId === categoryId) {
+      return; // matches what's already loaded — nothing to refetch
     }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
-      refetch({ type: tab ?? undefined, monthKey: month, textQuery: q });
+      appliedFilter.current = { q, tab, month, categoryId };
+      refetch({ type: tab ?? undefined, monthKey: month, categoryId, textQuery: q });
     }, 300);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, tab, month]);
+  }, [q, tab, month, category?.id]);
 
   async function loadMore() {
     setLoading(true);
     const next = page + 1;
-    const result = await queryTransactionsAction({ type: tab ?? undefined, monthKey: month ?? undefined, textQuery: q }, next);
+    const result = await queryTransactionsAction(
+      { type: tab ?? undefined, monthKey: month ?? undefined, categoryId: category?.id, period, textQuery: q },
+      next
+    );
     setRows((r) => [...r, ...result.rows]);
     setHasMore(result.hasMore);
     setPage(next);
@@ -99,6 +122,7 @@ export function TransactionsList({
   }
 
   async function handleDelete(id: string) {
+    setConfirmId(null);
     const res = await deleteTransactionAction(id);
     if (!res.ok) {
       showToast(res.error);
@@ -107,12 +131,12 @@ export function TransactionsList({
     setRows((r) => r.filter((row) => row.id !== id));
     showToast("Transaction deleted", async () => {
       const undo = await undoDeleteAction(id);
-      if (undo.ok) refetch({ type: tab ?? undefined, monthKey: month, textQuery: q });
+      if (undo.ok) refetch({ type: tab ?? undefined, monthKey: month, categoryId: category?.id, textQuery: q });
       showToast(undo.ok ? "Restored" : "Could not restore");
     });
   }
 
-  const groups: { label: string; items: ReturnType<typeof txDisplay>[] }[] = [];
+  const groups: { label: string; items: (ReturnType<typeof txDisplay> & { id: string })[] }[] = [];
   for (const t of rows) {
     const label = friendlyDay(t.ymd);
     let g = groups[groups.length - 1];
@@ -120,7 +144,7 @@ export function TransactionsList({
       g = { label, items: [] };
       groups.push(g);
     }
-    g.items.push(txDisplay(t));
+    g.items.push({ ...txDisplay(t), id: t.id });
   }
 
   return (
@@ -153,6 +177,12 @@ export function TransactionsList({
             <button onClick={() => setMonth(null)} className="cursor-pointer bg-transparent border-none text-acc font-bold p-0">✕</button>
           </div>
         )}
+        {category && (
+          <div className="flex items-center gap-[7px] px-[13px] py-[7px] rounded-full bg-accsoft text-acc text-xs font-bold">
+            {category.icon} {category.name}
+            <button onClick={() => setCategory(null)} className="cursor-pointer bg-transparent border-none text-acc font-bold p-0">✕</button>
+          </div>
+        )}
       </div>
 
       {!loading && rows.length === 0 && (
@@ -170,15 +200,35 @@ export function TransactionsList({
                   <div className="text-[13px] font-semibold truncate">{t.name}</div>
                   <div className="text-[11.5px] text-mut2 truncate">{t.meta}</div>
                 </div>
-                <div className="text-[13px] font-bold" style={{ color: t.amtColor }}>{t.amtF}</div>
-                <button
-                  title="Delete"
-                  aria-label="Delete transaction"
-                  onClick={() => handleDelete(t.id)}
-                  className="text-[13px] text-mut2 cursor-pointer p-1 bg-transparent border-none hover:text-red"
-                >
-                  ✕
-                </button>
+                {confirmId === t.id ? (
+                  <div className="flex items-center gap-1.5 flex-none">
+                    <span className="text-[11.5px] text-mut2 whitespace-nowrap">Delete?</span>
+                    <button
+                      onClick={() => handleDelete(t.id)}
+                      className="px-2 py-1 rounded-lg bg-red text-white text-[11px] font-bold cursor-pointer border-none"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      className="px-2 py-1 rounded-lg border border-line2 text-[11px] font-semibold cursor-pointer bg-card"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-[13px] font-bold" style={{ color: t.amtColor }}>{t.amtF}</div>
+                    <button
+                      title="Delete"
+                      aria-label="Delete transaction"
+                      onClick={() => setConfirmId(t.id)}
+                      className="text-[13px] text-mut2 cursor-pointer p-1 bg-transparent border-none hover:text-red"
+                    >
+                      ✕
+                    </button>
+                  </>
+                )}
               </div>
             ))}
           </div>

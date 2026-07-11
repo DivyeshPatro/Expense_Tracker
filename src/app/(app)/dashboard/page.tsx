@@ -5,10 +5,10 @@
 
 import Link from "next/link";
 import { CashFlowCard, type CashFlowSeries } from "@/components/dashboard/cashflow";
-import { PeriodPicker, type PeriodMode } from "@/components/dashboard/period-picker";
 import { OpenModalButton } from "@/components/shell/buttons";
-import { addDaysYMD, currentMonthKey, friendlyDay, fullToday, greeting, istMidnight, monthName, monthRange, shiftMonthKey, todayYMD, MONTH_NAMES } from "@/lib/dates";
+import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonthKey, todayYMD, MONTH_NAMES } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
+import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
 import { listAccounts } from "@/server/services/accounts";
 import { listBills } from "@/server/services/bills";
@@ -19,39 +19,19 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
-const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MONTH_RE = /^\d{4}-\d{2}$/;
-
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const now = new Date();
   const key = currentMonthKey(now);
-  const today = todayYMD(now);
 
-  // ── selected period (?p=YYYY-MM | ?p=all | ?from&to; default: this month) ──
+  // ── selected period (?p=YYYY-MM | ?p=all | ?from&to; default: this month) —
+  // shared across Dashboard/Transactions/Accounts/Analytics via the header picker ──
   const sp = await searchParams;
-  let mode: PeriodMode = "month";
-  let periodKey = key;
-  let from = `${key}-01`;
-  let to = today;
-  if (sp.p === "all") {
-    mode = "all";
-  } else if (sp.p && MONTH_RE.test(sp.p) && sp.p <= key) {
-    periodKey = sp.p;
-  } else if (sp.from && sp.to && YMD_RE.test(sp.from) && YMD_RE.test(sp.to) && sp.from <= sp.to) {
-    mode = "custom";
-    from = sp.from;
-    to = sp.to;
-  }
-  const range =
-    mode === "all"
-      ? { start: undefined, end: undefined }
-      : mode === "custom"
-        ? { start: istMidnight(from), end: istMidnight(addDaysYMD(to, 1)) } // `to` is inclusive
-        : monthRange(periodKey);
-  const periodLabel =
-    mode === "all" ? "TO DATE" : mode === "custom" ? `${friendlyDay(from, now).toUpperCase()} – ${friendlyDay(to, now).toUpperCase()}` : `${monthName(periodKey).toUpperCase()} ${periodKey.slice(0, 4)}`;
+  const selectedPeriod = parsePeriod(sp, now);
+  const { mode, periodKey, range, label: periodLabel } = selectedPeriod;
   const donutLabel = mode === "month" ? monthName(periodKey).toUpperCase() : mode === "all" ? "TO DATE" : "RANGE";
+  const periodQS = periodQueryParams(selectedPeriod);
+  const withPeriodQS = (href: string) => (periodQS ? `${href}?${periodQS}` : href);
 
   const [rows, periodRows, period, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared] = await Promise.all([
     loadLedgerAgg(user.id, 6, now),
@@ -63,7 +43,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     // their cash effect is real but absent from every account's balance
     cashTotals(user.id, { unassignedOnly: true }),
     recentTransactions(user.id, 6),
-    listAccounts(user.id, now),
+    listAccounts(user.id, undefined, now),
     listBudgets(user.id, now),
     listBills(user.id, now),
     sharedSummary(user.id),
@@ -135,8 +115,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      {/* period filter + stat cards */}
-      <PeriodPicker mode={mode} monthKey={periodKey} currentMonthKey={key} from={from} to={to} />
+      {/* period stat cards — the period itself is picked from the header, shared across sections */}
       <div className="flex flex-wrap gap-3.5">
         <div className="flex-[1.5_1_250px] rounded-[14px] p-[var(--pad)] text-white" style={{ background: "linear-gradient(135deg,var(--dark1),var(--dark2))", boxShadow: "0 8px 24px rgba(28,39,64,.25)" }}>
           <div className="text-[11px] opacity-65 font-semibold tracking-[.06em]">{mode === "month" && periodKey === key ? "TOTAL BALANCE" : `BALANCE · ${periodLabel}`}</div>
@@ -176,7 +155,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </OpenModalButton>
           </div>
           {accounts.map((a) => (
-            <Link key={a.id} href="/accounts" className="flex items-center gap-2.5 no-underline text-ink">
+            <Link key={a.id} href={withPeriodQS("/accounts")} className="flex items-center gap-2.5 no-underline text-ink">
               <div className="w-[30px] h-[30px] rounded-[9px] grid place-items-center text-[13px]" style={{ background: soft(a.color) }}>{a.icon}</div>
               <div className="flex-1 min-w-0 text-[12.5px] font-semibold truncate">{a.name}</div>
               <div className="text-[12.5px] font-bold" style={{ color: a.balance < 0 ? "var(--red)" : "var(--ink)" }}>
@@ -252,7 +231,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <section className="card p-[var(--pad)] flex-[1.6_1_340px] flex flex-col gap-3">
           <div className="flex justify-between items-center">
             <h2 className="text-[13.5px] font-bold m-0">Recent transactions</h2>
-            <Link href="/transactions" className="text-[11.5px] font-semibold no-underline">All →</Link>
+            <Link href={withPeriodQS("/transactions")} className="text-[11.5px] font-semibold no-underline">All →</Link>
           </div>
           {recent.map((t) => (
             <div key={t.id} className="flex items-center gap-[11px]">

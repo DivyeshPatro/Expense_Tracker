@@ -8,6 +8,7 @@
 import type { Prisma } from "@prisma/client";
 import { MISC_META, TRANSFER_META } from "@/lib/categories";
 import { monthRange, shiftMonthKey, toYMD } from "@/lib/dates";
+import { parsePeriod } from "@/lib/period";
 import { prisma } from "../db";
 
 export interface LedgerRow {
@@ -104,12 +105,14 @@ export async function loadLedger(userId: string, monthsBack: number | null = 6, 
   return rows.map(mapRow);
 }
 
-/** Fields needed for chart/total aggregation — everything monthAgg/categoryTotals/merchantTotals/weekBars/dayBars read. */
+/** Fields needed for chart/total aggregation — everything monthAgg/categoryTotals/merchantTotals/weekBars/dayBars/per-account net read. */
 export interface AggRow {
+  id: string;
   type: "EXPENSE" | "INCOME" | "TRANSFER";
   amount: number;
   merchant: string;
   accountId: string | null;
+  toAccountId: string | null;
   categoryId: string | null;
   category: string | null;
   icon: string;
@@ -119,11 +122,13 @@ export interface AggRow {
 }
 
 const TX_AGG_SELECT = {
+  id: true,
   occurredAt: true,
   type: true,
   amount: true,
   merchant: true,
   accountId: true,
+  toAccountId: true,
   categoryId: true,
   category: { select: { name: true, icon: true, color: true } },
   splits: { select: { participantId: true, owedAmount: true } },
@@ -136,10 +141,12 @@ function mapAggRow(t: RawAggTx): AggRow {
   const mine = t.splits.find((s) => s.participantId === null);
   const myShare = mine ? Number(mine.owedAmount) : amount;
   return {
+    id: t.id,
     type: t.type,
     amount,
     merchant: t.merchant,
     accountId: t.accountId,
+    toAccountId: t.toAccountId,
     categoryId: t.categoryId,
     category: t.category?.name ?? null,
     icon: t.category?.icon ?? MISC_META.icon,
@@ -218,7 +225,11 @@ export async function recentTransactions(userId: string, limit: number): Promise
 
 export interface TxListFilter {
   type?: "EXPENSE" | "INCOME" | "TRANSFER";
+  /** legacy single-month filter from NL search ("swiggy in march") — a deliberate one-off query, takes precedence over the shared period below */
   monthKey?: string | null;
+  categoryId?: string | null;
+  /** the shared period picker's raw ?p/?from/?to — resolved with parsePeriod, same as every other period-aware page */
+  period?: { p?: string; from?: string; to?: string };
   textQuery?: string;
 }
 
@@ -233,9 +244,13 @@ const PAGE_SIZE = 50;
 export async function queryTransactions(userId: string, filter: TxListFilter, page: number): Promise<TxPage> {
   const where: Prisma.TransactionWhereInput = { userId, deletedAt: null };
   if (filter.type) where.type = filter.type;
+  if (filter.categoryId) where.categoryId = filter.categoryId;
   if (filter.monthKey) {
     const { start, end } = monthRange(filter.monthKey);
     where.occurredAt = { gte: start, lt: end };
+  } else if (filter.period) {
+    const { range } = parsePeriod(filter.period);
+    if (range.start || range.end) where.occurredAt = { ...(range.start ? { gte: range.start } : {}), ...(range.end ? { lt: range.end } : {}) };
   }
   const q = filter.textQuery?.trim();
   if (q) {
@@ -260,7 +275,7 @@ export async function queryTransactions(userId: string, filter: TxListFilter, pa
   return { rows: rows.slice(0, PAGE_SIZE).map(mapRow), hasMore };
 }
 
-type Aggregatable = Pick<LedgerRow, "ymd" | "type" | "amount" | "myExpense" | "category" | "icon" | "color" | "merchant">;
+type Aggregatable = Pick<LedgerRow, "ymd" | "type" | "amount" | "myExpense" | "categoryId" | "category" | "icon" | "color" | "merchant">;
 
 export function monthAgg(rows: Aggregatable[], key: string): { income: number; expense: number } {
   let income = 0;
@@ -273,13 +288,19 @@ export function monthAgg(rows: Aggregatable[], key: string): { income: number; e
   return { income, expense };
 }
 
-export function categoryTotals(rows: Aggregatable[], key: string): { name: string; icon: string; color: string; total: number }[] {
-  const map = new Map<string, { name: string; icon: string; color: string; total: number }>();
+export function categoryTotals(
+  rows: Aggregatable[],
+  key: string,
+  type: "EXPENSE" | "INCOME" = "EXPENSE"
+): { id: string | null; name: string; icon: string; color: string; total: number }[] {
+  const map = new Map<string, { id: string | null; name: string; icon: string; color: string; total: number }>();
   for (const r of rows) {
-    if (r.type !== "EXPENSE" || !r.ymd.startsWith(key) || r.myExpense <= 0) continue;
+    if (r.type !== type || !r.ymd.startsWith(key)) continue;
+    const amt = type === "EXPENSE" ? r.myExpense : r.amount;
+    if (amt <= 0) continue;
     const name = r.category ?? "Misc";
-    const cur = map.get(name) ?? { name, icon: r.icon, color: r.color, total: 0 };
-    cur.total += r.myExpense;
+    const cur = map.get(name) ?? { id: r.categoryId, name, icon: r.icon, color: r.color, total: 0 };
+    cur.total += amt;
     map.set(name, cur);
   }
   return [...map.values()].sort((a, b) => b.total - a.total);

@@ -1,8 +1,8 @@
 import { ACCOUNT_TYPE_LABELS } from "@/lib/categories";
-import { currentMonthKey } from "@/lib/dates";
+import { currentMonthKey, monthRange } from "@/lib/dates";
 import type { AccountType } from "@prisma/client";
 import { prisma } from "../db";
-import { loadLedger } from "./ledger";
+import { loadLedgerAggRange } from "./ledger";
 
 export interface AccountView {
   id: string;
@@ -12,19 +12,20 @@ export interface AccountView {
   icon: string;
   color: string;
   balance: number; // paise, negative for credit-card debt
-  monthNet: number; // paise net movement this month
+  periodNet: number; // paise net movement within the requested window (defaults to this month)
 }
 
-export async function listAccounts(userId: string, now = new Date()): Promise<AccountView[]> {
-  const key = currentMonthKey(now);
+/** range defaults to the current month when omitted — matches the shared period picker's own default, and keeps callers that don't need periodNet (dashboard, analytics) from scanning all-time history for a number they never read. */
+export async function listAccounts(userId: string, range?: { start?: Date; end?: Date }, now = new Date()): Promise<AccountView[]> {
+  const defaultRange = monthRange(currentMonthKey(now));
+  const effective = range ?? defaultRange;
   const [accounts, rows] = await Promise.all([
     prisma.account.findMany({ where: { userId, isArchived: false }, orderBy: { createdAt: "asc" } }),
-    loadLedger(userId, 1, now),
+    loadLedgerAggRange(userId, effective.start, effective.end),
   ]);
   return accounts.map((a) => {
     let net = 0;
     for (const r of rows) {
-      if (!r.ymd.startsWith(key)) continue;
       if (r.accountId === a.id) {
         if (r.type === "EXPENSE" || r.type === "TRANSFER") net -= r.amount;
         if (r.type === "INCOME") net += r.amount;
@@ -39,7 +40,7 @@ export async function listAccounts(userId: string, now = new Date()): Promise<Ac
       icon: a.icon ?? "🏦",
       color: a.color ?? "#2a63f6",
       balance: Number(a.balance),
-      monthNet: net,
+      periodNet: net,
     };
   });
 }

@@ -144,7 +144,10 @@ try {
   await page.waitForURL("**/transactions", { timeout: 20000 });
 
   // ── Transactions list pagination (server-side, not "load everything") ──
-  await page.goto("http://localhost:3000/transactions");
+  // Transactions defaults to "this month" now (the shared period picker) —
+  // the large import's history is scattered across years, so "To date" is
+  // needed to actually see enough rows for a pagination check.
+  await page.goto("http://localhost:3000/transactions?p=all");
   await page.waitForSelector("text=/Today|Yesterday|Jul|Mar/");
   const rowsBefore = await page.locator('button[aria-label="Delete transaction"]').count();
   ok("initial page loads a bounded page, not the whole ledger", rowsBefore <= 50, `${rowsBefore} rows on first load`);

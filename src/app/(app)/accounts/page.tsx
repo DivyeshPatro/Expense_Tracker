@@ -1,16 +1,21 @@
 import { OpenModalButton } from "@/components/shell/buttons";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
+import { parsePeriod } from "@/lib/period";
 import { soft } from "@/lib/tx-display";
 import { listAccounts } from "@/server/services/accounts";
-import { loadLedger } from "@/server/services/ledger";
+import { loadLedgerAggRange } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
-export default async function AccountsPage() {
+export default async function AccountsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
-  const [accounts, rows] = await Promise.all([listAccounts(user.id), loadLedger(user.id, 6)]);
+  const now = new Date();
+  const sp = await searchParams;
+  const { range, label } = parsePeriod(sp, now);
+
+  const [accounts, rows] = await Promise.all([listAccounts(user.id, range, now), loadLedgerAggRange(user.id, range.start, range.end)]);
   const transfers = rows.filter((r) => r.type === "TRANSFER");
 
   return (
@@ -35,14 +40,17 @@ export default async function AccountsPage() {
               {a.balance < 0 ? "−" : ""}{formatPaise(a.balance)}
             </div>
             <div className="text-[11.5px] text-mut2 mt-[5px]">
-              This month: {a.monthNet < 0 ? "−" : "+"}{formatPaise(a.monthNet)}
+              {label}: {a.periodNet < 0 ? "−" : "+"}{formatPaise(a.periodNet)}
             </div>
           </div>
         ))}
       </div>
       <div className="card p-[var(--pad)]">
-        <h2 className="text-[13.5px] font-bold m-0 mb-2.5">Transfers</h2>
-        {transfers.length === 0 && <div className="text-[12.5px] text-mut2 py-2">No transfers yet — move money between accounts with ⇄ Transfer.</div>}
+        <div className="flex justify-between items-baseline mb-2.5">
+          <h2 className="text-[13.5px] font-bold m-0">Transfers</h2>
+          <div className="text-[11.5px] text-mut2">{label}</div>
+        </div>
+        {transfers.length === 0 && <div className="text-[12.5px] text-mut2 py-2">No transfers in this period — move money between accounts with ⇄ Transfer.</div>}
         {transfers.map((t) => (
           <div key={t.id} className="flex items-center gap-3 py-[9px] border-b border-line last:border-b-0">
             <div className="w-8 h-8 rounded-[10px] grid place-items-center text-[13px] bg-accsoft">⇄</div>

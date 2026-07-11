@@ -83,6 +83,7 @@ try {
   await page.click("text=/Import \\d+ transaction/");
   await page.waitForSelector("text=Imported", { timeout: 10000 }).catch(() => {});
   await page.waitForURL("**/transactions", { timeout: 10000 });
+  await page.waitForSelector("text=Swiggy", { timeout: 8000 }).catch(() => {});
   const afterImportBody = await page.textContent("body");
   ok("imported rows appear in the transaction list", afterImportBody.includes("Swiggy") && afterImportBody.includes("BigBasket") && afterImportBody.includes("Uber"));
   ok("auto-categorization from merchant rules applied (Swiggy -> Food)", afterImportBody.includes("Food"));

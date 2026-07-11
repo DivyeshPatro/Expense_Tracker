@@ -42,6 +42,8 @@ try {
   await page.waitForSelector("text=Today");
   const before = await page.locator('button[aria-label="Delete transaction"]').count();
   await page.locator('button[aria-label="Delete transaction"]').first().click();
+  await page.waitForSelector("text=Delete?");
+  await page.click('button:has-text("Delete")');
   await page.waitForSelector("text=Transaction deleted");
   await page.click("text=Undo");
   await page.waitForSelector("text=Restored");

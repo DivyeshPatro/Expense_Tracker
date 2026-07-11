@@ -4,11 +4,12 @@
 // bottom tab bar + "more" sheet, FAB quick-add, ⌘K palette, toasts, modals.
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { CommandPalette } from "./palette";
 import { Modals } from "./modals";
+import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type RefData } from "./ui-context";
 
 const NAV = [
@@ -28,6 +29,22 @@ const TX_SUBS = [
   { label: "Income", tab: "INCOME" },
   { label: "Transfers", tab: "TRANSFER" },
 ];
+
+const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics"];
+
+/** Carries the selected period (?p/&from/&to) along when navigating between period-aware pages, so switching sections doesn't reset back to "this month". */
+function withPeriod(href: string, currentSearch: string): string {
+  if (!PERIOD_AWARE_ROUTES.some((r) => href.startsWith(r))) return href;
+  const cur = new URLSearchParams(currentSearch);
+  const keep = new URLSearchParams();
+  for (const k of ["p", "from", "to"]) {
+    const v = cur.get(k);
+    if (v) keep.set(k, v);
+  }
+  const qs = keep.toString();
+  if (!qs) return href;
+  return href.includes("?") ? `${href}&${qs}` : `${href}?${qs}`;
+}
 
 export function AppShell({ refData, badge, children }: { refData: RefData; badge: number; children: React.ReactNode }) {
   return (
@@ -57,54 +74,58 @@ function ShellInner({ badge, children }: { badge: number; children: React.ReactN
   }, [setPaletteOpen, closeModal]);
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar badge={badge} userName={refData.userName} />
-      <div className="flex-1 min-w-0 flex flex-col">
-        {/* top bar */}
-        <div className="flex items-center gap-2.5 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3">
-          <div className="md:hidden w-[26px] h-[26px] rounded-lg bg-acc grid place-items-center text-white font-extrabold text-[13px]">₹</div>
-          <h1 className="text-base font-bold tracking-tight flex-1 m-0">{title}</h1>
-          <button
-            onClick={() => setPaletteOpen(true)}
-            className="hidden md:flex items-center gap-2 px-3 py-[7px] rounded-lg border border-line2 text-[12.5px] font-medium text-mut bg-card cursor-pointer whitespace-nowrap hover:border-acc"
-          >
-            🔎 Search
-            <span className="text-[10.5px] border border-line2 rounded px-[5px] py-px text-mut2">⌘K</span>
-          </button>
-          <button
-            onClick={() => setPaletteOpen(true)}
-            aria-label="Search"
-            className="md:hidden w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer"
-          >
-            🔎
-          </button>
-          <ThemeToggle />
-          <button
-            onClick={() => openModal("exp")}
-            className="btn-primary hidden md:block shadow-[0_2px_8px_color-mix(in_oklab,var(--acc)_40%,transparent)]"
-          >
-            ＋ Add expense
-          </button>
+    <Suspense fallback={null}>
+      <div className="flex min-h-screen">
+        <Sidebar badge={badge} userName={refData.userName} />
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* top bar */}
+          <div className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="md:hidden w-[26px] h-[26px] rounded-lg bg-acc grid place-items-center text-white font-extrabold text-[13px]">₹</div>
+            <h1 className="text-base font-bold tracking-tight flex-1 m-0">{title}</h1>
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="hidden md:flex items-center gap-2 px-3 py-[7px] rounded-lg border border-line2 text-[12.5px] font-medium text-mut bg-card cursor-pointer whitespace-nowrap hover:border-acc"
+            >
+              🔎 Search
+              <span className="text-[10.5px] border border-line2 rounded px-[5px] py-px text-mut2">⌘K</span>
+            </button>
+            <button
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Search"
+              className="md:hidden w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer"
+            >
+              🔎
+            </button>
+            <ThemeToggle />
+            <button
+              onClick={() => openModal("exp")}
+              className="btn-primary hidden md:block shadow-[0_2px_8px_color-mix(in_oklab,var(--acc)_40%,transparent)]"
+            >
+              ＋ Add expense
+            </button>
+          </div>
+          <HeaderPeriodPicker />
+          </div>
+          {/* content */}
+          <div className="flex-1 box-border w-full max-w-[1180px] mx-auto px-[clamp(14px,2.5vw,28px)] py-[clamp(14px,2.5vw,28px)] pb-[120px]">
+            {children}
+          </div>
         </div>
-        {/* content */}
-        <div className="flex-1 box-border w-full max-w-[1180px] mx-auto px-[clamp(14px,2.5vw,28px)] py-[clamp(14px,2.5vw,28px)] pb-[120px]">
-          {children}
-        </div>
+        <BottomNav badge={badge} />
+        <Fab />
+        <Modals />
+        <CommandPalette />
+        <Toast />
       </div>
-      <BottomNav badge={badge} />
-      <Fab />
-      <Modals />
-      <CommandPalette />
-      <Toast />
-    </div>
+    </Suspense>
   );
 }
 
 function Sidebar({ badge, userName }: { badge: number; userName: string }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [params, setParams] = useState("");
-  useEffect(() => setParams(window.location.search), [pathname]);
+  const params = useSearchParams().toString();
 
   return (
     <aside className="hidden md:flex w-[216px] flex-none border-r border-line bg-side px-3 py-5 flex-col gap-0.5 sticky top-0 h-screen box-border">
@@ -117,7 +138,7 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
         return (
           <div key={n.href}>
             <Link
-              href={n.href}
+              href={withPeriod(n.href, params)}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] no-underline ${
                 active ? "bg-acc text-white font-bold" : "text-mut font-medium hover:bg-accsoft"
               }`}
@@ -137,7 +158,7 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
                   return (
                     <button
                       key={s.label}
-                      onClick={() => router.push(s.tab ? `/transactions?tab=${s.tab}` : "/transactions")}
+                      onClick={() => router.push(withPeriod(s.tab ? `/transactions?tab=${s.tab}` : "/transactions", params))}
                       className={`text-left px-2 py-[5px] rounded-md text-xs cursor-pointer bg-transparent border-none ${
                         on ? "text-acc font-bold" : "text-mut2 font-medium hover:text-ink"
                       }`}
@@ -201,6 +222,7 @@ const MOBILE_NAV = [
 function BottomNav({ badge }: { badge: number }) {
   const pathname = usePathname();
   const [sheet, setSheet] = useState(false);
+  const params = useSearchParams().toString();
   const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import"].some((h) => pathname.startsWith(h));
   return (
     <>
@@ -208,7 +230,7 @@ function BottomNav({ badge }: { badge: number }) {
         {MOBILE_NAV.map((n) => {
           const active = pathname.startsWith(n.href);
           return (
-            <Link key={n.href} href={n.href} className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border no-underline relative">
+            <Link key={n.href} href={withPeriod(n.href, params)} className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border no-underline relative">
               <span className="text-[17px]" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.icon}</span>
               <span className="text-[10px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
               {n.href === "/shared" && badge > 0 && (
@@ -222,12 +244,12 @@ function BottomNav({ badge }: { badge: number }) {
           <span className="text-[10px] font-semibold" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>More</span>
         </button>
       </nav>
-      {sheet && <MoreSheet close={() => setSheet(false)} />}
+      {sheet && <MoreSheet close={() => setSheet(false)} params={params} />}
     </>
   );
 }
 
-function MoreSheet({ close }: { close: () => void }) {
+function MoreSheet({ close, params }: { close: () => void; params: string }) {
   const items = [
     { href: "/accounts", icon: "▤", label: "Accounts" },
     { href: "/budgets", icon: "◔", label: "Budgets" },
@@ -243,7 +265,7 @@ function MoreSheet({ close }: { close: () => void }) {
       >
         <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-2.5" />
         {items.map((i) => (
-          <Link key={i.href} href={i.href} onClick={close} className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline text-ink hover:bg-accsoft">
+          <Link key={i.href} href={withPeriod(i.href, params)} onClick={close} className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline text-ink hover:bg-accsoft">
             <span className="w-5 text-center">{i.icon}</span>
             {i.label}
           </Link>
