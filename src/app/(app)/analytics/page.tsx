@@ -1,7 +1,7 @@
 import { currentMonthKey, monthName, shiftMonthKey, todayYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { listAccounts } from "@/server/services/accounts";
-import { categoryTotals, loadLedger, merchantTotals, monthAgg } from "@/server/services/ledger";
+import { categoryTotals, loadLedgerAgg, merchantTotals, monthAgg } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export default async function AnalyticsPage() {
   const user = await requireUser();
   const now = new Date();
   const key = currentMonthKey(now);
-  const [rows, accounts] = await Promise.all([loadLedger(user.id, 6, now), listAccounts(user.id, now)]);
+  const [rows, accounts] = await Promise.all([loadLedgerAgg(user.id, 6, now), listAccounts(user.id, now)]);
 
   const monthKeys = Array.from({ length: 6 }, (_, i) => shiftMonthKey(key, i - 5));
   const aggs = monthKeys.map((k) => monthAgg(rows, k));

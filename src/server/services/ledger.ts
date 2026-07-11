@@ -104,6 +104,79 @@ export async function loadLedger(userId: string, monthsBack: number | null = 6, 
   return rows.map(mapRow);
 }
 
+/** Fields needed for chart/total aggregation — everything monthAgg/categoryTotals/merchantTotals/weekBars/dayBars read. */
+export interface AggRow {
+  type: "EXPENSE" | "INCOME" | "TRANSFER";
+  amount: number;
+  merchant: string;
+  accountId: string | null;
+  categoryId: string | null;
+  category: string | null;
+  icon: string;
+  color: string;
+  ymd: string;
+  myExpense: number;
+}
+
+const TX_AGG_SELECT = {
+  occurredAt: true,
+  type: true,
+  amount: true,
+  merchant: true,
+  accountId: true,
+  categoryId: true,
+  category: { select: { name: true, icon: true, color: true } },
+  splits: { select: { participantId: true, owedAmount: true } },
+} satisfies Prisma.TransactionSelect;
+
+type RawAggTx = Prisma.TransactionGetPayload<{ select: typeof TX_AGG_SELECT }>;
+
+function mapAggRow(t: RawAggTx): AggRow {
+  const amount = Number(t.amount);
+  const mine = t.splits.find((s) => s.participantId === null);
+  const myShare = mine ? Number(mine.owedAmount) : amount;
+  return {
+    type: t.type,
+    amount,
+    merchant: t.merchant,
+    accountId: t.accountId,
+    categoryId: t.categoryId,
+    category: t.category?.name ?? null,
+    icon: t.category?.icon ?? MISC_META.icon,
+    color: t.category?.color ?? MISC_META.color,
+    ymd: toYMD(t.occurredAt),
+    myExpense: t.type !== "EXPENSE" ? 0 : t.splits.length > 0 ? myShare : amount,
+  };
+}
+
+/**
+ * Aggregation-only load: skips the account/toAccount/paidBy/receipts joins
+ * that loadLedger pulls in for display purposes but charts and totals never
+ * read. Dashboard and analytics only need this shape — use loadLedger (or
+ * recentTransactions) only where the fuller display fields are actually shown.
+ */
+export async function loadLedgerAgg(userId: string, monthsBack: number | null = 6, now = new Date()): Promise<AggRow[]> {
+  const start = monthsBack === null ? undefined : monthRange(shiftMonthKey(toYMD(now).slice(0, 7), -(monthsBack - 1))).start;
+
+  const rows = await prisma.transaction.findMany({
+    where: { userId, deletedAt: null, ...(start ? { occurredAt: { gte: start } } : {}) },
+    select: TX_AGG_SELECT,
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+  });
+  return rows.map(mapAggRow);
+}
+
+/** The last N transactions with full display fields — for "recent transactions" widgets that only ever show a handful. */
+export async function recentTransactions(userId: string, limit: number): Promise<LedgerRow[]> {
+  const rows = await prisma.transaction.findMany({
+    where: { userId, deletedAt: null },
+    include: TX_INCLUDE,
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+    take: limit,
+  });
+  return rows.map(mapRow);
+}
+
 export interface TxListFilter {
   type?: "EXPENSE" | "INCOME" | "TRANSFER";
   monthKey?: string | null;
@@ -148,7 +221,9 @@ export async function queryTransactions(userId: string, filter: TxListFilter, pa
   return { rows: rows.slice(0, PAGE_SIZE).map(mapRow), hasMore };
 }
 
-export function monthAgg(rows: LedgerRow[], key: string): { income: number; expense: number } {
+type Aggregatable = Pick<LedgerRow, "ymd" | "type" | "amount" | "myExpense" | "category" | "icon" | "color" | "merchant">;
+
+export function monthAgg(rows: Aggregatable[], key: string): { income: number; expense: number } {
   let income = 0;
   let expense = 0;
   for (const r of rows) {
@@ -159,7 +234,7 @@ export function monthAgg(rows: LedgerRow[], key: string): { income: number; expe
   return { income, expense };
 }
 
-export function categoryTotals(rows: LedgerRow[], key: string): { name: string; icon: string; color: string; total: number }[] {
+export function categoryTotals(rows: Aggregatable[], key: string): { name: string; icon: string; color: string; total: number }[] {
   const map = new Map<string, { name: string; icon: string; color: string; total: number }>();
   for (const r of rows) {
     if (r.type !== "EXPENSE" || !r.ymd.startsWith(key) || r.myExpense <= 0) continue;
@@ -171,7 +246,7 @@ export function categoryTotals(rows: LedgerRow[], key: string): { name: string; 
   return [...map.values()].sort((a, b) => b.total - a.total);
 }
 
-export function merchantTotals(rows: LedgerRow[], key: string): { name: string; total: number; count: number }[] {
+export function merchantTotals(rows: Aggregatable[], key: string): { name: string; total: number; count: number }[] {
   const map = new Map<string, { name: string; total: number; count: number }>();
   for (const r of rows) {
     if (r.type !== "EXPENSE" || !r.ymd.startsWith(key) || r.myExpense <= 0) continue;

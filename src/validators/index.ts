@@ -97,6 +97,11 @@ export const renameCategorySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(40),
 });
 
+export const changeCategoryKindSchema = z.object({
+  categoryId: z.string().min(1),
+  kind: z.enum(["EXPENSE", "INCOME"]),
+});
+
 export const categorySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(40),
   kind: z.enum(["EXPENSE", "INCOME"]),

@@ -44,6 +44,10 @@ export function TransactionsList({
   const [month, setMonth] = useState<string | null>(initialMonth);
   const [loading, setLoading] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Skips the very first (re)fetch after mount / after a fresh server navigation —
+  // initialRows already reflects q/tab/month at that point, so refetching it
+  // client-side is both a wasted round trip and a race against "Load more".
+  const skipNextFetch = useRef(true);
 
   async function refetch(filter: { type?: TxType; monthKey?: string | null; textQuery?: string }) {
     setLoading(true);
@@ -65,10 +69,15 @@ export function TransactionsList({
     setRows(initialRows);
     setHasMore(initialHasMore);
     setPage(0);
+    skipNextFetch.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQ, initialTab, initialMonth]);
 
   useEffect(() => {
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false;
+      return;
+    }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       refetch({ type: tab ?? undefined, monthKey: month, textQuery: q });

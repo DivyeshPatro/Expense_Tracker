@@ -11,7 +11,7 @@ import { soft, txDisplay } from "@/lib/tx-display";
 import { listAccounts } from "@/server/services/accounts";
 import { listBills } from "@/server/services/bills";
 import { listBudgets } from "@/server/services/budgets";
-import { categoryTotals, loadLedger, monthAgg } from "@/server/services/ledger";
+import { categoryTotals, loadLedgerAgg, monthAgg, recentTransactions } from "@/server/services/ledger";
 import { sharedSummary } from "@/server/services/shared";
 import { requireUser } from "@/server/session";
 
@@ -22,8 +22,9 @@ export default async function DashboardPage() {
   const now = new Date();
   const key = currentMonthKey(now);
 
-  const [rows, accounts, budgets, bills, shared] = await Promise.all([
-    loadLedger(user.id, 6, now),
+  const [rows, recentRows, accounts, budgets, bills, shared] = await Promise.all([
+    loadLedgerAgg(user.id, 6, now),
+    recentTransactions(user.id, 6),
     listAccounts(user.id, now),
     listBudgets(user.id, now),
     listBills(user.id, now),
@@ -36,6 +37,16 @@ export default async function DashboardPage() {
   const totalBal = accounts.reduce((s, a) => s + a.balance, 0);
   const liquid = accounts.filter((a) => a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const txCountMonth = rows.filter((r) => r.ymd.startsWith(key) && r.type === "EXPENSE").length;
+
+  // What this month actually moved on your real accounts (excludes shared-expense
+  // splits that never touched an account of yours) — carryForward + this = totalBal.
+  const monthAccountNet = rows.reduce((s, r) => {
+    if (!r.ymd.startsWith(key)) return s;
+    if (r.type === "INCOME") return s + r.amount;
+    if (r.type === "EXPENSE" && r.accountId) return s - r.amount;
+    return s;
+  }, 0);
+  const carryForward = totalBal - monthAccountNet;
 
   // cash flow series (6M / 8W / 14D)
   const monthKeys = Array.from({ length: 6 }, (_, i) => shiftMonthKey(key, i - 5));
@@ -62,7 +73,7 @@ export default async function DashboardPage() {
   const bills7 = bills.filter((b) => b.days <= 10).slice(0, 4);
   const overBudgets = budgets.filter((b) => b.over);
   const pending = shared.members.filter((m) => Math.abs(m.net) > 100);
-  const recent = rows.slice(0, 6).map(txDisplay);
+  const recent = recentRows.map(txDisplay);
 
   // attention strip
   const attention: { icon: string; text: string; href: string; bg: string; color: string }[] = [];
@@ -101,14 +112,19 @@ export default async function DashboardPage() {
           <div className="text-[11px] opacity-65 font-semibold tracking-[.06em]">TOTAL BALANCE</div>
           <div className="text-[28px] font-extrabold tracking-tight mt-[5px]">{formatPaise(totalBal)}</div>
           <div className="text-[11.5px] mt-[7px] opacity-75">{formatPaise(liquid)} liquid across {accounts.length} accounts</div>
+          <div className="text-[10.5px] mt-2.5 pt-2.5 opacity-60 flex flex-wrap gap-x-3 gap-y-1" style={{ borderTop: "1px solid rgba(255,255,255,.15)" }}>
+            <span>Carry forward {formatPaise(carryForward)}</span>
+            <span>+ Income {formatPaise(agg.income)}</span>
+            <span>− Expense {formatPaise(agg.expense)}</span>
+          </div>
         </div>
         <StatCard label={`INCOME · ${monthName(key).toUpperCase()}`} value={formatPaise(agg.income)}>
           <div className="text-[11.5px] mt-[7px] text-green font-semibold">on track</div>
         </StatCard>
-        <StatCard label={`EXPENSES · ${monthName(key).toUpperCase()}`} value={formatPaise(agg.expense)}>
+        <StatCard label={`EXPENSE · ${monthName(key).toUpperCase()}`} value={formatPaise(agg.expense)}>
           <div className="text-[11.5px] mt-[7px] text-mut2">{txCountMonth} transactions</div>
         </StatCard>
-        <StatCard label={`SAVED · ${monthName(key).toUpperCase()}`} value={formatPaise(savings)}>
+        <StatCard label={`SAVED (INCOME − EXPENSE) · ${monthName(key).toUpperCase()}`} value={formatPaise(savings)}>
           <div className="flex items-center gap-2 mt-2.5">
             <div className="flex-1 h-1 rounded-sm bg-accsoft">
               <div className="h-full rounded-sm bg-acc" style={{ width: `${Math.min(100, rate)}%` }} />
@@ -269,18 +285,33 @@ function normalize(bars: Bar[]): { label: string; incPct: number; expPct: number
   }));
 }
 
+/** One pass over rows into a per-day map, then bars are just map lookups — O(rows + buckets) instead of O(rows × buckets). */
+function dailyTotals(rows: { ymd: string; type: string; amount: number; myExpense: number }[]): Map<string, { income: number; expense: number }> {
+  const map = new Map<string, { income: number; expense: number }>();
+  for (const r of rows) {
+    if (r.type !== "INCOME" && r.type !== "EXPENSE") continue;
+    const cur = map.get(r.ymd) ?? { income: 0, expense: 0 };
+    if (r.type === "INCOME") cur.income += r.amount;
+    else cur.expense += r.myExpense;
+    map.set(r.ymd, cur);
+  }
+  return map;
+}
+
 function weekBars(rows: { ymd: string; type: string; amount: number; myExpense: number }[], now: Date): Bar[] {
   const today = todayYMD(now);
+  const daily = dailyTotals(rows);
   const bars: Bar[] = [];
   for (let w = 7; w >= 0; w--) {
     const end = addDaysYMD(today, -w * 7);
     const start = addDaysYMD(end, -6);
     let income = 0;
     let expense = 0;
-    for (const r of rows) {
-      if (r.ymd >= start && r.ymd <= end) {
-        if (r.type === "INCOME") income += r.amount;
-        else if (r.type === "EXPENSE") expense += r.myExpense;
+    for (let i = 0; i < 7; i++) {
+      const d = daily.get(addDaysYMD(start, i));
+      if (d) {
+        income += d.income;
+        expense += d.expense;
       }
     }
     bars.push({ label: (7 - w) % 2 ? "" : `${MONTH_NAMES[Number(start.slice(5, 7)) - 1]} ${Number(start.slice(8))}`, income, expense });
@@ -290,18 +321,12 @@ function weekBars(rows: { ymd: string; type: string; amount: number; myExpense: 
 
 function dayBars(rows: { ymd: string; type: string; amount: number; myExpense: number }[], now: Date): Bar[] {
   const today = todayYMD(now);
+  const daily = dailyTotals(rows);
   const bars: Bar[] = [];
   for (let k = 13; k >= 0; k--) {
     const d = addDaysYMD(today, -k);
-    let income = 0;
-    let expense = 0;
-    for (const r of rows) {
-      if (r.ymd === d) {
-        if (r.type === "INCOME") income += r.amount;
-        else if (r.type === "EXPENSE") expense += r.myExpense;
-      }
-    }
-    bars.push({ label: (13 - k) % 3 ? "" : `${MONTH_NAMES[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8))}`, income, expense });
+    const agg = daily.get(d);
+    bars.push({ label: (13 - k) % 3 ? "" : `${MONTH_NAMES[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8))}`, income: agg?.income ?? 0, expense: agg?.expense ?? 0 });
   }
   return bars;
 }

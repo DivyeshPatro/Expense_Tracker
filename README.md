@@ -36,11 +36,11 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 
 - [x] Accounts & transfers (5 types, running balances, credit-card payment as transfer)
 - [x] Transactions — expense / income / transfer, quick-add, soft delete + undo
-- [x] Categories — 28 seeded defaults + custom categories, with rename and guarded delete (Settings, and inline during import) + rule-based auto-categorization
+- [x] Categories — 28 seeded defaults + custom categories, in separate Expense/Income tabs; rename, switch Expense ↔ Income (fixes a category created under the wrong kind without touching the transactions that already reference it), and guarded delete (Settings, and inline during import) + rule-based auto-categorization
 - [x] Budgets — monthly, 80%/100% thresholds, exactly-once alerts
 - [x] Bills — due-date urgency, "mark paid" rolls the due date
 - [x] Recurring transactions — idempotent daily cron
-- [x] Dashboard — attention strip, cash flow, accounts, category donut, budgets
+- [x] Dashboard — attention strip, cash flow, accounts, category donut, budgets, Total Balance broken down as Carry forward + Income − Expense
 - [x] Search — deterministic ⌘K parser ("swiggy in march", "upi expenses", explicit years like "food in march 2023") — filters pushed to the DB query, not loaded-then-filtered in JS
 - [x] Analytics — trends, balance history, top categories/merchants
 - [ ] Receipts (upload/view/replace/delete via Supabase Storage)
@@ -58,7 +58,7 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 
 ### Phase 3 — Data & polish
 
-- [x] Generic import wizard — upload CSV/XLSX → real header row auto-detected anywhere in the sheet (tolerates banner rows, "Created on …" stamps, and repeated month-section labels — verified against an actual Monito export) → column mapping (header heuristics + value-shape scoring) → category/account resolution (with inline "+ create category" for values that don't match anything yet, e.g. "Clothing") → preview with duplicate detection (date+amount+merchant, ±1 day) and per-row validation → commit → one-click undo. Handles sources with no dedicated merchant column at all (falls back to note → category → type as the transaction name) and Indian bank-statement conventions (separate Debit/Credit columns, DD/MM/YYYY dates, Dr/Cr suffixes). The mapping step *is* the generic adapter — new sources need no code changes. Remembers mappings per named source for next time.
+- [x] Generic import wizard — upload CSV/XLSX → real header row auto-detected anywhere in the sheet (tolerates banner rows, "Created on …" stamps, and repeated month-section labels — verified against an actual Monito export) → column mapping (header heuristics + value-shape scoring) → category/account resolution → preview with duplicate detection (date+amount+merchant, ±1 day) and per-row validation → commit → one-click undo. Every distinct category value in the file must be explicitly resolved before you can continue: values spelled exactly like one of your categories auto-match, everything else is flagged and must be mapped to an existing category, created on the spot (e.g. "Clothing"), or explicitly marked "leave uncategorized" — nothing is silently skipped. Rows with no per-row account (common for category-only trackers like Monito) default to unassigned rather than being dumped onto whichever account happens to be first in your list. Handles sources with no dedicated merchant column at all (falls back to note → category → type as the transaction name) and Indian bank-statement conventions (separate Debit/Credit columns, DD/MM/YYYY dates, Dr/Cr suffixes). The mapping step *is* the generic adapter — new sources need no code changes. Remembers mappings per named source for next time.
 - [ ] PWA / offline logging
 
 ### Cross-cutting
@@ -66,9 +66,9 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 - [x] Auth (Better Auth, email/password, per-user data scoping)
 - [x] Dark mode (persisted), responsive layout (sidebar ↔ bottom nav + FAB)
 - [x] Settings — full data export (CSV/JSON), clear-all-transactions (reset the ledger without losing account/category/budget setup), self-serve account deletion — all behind a type-to-confirm modal
-- [x] Performance: the transaction list and search push filtering + pagination to Postgres (50/page) instead of loading full history into memory; the ⌘K palette's merchant suggestions are fetched on demand instead of a full-table scan on every navigation. Matters once you've imported years of history — dev mode (`next dev`) is still noticeably slower than a production build (`next build && next start`) regardless, since routes compile on first hit.
+- [x] Performance: the transaction list and search push filtering + pagination to Postgres (50/page) instead of loading full history into memory; the ⌘K palette's merchant suggestions are fetched on demand instead of a full-table scan on every navigation; the dashboard and analytics load a lean aggregation-only query (no account/toAccount/paidBy/receipt joins) instead of the full display shape, and cash-flow bars bucket in one pass instead of re-scanning the window per bar; the transaction list no longer fires a redundant client-side refetch (and a "Load more" race) immediately after every page load. Matters once you've imported years of history — dev mode (`next dev`) is still noticeably slower than a production build (`next build && next start`) regardless, since routes compile on first hit.
 - [x] 59 unit tests (money math, split rounding, settlement engine, search parser incl. explicit-year queries, import parsing/column-detection/dedupe/sheet-scanning)
-- [x] End-to-end Playwright walkthroughs (18 prototype-parity checks + 12 import/export/data-management checks + 11 checks reproducing a real Monito export end-to-end + 3 large-import/transaction-timeout checks + 6 category-edit/pagination checks, all against a seeded DB)
+- [x] End-to-end Playwright walkthroughs (18 prototype-parity checks + 12 import/export/data-management checks + 11 checks reproducing a real Monito export end-to-end + 3 large-import/transaction-timeout checks + 7 category-edit/kind-switch/pagination checks, all against a seeded DB)
 - [ ] Supabase Row-Level Security policies (service-layer scoping is in place; RLS as defense-in-depth is not yet added)
 - [ ] Rate limiting on auth/import routes
 

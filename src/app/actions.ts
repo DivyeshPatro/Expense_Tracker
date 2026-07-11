@@ -8,7 +8,7 @@ import { requireUser } from "@/server/session";
 import { createAccount } from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
-import { createCategory, deleteCategory, renameCategory } from "@/server/services/categories";
+import { changeCategoryKind, createCategory, deleteCategory, renameCategory } from "@/server/services/categories";
 import { queryTransactions, type TxListFilter } from "@/server/services/ledger";
 import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
 import {
@@ -33,6 +33,7 @@ import {
   billSchema,
   budgetSchema,
   categorySchema,
+  changeCategoryKindSchema,
   renameCategorySchema,
   expenseSchema,
   incomeSchema,
@@ -273,6 +274,18 @@ export async function renameCategoryAction(input: unknown): Promise<ActionResult
     const user = await requireUser();
     const data = renameCategorySchema.parse(input);
     await renameCategory(user.id, data.categoryId, data.name);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function changeCategoryKindAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const data = changeCategoryKindSchema.parse(input);
+    await changeCategoryKind(user.id, data.categoryId, data.kind);
     refresh();
     return { ok: true };
   } catch (e) {

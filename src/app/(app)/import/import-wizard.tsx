@@ -6,7 +6,7 @@
 // so this works the same locally and on serverless deployments.
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   commitImportAction,
   createCategoryAction,
@@ -14,7 +14,7 @@ import {
   previewImportAction,
 } from "@/app/actions";
 import type { ColumnMapping, PreviewRow, TargetField } from "@/lib/import/types";
-import { emptyMapping } from "@/lib/import/types";
+import { emptyMapping, UNCATEGORIZED } from "@/lib/import/types";
 import { formatPaise } from "@/lib/money";
 import { useUI } from "@/components/shell/ui-context";
 
@@ -70,7 +70,10 @@ export function ImportWizard() {
   const [categoryMap, setCategoryMap] = useState<Record<string, string>>({});
   const [extraCategories, setExtraCategories] = useState<{ id: string; name: string; icon: string }[]>([]);
   const [accountMap, setAccountMap] = useState<Record<string, string>>({});
-  const [defaultAccountId, setDefaultAccountId] = useState(refData.accounts[0]?.id ?? "");
+  // Unassigned by default: a source with no per-row account (Monito, most
+  // category-only trackers) shouldn't silently dump years of history onto
+  // whichever account happens to be first in the list.
+  const [defaultAccountId, setDefaultAccountId] = useState("");
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
 
   const mapping = useMemo(() => columnFieldToMapping(assign, amountSign), [assign, amountSign]);
@@ -111,6 +114,42 @@ export function ImportWizard() {
     if (!mapping.account) return [];
     return [...new Set(rows.map((r) => String(r[mapping.account!] ?? "").trim()).filter(Boolean))];
   }, [rows, mapping.account]);
+
+  const allCategoryOptions = useMemo(
+    () => [...refData.expenseCategories, ...refData.incomeCategories, ...extraCategories],
+    [refData.expenseCategories, refData.incomeCategories, extraCategories]
+  );
+
+  // A raw value that's already spelled exactly like one of your categories
+  // (e.g. Monito's "Food" matching your "Food" category) resolves itself —
+  // no need to make the user re-pick something that's already obvious.
+  function directMatch(rawValue: string): string | null {
+    const hit = allCategoryOptions.find((c) => c.name.toLowerCase() === rawValue.toLowerCase());
+    return hit ? hit.id : null;
+  }
+
+  // Auto-fill obvious matches so the user only has to make a decision for
+  // values that genuinely don't correspond to an existing category yet.
+  useEffect(() => {
+    setCategoryMap((s) => {
+      let changed = false;
+      const next = { ...s };
+      for (const c of distinctCategories) {
+        if (next[c]) continue;
+        const hit = directMatch(c);
+        if (hit) {
+          next[c] = hit;
+          changed = true;
+        }
+      }
+      return changed ? next : s;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [distinctCategories, allCategoryOptions]);
+
+  // Everything else needs an explicit decision: map to an existing category
+  // or create a new one — no silent "leave it uncategorized" fallback.
+  const unresolvedCategories = distinctCategories.filter((c) => !categoryMap[c]);
 
   async function runPreview() {
     setBusy(true);
@@ -244,15 +283,22 @@ export function ImportWizard() {
             <div>
               <div className="text-[13.5px] font-bold mb-2">Map categories</div>
               <div className="text-[12px] text-mut mb-2">
-                Values that don&apos;t match one of your categories yet (e.g. &quot;Clothing&quot;) can be created on the spot.
+                Every value from your file needs a decision: matched to one of your categories automatically where the
+                spelling lines up exactly, otherwise pick an existing category, create a new one, or explicitly leave it
+                uncategorized — nothing gets silently skipped.
               </div>
+              {unresolvedCategories.length > 0 && (
+                <div className="text-[12px] font-semibold text-amber bg-ambersoft rounded-lg px-3 py-2 mb-2">
+                  ⚠ {unresolvedCategories.length} value{unresolvedCategories.length === 1 ? "" : "s"} still need{unresolvedCategories.length === 1 ? "s" : ""} a decision below before you can continue.
+                </div>
+              )}
               <div className="flex flex-col gap-2">
                 {distinctCategories.map((c) => (
                   <CategoryMapRow
                     key={c}
                     rawValue={c}
                     value={categoryMap[c] ?? ""}
-                    options={[...refData.expenseCategories, ...refData.incomeCategories, ...extraCategories]}
+                    options={allCategoryOptions}
                     onChange={(v) => setCategoryMap((s) => ({ ...s, [c]: v }))}
                     onCreated={(cat) => {
                       setExtraCategories((s) => [...s, cat]);
@@ -288,15 +334,32 @@ export function ImportWizard() {
           <div>
             <div className="label-caps">DEFAULT ACCOUNT (for rows with no account match above)</div>
             <select className="field !w-auto min-w-[200px]" value={defaultAccountId} onChange={(e) => setDefaultAccountId(e.target.value)}>
-              <option value="">No account (unassigned)</option>
+              <option value="">No account (unassigned) — recommended</option>
               {refData.accounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>{acc.icon} {acc.name}</option>
               ))}
             </select>
+            <div className="text-[12px] text-mut mt-1.5">
+              {defaultAccountId ? (
+                <span className="text-amber font-semibold">
+                  ⚠ Every row without its own account match will be posted against this one account&apos;s balance — only choose this
+                  if you&apos;re sure all of this history really came from that one account.
+                </span>
+              ) : (
+                "Unassigned rows still count toward your spending totals, budgets and analytics — they just won't change any account's balance, since the source file doesn't say which account was used."
+              )}
+            </div>
           </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setStep("mapping")} className="px-3.5 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold cursor-pointer">Back</button>
-            <button disabled={busy} onClick={runPreview} className="btn-primary disabled:opacity-50">{busy ? "Validating…" : "Preview import"}</button>
+            <button
+              disabled={busy || unresolvedCategories.length > 0}
+              title={unresolvedCategories.length > 0 ? "Resolve every category value above first" : undefined}
+              onClick={runPreview}
+              className="btn-primary disabled:opacity-50"
+            >
+              {busy ? "Validating…" : unresolvedCategories.length > 0 ? `Resolve ${unresolvedCategories.length} categor${unresolvedCategories.length === 1 ? "y" : "ies"} to continue` : "Preview import"}
+            </button>
           </div>
         </div>
       )}
@@ -486,19 +549,23 @@ function CategoryMapRow({
     );
   }
 
+  const resolved = value !== "";
   return (
     <div className="flex items-center gap-2.5">
+      {!resolved && <span className="text-amber text-[13px]" title="Needs a decision">●</span>}
       <div className="flex-1 text-[12.5px] font-medium truncate">{rawValue}</div>
       <select
         className="field !w-auto min-w-[200px]"
         value={value}
+        style={!resolved ? { borderColor: "var(--amber)" } : undefined}
         onChange={(e) => (e.target.value === CREATE_NEW ? setCreating(true) : onChange(e.target.value))}
       >
-        <option value="">Auto-detect from merchant</option>
+        <option value="" disabled>Choose one…</option>
         {options.map((cat) => (
           <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
         ))}
         <option value={CREATE_NEW}>+ Create new category…</option>
+        <option value={UNCATEGORIZED}>Leave uncategorized</option>
       </select>
     </div>
   );

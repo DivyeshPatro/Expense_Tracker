@@ -4,7 +4,7 @@
 
 import { DuplicateIndex, normalizeMerchant } from "@/lib/import/dedupe";
 import { normalizeRow } from "@/lib/import/normalize";
-import type { ColumnMapping, NormalizedRow, PreviewRow, RowStatus } from "@/lib/import/types";
+import { UNCATEGORIZED, type ColumnMapping, type NormalizedRow, type PreviewRow, type RowStatus } from "@/lib/import/types";
 import type { Prisma } from "@prisma/client";
 import { istNoon, toYMD } from "@/lib/dates";
 import { prisma } from "../db";
@@ -102,6 +102,7 @@ export async function commitImport(userId: string, input: CommitInput): Promise<
   const categoryByName = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]));
 
   const resolveCategoryId = (row: PreviewRow): string | null => {
+    if (row.categoryRaw && input.categoryMap[row.categoryRaw] === UNCATEGORIZED) return null;
     if (row.categoryRaw && input.categoryMap[row.categoryRaw]) return input.categoryMap[row.categoryRaw];
     // "auto-detect" for a source with its own category column: match that text
     // directly against the user's categories first — a stronger signal than

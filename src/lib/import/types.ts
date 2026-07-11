@@ -71,3 +71,6 @@ export interface PreviewRow extends NormalizedRow {
   reason: string | null;
   skip: boolean;
 }
+
+/** categoryMap sentinel: the user explicitly chose "leave uncategorized" for this raw value, as opposed to never having decided at all. */
+export const UNCATEGORIZED = "__uncategorized__";
