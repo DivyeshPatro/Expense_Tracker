@@ -17,7 +17,6 @@ export interface RefData {
   expenseCategories: { id: string; name: string; icon: string }[];
   incomeCategories: { id: string; name: string; icon: string }[];
   participants: { id: string; name: string; initial: string; color: string }[];
-  merchants: string[];
   userName: string;
 }
 

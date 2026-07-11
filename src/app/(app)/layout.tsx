@@ -7,17 +7,14 @@ import { requireUser } from "@/server/session";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
 
-  const [accounts, categories, participants, merchants, nets] = await Promise.all([
+  // Kept intentionally cheap — this runs on every navigation (App Router
+  // re-invokes layouts per request). Merchant suggestions for the palette are
+  // fetched on demand instead of pre-loading (a full merchant ranking scans
+  // every transaction, which gets slower as import history grows).
+  const [accounts, categories, participants, nets] = await Promise.all([
     prisma.account.findMany({ where: { userId: user.id, isArchived: false }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, icon: true } }),
     prisma.category.findMany({ where: { userId: user.id, parentId: null }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, icon: true } }),
     prisma.participant.findMany({ where: { ownerId: user.id }, orderBy: { displayName: "asc" } }),
-    prisma.transaction.groupBy({
-      by: ["merchant"],
-      where: { userId: user.id, deletedAt: null },
-      _count: { merchant: true },
-      orderBy: { _count: { merchant: "desc" } },
-      take: 30,
-    }),
     netBalances(user.id),
   ]);
 
@@ -27,7 +24,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     expenseCategories: categories.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "📦" })),
     incomeCategories: categories.filter((c) => c.kind === "INCOME").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "💼" })),
     participants: participants.map((p) => ({ id: p.id, name: p.displayName, initial: p.displayName.charAt(0).toUpperCase(), color: p.color ?? "#6d5ae6" })),
-    merchants: merchants.map((m) => m.merchant),
   };
   const badge = nets.filter((n) => Math.abs(n.net) > 100).length;
 

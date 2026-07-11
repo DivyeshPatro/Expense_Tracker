@@ -1,6 +1,6 @@
-import { loadLedger } from "@/server/services/ledger";
+import { queryTransactions } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
-import { TransactionsList, type TxListRow } from "./tx-list";
+import { TransactionsList } from "./tx-list";
 
 export const dynamic = "force-dynamic";
 
@@ -11,31 +11,15 @@ export default async function TransactionsPage({
 }) {
   const user = await requireUser();
   const params = await searchParams;
-  // full history, unbounded — this is the "see everything" screen (imports can span years)
-  const rows = await loadLedger(user.id, null);
-
-  const listRows: TxListRow[] = rows.map((r) => ({
-    id: r.id,
-    type: r.type,
-    amount: r.amount,
-    accountName: r.accountName,
-    toAccountName: r.toAccountName,
-    category: r.category,
-    icon: r.icon,
-    color: r.color,
-    merchant: r.merchant,
-    ymd: r.ymd,
-    notes: r.notes,
-    isRecurring: r.isRecurring,
-    hasReceipt: r.hasReceipt,
-    split: r.split,
-  }));
+  const type = (params.tab as "EXPENSE" | "INCOME" | "TRANSFER" | undefined) || undefined;
+  const initialPage = await queryTransactions(user.id, { type, monthKey: params.month, textQuery: params.q }, 0);
 
   return (
     <TransactionsList
-      rows={listRows}
+      initialRows={initialPage.rows}
+      initialHasMore={initialPage.hasMore}
       initialQ={params.q ?? ""}
-      initialTab={(params.tab as TxListRow["type"]) ?? null}
+      initialTab={type ?? null}
       initialMonth={params.month ?? null}
     />
   );

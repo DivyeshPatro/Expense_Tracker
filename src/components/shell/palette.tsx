@@ -5,7 +5,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { askLedgerlyAction } from "@/app/actions";
+import { askLedgerlyAction, searchMerchantsAction } from "@/app/actions";
 import { useUI } from "./ui-context";
 
 interface PaletteItem {
@@ -16,16 +16,18 @@ interface PaletteItem {
 }
 
 export function CommandPalette() {
-  const { paletteOpen, setPaletteOpen, openModal, refData } = useUI();
+  const { paletteOpen, setPaletteOpen, openModal } = useUI();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [nl, setNl] = useState<{ answer: string; filter: { q: string; tab: string; monthKey: string | null } } | null>(null);
+  const [merchantHits, setMerchantHits] = useState<string[]>([]);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (paletteOpen) {
       setQ("");
       setNl(null);
+      setMerchantHits([]);
     }
   }, [paletteOpen]);
 
@@ -33,11 +35,13 @@ export function CommandPalette() {
     if (debounce.current) clearTimeout(debounce.current);
     if (!q.trim()) {
       setNl(null);
+      setMerchantHits([]);
       return;
     }
     debounce.current = setTimeout(async () => {
-      const res = await askLedgerlyAction(q);
-      setNl(res);
+      const [nlRes, merchants] = await Promise.all([askLedgerlyAction(q), searchMerchantsAction(q)]);
+      setNl(nlRes);
+      setMerchantHits(merchants);
     }, 220);
   }, [q]);
 
@@ -84,9 +88,8 @@ export function CommandPalette() {
   const ql = q.trim().toLowerCase();
   let results: PaletteItem[] = actions.filter((a) => !ql || a.label.toLowerCase().includes(ql));
   if (ql) {
-    const merchantHits = refData.merchants.filter((m) => m.toLowerCase().includes(ql)).slice(0, 3);
     results = [
-      ...merchantHits.map((m) => ({
+      ...merchantHits.slice(0, 3).map((m) => ({
         icon: "🔎",
         label: `Search “${m}” in transactions`,
         hint: "transactions",

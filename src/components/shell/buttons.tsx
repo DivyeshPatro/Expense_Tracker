@@ -4,7 +4,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { deleteTransactionAction, payBillAction, undoDeleteAction } from "@/app/actions";
+import { payBillAction } from "@/app/actions";
 import { useUI, type ModalPrefill, type ModalType } from "./ui-context";
 
 export function OpenModalButton({
@@ -43,33 +43,6 @@ export function PayBillButton({ billId, label }: { billId: string; label: string
       className="px-3 py-[7px] rounded-lg border border-line2 text-[11.5px] font-semibold text-acc cursor-pointer bg-transparent hover:bg-accsoft disabled:opacity-60"
     >
       {busy ? "…" : "Mark paid"}
-    </button>
-  );
-}
-
-export function DeleteTxButton({ id }: { id: string }) {
-  const { showToast } = useUI();
-  const router = useRouter();
-  return (
-    <button
-      title="Delete"
-      aria-label="Delete transaction"
-      onClick={async () => {
-        const res = await deleteTransactionAction(id);
-        if (!res.ok) {
-          showToast(res.error);
-          return;
-        }
-        router.refresh();
-        showToast("Transaction deleted", async () => {
-          const undo = await undoDeleteAction(id);
-          showToast(undo.ok ? "Restored" : "Could not restore");
-          router.refresh();
-        });
-      }}
-      className="text-[13px] text-mut2 cursor-pointer p-1 bg-transparent border-none hover:text-red"
-    >
-      ✕
     </button>
   );
 }

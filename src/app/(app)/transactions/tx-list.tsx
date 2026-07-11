@@ -2,56 +2,109 @@
 
 // Transaction list: All/Expenses/Income/Transfers tabs, live text filter,
 // month chip (set by "Ask Ledgerly"), day grouping, delete with 5s undo.
+// Filtering and pagination happen server-side (queryTransactionsAction) —
+// this screen can be browsing years of imported history, so it never loads
+// more than one page of rows into the browser at a time.
 
-import { useEffect, useState } from "react";
-import { DeleteTxButton } from "@/components/shell/buttons";
+import { useEffect, useRef, useState } from "react";
+import { deleteTransactionAction, queryTransactionsAction, undoDeleteAction } from "@/app/actions";
+import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
-import { txDisplay, type TxRowInput } from "@/lib/tx-display";
+import type { LedgerRow } from "@/server/services/ledger";
+import { txDisplay } from "@/lib/tx-display";
 
-export type TxListRow = TxRowInput;
+type TxType = "EXPENSE" | "INCOME" | "TRANSFER";
 
-const TABS = [
+const TABS: { label: string; value: TxType | null }[] = [
   { label: "All", value: null },
   { label: "Expenses", value: "EXPENSE" },
   { label: "Income", value: "INCOME" },
   { label: "Transfers", value: "TRANSFER" },
-] as const;
+];
 
 export function TransactionsList({
-  rows,
+  initialRows,
+  initialHasMore,
   initialQ,
   initialTab,
   initialMonth,
 }: {
-  rows: TxListRow[];
+  initialRows: LedgerRow[];
+  initialHasMore: boolean;
   initialQ: string;
-  initialTab: TxListRow["type"] | null;
+  initialTab: TxType | null;
   initialMonth: string | null;
 }) {
+  const { showToast } = useUI();
+  const [rows, setRows] = useState(initialRows);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [page, setPage] = useState(0);
   const [q, setQ] = useState(initialQ);
-  const [tab, setTab] = useState<TxListRow["type"] | null>(initialTab);
+  const [tab, setTab] = useState<TxType | null>(initialTab);
   const [month, setMonth] = useState<string | null>(initialMonth);
+  const [loading, setLoading] = useState(false);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // palette navigation re-pushes the route with new params
+  async function refetch(filter: { type?: TxType; monthKey?: string | null; textQuery?: string }) {
+    setLoading(true);
+    const result = await queryTransactionsAction(
+      { type: filter.type, monthKey: filter.monthKey ?? undefined, textQuery: filter.textQuery },
+      0
+    );
+    setRows(result.rows);
+    setHasMore(result.hasMore);
+    setPage(0);
+    setLoading(false);
+  }
+
+  // palette navigation ("Ask Ledgerly") re-pushes this route with new params
   useEffect(() => {
     setQ(initialQ);
     setTab(initialTab);
     setMonth(initialMonth);
+    setRows(initialRows);
+    setHasMore(initialHasMore);
+    setPage(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQ, initialTab, initialMonth]);
 
-  const ql = q.trim().toLowerCase();
-  const filtered = rows.filter((t) => {
-    if (tab && t.type !== tab) return false;
-    if (month && !t.ymd.startsWith(month)) return false;
-    if (!ql) return true;
-    return [t.merchant, t.category ?? "", t.notes ?? "", String(Math.round(t.amount / 100)), t.accountName ?? ""]
-      .join(" ")
-      .toLowerCase()
-      .includes(ql);
-  });
+  useEffect(() => {
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => {
+      refetch({ type: tab ?? undefined, monthKey: month, textQuery: q });
+    }, 300);
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, tab, month]);
+
+  async function loadMore() {
+    setLoading(true);
+    const next = page + 1;
+    const result = await queryTransactionsAction({ type: tab ?? undefined, monthKey: month ?? undefined, textQuery: q }, next);
+    setRows((r) => [...r, ...result.rows]);
+    setHasMore(result.hasMore);
+    setPage(next);
+    setLoading(false);
+  }
+
+  async function handleDelete(id: string) {
+    const res = await deleteTransactionAction(id);
+    if (!res.ok) {
+      showToast(res.error);
+      return;
+    }
+    setRows((r) => r.filter((row) => row.id !== id));
+    showToast("Transaction deleted", async () => {
+      const undo = await undoDeleteAction(id);
+      if (undo.ok) refetch({ type: tab ?? undefined, monthKey: month, textQuery: q });
+      showToast(undo.ok ? "Restored" : "Could not restore");
+    });
+  }
 
   const groups: { label: string; items: ReturnType<typeof txDisplay>[] }[] = [];
-  for (const t of filtered.slice(0, 100)) {
+  for (const t of rows) {
     const label = friendlyDay(t.ymd);
     let g = groups[groups.length - 1];
     if (!g || g.label !== label) {
@@ -68,7 +121,7 @@ export function TransactionsList({
           {TABS.map((t) => (
             <button
               key={t.label}
-              onClick={() => setTab(t.value as TxListRow["type"] | null)}
+              onClick={() => setTab(t.value)}
               className="px-3 py-1.5 rounded-[7px] text-xs font-semibold cursor-pointer border-none"
               style={{
                 background: tab === t.value ? "var(--acc)" : "transparent",
@@ -93,7 +146,7 @@ export function TransactionsList({
         )}
       </div>
 
-      {filtered.length === 0 && (
+      {!loading && rows.length === 0 && (
         <div className="text-center py-[60px] px-5 text-mut2 text-[13px]">Nothing matches — try a different search or filter.</div>
       )}
 
@@ -109,12 +162,29 @@ export function TransactionsList({
                   <div className="text-[11.5px] text-mut2 truncate">{t.meta}</div>
                 </div>
                 <div className="text-[13px] font-bold" style={{ color: t.amtColor }}>{t.amtF}</div>
-                <DeleteTxButton id={t.id} />
+                <button
+                  title="Delete"
+                  aria-label="Delete transaction"
+                  onClick={() => handleDelete(t.id)}
+                  className="text-[13px] text-mut2 cursor-pointer p-1 bg-transparent border-none hover:text-red"
+                >
+                  ✕
+                </button>
               </div>
             ))}
           </div>
         </div>
       ))}
+
+      {hasMore && (
+        <button
+          disabled={loading}
+          onClick={loadMore}
+          className="self-center px-4 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold text-acc cursor-pointer hover:bg-accsoft disabled:opacity-50"
+        >
+          {loading ? "Loading…" : "Load more"}
+        </button>
+      )}
     </div>
   );
 }

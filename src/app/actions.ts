@@ -8,7 +8,8 @@ import { requireUser } from "@/server/session";
 import { createAccount } from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
-import { createCategory } from "@/server/services/categories";
+import { createCategory, deleteCategory, renameCategory } from "@/server/services/categories";
+import { queryTransactions, type TxListFilter } from "@/server/services/ledger";
 import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
 import {
   commitImport,
@@ -25,13 +26,14 @@ import {
   restoreTransaction,
   softDeleteTransaction,
 } from "@/server/services/transactions";
-import { askLedgerly } from "@/server/services/search";
+import { askLedgerly, searchMerchants } from "@/server/services/search";
 import type { ColumnMapping } from "@/lib/import/types";
 import {
   accountSchema,
   billSchema,
   budgetSchema,
   categorySchema,
+  renameCategorySchema,
   expenseSchema,
   incomeSchema,
   participantSchema,
@@ -187,6 +189,11 @@ export async function askLedgerlyAction(query: string) {
   return askLedgerly(user.id, query);
 }
 
+export async function queryTransactionsAction(filter: TxListFilter, page: number) {
+  const user = await requireUser();
+  return queryTransactions(user.id, filter, page);
+}
+
 // ─────────── Import wizard ───────────
 
 export async function getSavedMappingAction(source: string) {
@@ -259,4 +266,32 @@ export async function createCategoryAction(
   } catch (e) {
     return fail(e);
   }
+}
+
+export async function renameCategoryAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const data = renameCategorySchema.parse(input);
+    await renameCategory(user.id, data.categoryId, data.name);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteCategoryAction(categoryId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await deleteCategory(user.id, categoryId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function searchMerchantsAction(query: string): Promise<string[]> {
+  const user = await requireUser();
+  return searchMerchants(user.id, query);
 }

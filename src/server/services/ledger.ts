@@ -1,7 +1,11 @@
-// Read-side of the ledger: one query feeding dashboard, analytics, search and
-// the transaction list. At personal scale (a few thousand rows) aggregating in
-// process is simpler and fast; swap for the month×category rollup view when needed.
+// Read-side of the ledger: one shape (LedgerRow) feeding dashboard, analytics,
+// search and the transaction list. Dashboard/analytics load a bounded recent
+// window and aggregate in process — fine at personal scale. The transaction
+// list and search push filtering to Postgres instead (queryTransactions /
+// search.ts), since "load everything, filter in JS" gets slower with every
+// imported row.
 
+import type { Prisma } from "@prisma/client";
 import { MISC_META, TRANSFER_META } from "@/lib/categories";
 import { monthRange, shiftMonthKey, toYMD } from "@/lib/dates";
 import { prisma } from "../db";
@@ -35,66 +39,113 @@ export interface LedgerRow {
   myExpense: number;
 }
 
+const TX_INCLUDE = {
+  account: { select: { name: true, type: true } },
+  toAccount: { select: { name: true } },
+  category: { select: { name: true, icon: true, color: true } },
+  splits: { select: { participantId: true, owedAmount: true } },
+  paidBy: { select: { displayName: true } },
+  receipts: { select: { id: true }, take: 1 },
+} satisfies Prisma.TransactionInclude;
+
+type RawTx = Prisma.TransactionGetPayload<{ include: typeof TX_INCLUDE }>;
+
+function mapRow(t: RawTx): LedgerRow {
+  const amount = Number(t.amount);
+  let split: LedgerRow["split"] = null;
+  if (t.splits.length > 0) {
+    const mine = t.splits.find((s) => s.participantId === null);
+    split = {
+      paidByMe: t.paidByParticipantId === null,
+      payerName: t.paidBy?.displayName ?? null,
+      partCount: t.splits.length,
+      myShare: mine ? Number(mine.owedAmount) : 0,
+    };
+  }
+  const isTransfer = t.type === "TRANSFER";
+  const meta = isTransfer ? TRANSFER_META : { icon: t.category?.icon ?? MISC_META.icon, color: t.category?.color ?? MISC_META.color };
+  return {
+    id: t.id,
+    type: t.type,
+    amount,
+    accountId: t.accountId,
+    accountName: t.account?.name ?? null,
+    accountType: t.account?.type ?? null,
+    toAccountId: t.toAccountId,
+    toAccountName: t.toAccount?.name ?? null,
+    categoryId: t.categoryId,
+    category: t.category?.name ?? null,
+    icon: meta.icon,
+    color: meta.color,
+    merchant: t.merchant,
+    ymd: toYMD(t.occurredAt),
+    notes: t.notes,
+    isRecurring: t.isRecurring,
+    hasReceipt: t.receipts.length > 0,
+    split,
+    myExpense: t.type !== "EXPENSE" ? 0 : split ? split.myShare : amount,
+  };
+}
+
 /**
  * monthsBack limits the window for recent-focused views (dashboard, analytics
- * trend charts). Pass null for the full ledger — the transactions list and
- * search must see everything, including imported history from years back.
+ * trend charts). Pass null for the full ledger. Prefer queryTransactions for
+ * the transaction list / search — this unbounded form loads every row into
+ * memory, which is only appropriate for small, bounded windows.
  */
 export async function loadLedger(userId: string, monthsBack: number | null = 6, now = new Date()): Promise<LedgerRow[]> {
-  const start =
-    monthsBack === null
-      ? undefined
-      : monthRange(shiftMonthKey(toYMD(now).slice(0, 7), -(monthsBack - 1))).start;
+  const start = monthsBack === null ? undefined : monthRange(shiftMonthKey(toYMD(now).slice(0, 7), -(monthsBack - 1))).start;
 
   const rows = await prisma.transaction.findMany({
     where: { userId, deletedAt: null, ...(start ? { occurredAt: { gte: start } } : {}) },
-    include: {
-      account: { select: { name: true, type: true } },
-      toAccount: { select: { name: true } },
-      category: { select: { name: true, icon: true, color: true } },
-      splits: { select: { participantId: true, owedAmount: true } },
-      paidBy: { select: { displayName: true } },
-      receipts: { select: { id: true }, take: 1 },
-    },
+    include: TX_INCLUDE,
     orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
   });
+  return rows.map(mapRow);
+}
 
-  return rows.map((t) => {
-    const amount = Number(t.amount);
-    let split: LedgerRow["split"] = null;
-    if (t.splits.length > 0) {
-      const mine = t.splits.find((s) => s.participantId === null);
-      split = {
-        paidByMe: t.paidByParticipantId === null,
-        payerName: t.paidBy?.displayName ?? null,
-        partCount: t.splits.length,
-        myShare: mine ? Number(mine.owedAmount) : 0,
-      };
-    }
-    const isTransfer = t.type === "TRANSFER";
-    const meta = isTransfer ? TRANSFER_META : { icon: t.category?.icon ?? MISC_META.icon, color: t.category?.color ?? MISC_META.color };
-    return {
-      id: t.id,
-      type: t.type,
-      amount,
-      accountId: t.accountId,
-      accountName: t.account?.name ?? null,
-      accountType: t.account?.type ?? null,
-      toAccountId: t.toAccountId,
-      toAccountName: t.toAccount?.name ?? null,
-      categoryId: t.categoryId,
-      category: t.category?.name ?? null,
-      icon: meta.icon,
-      color: meta.color,
-      merchant: t.merchant,
-      ymd: toYMD(t.occurredAt),
-      notes: t.notes,
-      isRecurring: t.isRecurring,
-      hasReceipt: t.receipts.length > 0,
-      split,
-      myExpense: t.type !== "EXPENSE" ? 0 : split ? split.myShare : amount,
-    };
+export interface TxListFilter {
+  type?: "EXPENSE" | "INCOME" | "TRANSFER";
+  monthKey?: string | null;
+  textQuery?: string;
+}
+
+export interface TxPage {
+  rows: LedgerRow[];
+  hasMore: boolean;
+}
+
+const PAGE_SIZE = 50;
+
+/** Paginated, DB-filtered transaction list — the "see everything" screen without loading everything at once. */
+export async function queryTransactions(userId: string, filter: TxListFilter, page: number): Promise<TxPage> {
+  const where: Prisma.TransactionWhereInput = { userId, deletedAt: null };
+  if (filter.type) where.type = filter.type;
+  if (filter.monthKey) {
+    const { start, end } = monthRange(filter.monthKey);
+    where.occurredAt = { gte: start, lt: end };
+  }
+  const q = filter.textQuery?.trim();
+  if (q) {
+    const amountGuess = Number(q.replace(/[₹,\s]/g, ""));
+    where.OR = [
+      { merchant: { contains: q, mode: "insensitive" } },
+      { notes: { contains: q, mode: "insensitive" } },
+      { category: { name: { contains: q, mode: "insensitive" } } },
+      { account: { name: { contains: q, mode: "insensitive" } } },
+      ...(Number.isFinite(amountGuess) && amountGuess > 0 ? [{ amount: BigInt(Math.round(amountGuess * 100)) }] : []),
+    ];
+  }
+
+  const rows = await prisma.transaction.findMany({
+    where,
+    include: TX_INCLUDE,
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+    skip: page * PAGE_SIZE,
+    take: PAGE_SIZE + 1, // one extra row reveals whether another page exists
   });
+  const hasMore = rows.length > PAGE_SIZE;
+  return { rows: rows.slice(0, PAGE_SIZE).map(mapRow), hasMore };
 }
 
 export function monthAgg(rows: LedgerRow[], key: string): { income: number; expense: number } {
