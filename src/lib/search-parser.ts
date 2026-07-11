@@ -15,6 +15,10 @@ export interface ParserContext {
 export interface ParsedQuery {
   type: "EXPENSE" | "INCOME";
   monthKey: string | null;
+  /** a bare year with no month ("expenses in 2023") — mutually exclusive with monthKey */
+  yearKey: string | null;
+  /** true when the user explicitly typed a year ("march 2023") — controls whether the year is echoed back */
+  yearIsExplicit: boolean;
   merchant: string | null;
   category: string | null;
   accountId: string | null;
@@ -34,16 +38,27 @@ export function parseQuery(q: string, ctx: ParserContext): ParsedQuery {
   const thisMonth = currentMonthKey(now);
   const year = Number(thisMonth.slice(0, 4));
 
+  // explicit 4-digit year anywhere in the query ("march 2023", "expenses in 2023")
+  const yearMatch = ql.match(/\b(19|20)\d{2}\b/);
+  const explicitYear = yearMatch ? Number(yearMatch[0]) : null;
+
   // month phrases
   let monthKey: string | null = null;
+  let yearKey: string | null = null;
   if (ql.includes("this month")) monthKey = thisMonth;
   else if (ql.includes("last month")) monthKey = shiftMonthKey(thisMonth, -1);
   else {
     const idx = MONTH_FULL.findIndex((m, i) => ql.includes(m) || wordIn(ql, MONTH_NAMES[i].toLowerCase()));
     if (idx >= 0) {
-      const key = `${year}-${String(idx + 1).padStart(2, "0")}`;
-      // months in the future refer to last year
-      monthKey = key <= thisMonth ? key : `${year - 1}-${String(idx + 1).padStart(2, "0")}`;
+      if (explicitYear) {
+        monthKey = `${explicitYear}-${String(idx + 1).padStart(2, "0")}`;
+      } else {
+        const key = `${year}-${String(idx + 1).padStart(2, "0")}`;
+        // months in the future refer to last year (no explicit year given)
+        monthKey = key <= thisMonth ? key : `${year - 1}-${String(idx + 1).padStart(2, "0")}`;
+      }
+    } else if (explicitYear) {
+      yearKey = String(explicitYear);
     }
   }
 
@@ -87,9 +102,11 @@ export function parseQuery(q: string, ctx: ParserContext): ParsedQuery {
   if (above) minPaise = Number(above[1].replace(/,/g, "")) * 100;
   if (below) maxPaise = Number(below[1].replace(/,/g, "")) * 100;
 
-  const matched = !!(monthKey || category || merchant || accountId || accountType || minPaise !== null || maxPaise !== null || type === "INCOME");
+  const matched = !!(
+    monthKey || yearKey || category || merchant || accountId || accountType || minPaise !== null || maxPaise !== null || type === "INCOME"
+  );
 
-  return { type, monthKey, merchant, category, accountId, accountType, minPaise, maxPaise, matched };
+  return { type, monthKey, yearKey, yearIsExplicit: !!explicitYear, merchant, category, accountId, accountType, minPaise, maxPaise, matched };
 }
 
 /** Human answer prefix, e.g. "You spent ₹1,240 on Swiggy in March · 3 transactions". */
@@ -100,7 +117,8 @@ export function describeQuery(p: ParsedQuery, totalF: string, count: number): st
   if (p.accountType === "WALLET") bits.push("via UPI");
   else if (p.accountType) bits.push(`via ${p.accountType.toLowerCase().replace("_", " ")}`);
   const monthFull = p.monthKey ? MONTH_FULL[Number(p.monthKey.slice(5)) - 1] : "";
-  const when = p.monthKey ? `in ${monthFull[0].toUpperCase()}${monthFull.slice(1)}` : "overall";
+  const yearSuffix = p.monthKey && p.yearIsExplicit ? ` ${p.monthKey.slice(0, 4)}` : "";
+  const when = p.monthKey ? `in ${monthFull[0].toUpperCase()}${monthFull.slice(1)}${yearSuffix}` : p.yearKey ? `in ${p.yearKey}` : "overall";
   const verb = p.type === "INCOME" ? "You received" : "You spent";
   return `${verb} ${totalF}${bits.length ? " " + bits.join(" ") : ""} ${when} · ${count} transaction${count === 1 ? "" : "s"}`;
 }

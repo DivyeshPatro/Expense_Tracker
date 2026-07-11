@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   commitImportAction,
+  createCategoryAction,
   getSavedMappingAction,
   previewImportAction,
 } from "@/app/actions";
@@ -67,6 +68,7 @@ export function ImportWizard() {
   const [assign, setAssign] = useState<Record<string, TargetField>>({});
   const [amountSign, setAmountSign] = useState<ColumnMapping["amountSign"]>("negative-is-expense");
   const [categoryMap, setCategoryMap] = useState<Record<string, string>>({});
+  const [extraCategories, setExtraCategories] = useState<{ id: string; name: string; icon: string }[]>([]);
   const [accountMap, setAccountMap] = useState<Record<string, string>>({});
   const [defaultAccountId, setDefaultAccountId] = useState(refData.accounts[0]?.id ?? "");
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
@@ -226,7 +228,7 @@ export function ImportWizard() {
           )}
           <div className="flex gap-2 justify-end">
             <button
-              disabled={busy || !mapping.date || !mapping.merchant || (!mapping.amount && !(mapping.debit && mapping.credit))}
+              disabled={busy || !mapping.date || (!mapping.amount && !(mapping.debit && mapping.credit))}
               onClick={() => (mapping.category || mapping.account ? setStep("resolve") : runPreview())}
               className="btn-primary disabled:opacity-50"
             >
@@ -241,21 +243,22 @@ export function ImportWizard() {
           {distinctCategories.length > 0 && (
             <div>
               <div className="text-[13.5px] font-bold mb-2">Map categories</div>
+              <div className="text-[12px] text-mut mb-2">
+                Values that don&apos;t match one of your categories yet (e.g. &quot;Clothing&quot;) can be created on the spot.
+              </div>
               <div className="flex flex-col gap-2">
                 {distinctCategories.map((c) => (
-                  <div key={c} className="flex items-center gap-2.5">
-                    <div className="flex-1 text-[12.5px] font-medium truncate">{c}</div>
-                    <select
-                      className="field !w-auto min-w-[180px]"
-                      value={categoryMap[c] ?? ""}
-                      onChange={(e) => setCategoryMap((s) => ({ ...s, [c]: e.target.value }))}
-                    >
-                      <option value="">Auto-detect from merchant</option>
-                      {[...refData.expenseCategories, ...refData.incomeCategories].map((cat) => (
-                        <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <CategoryMapRow
+                    key={c}
+                    rawValue={c}
+                    value={categoryMap[c] ?? ""}
+                    options={[...refData.expenseCategories, ...refData.incomeCategories, ...extraCategories]}
+                    onChange={(v) => setCategoryMap((s) => ({ ...s, [c]: v }))}
+                    onCreated={(cat) => {
+                      setExtraCategories((s) => [...s, cat]);
+                      setCategoryMap((s) => ({ ...s, [c]: cat.id }));
+                    }}
+                  />
                 ))}
               </div>
             </div>
@@ -415,6 +418,88 @@ function PreviewTable({
           {busy ? "Importing…" : `Import ${toImport} transaction${toImport === 1 ? "" : "s"}`}
         </button>
       </div>
+    </div>
+  );
+}
+
+const CREATE_NEW = "__create_new__";
+
+function CategoryMapRow({
+  rawValue,
+  value,
+  options,
+  onChange,
+  onCreated,
+}: {
+  rawValue: string;
+  value: string;
+  options: { id: string; name: string; icon: string }[];
+  onChange: (v: string) => void;
+  onCreated: (cat: { id: string; name: string; icon: string }) => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState(rawValue);
+  const [kind, setKind] = useState<"EXPENSE" | "INCOME">("EXPENSE");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (creating) {
+    return (
+      <div className="flex items-center gap-2.5 flex-wrap bg-accsoft rounded-lg p-2.5">
+        <div className="flex-1 min-w-[120px] text-[12.5px] font-medium truncate">{rawValue}</div>
+        <input className="field !w-auto !py-1.5 min-w-[140px]" value={name} onChange={(e) => setName(e.target.value)} placeholder="Category name" autoFocus />
+        <div className="flex gap-1">
+          {(["EXPENSE", "INCOME"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setKind(k)}
+              className="px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold cursor-pointer border-none"
+              style={{ background: kind === k ? "var(--acc)" : "var(--card)", color: kind === k ? "#fff" : "var(--acc)" }}
+            >
+              {k === "EXPENSE" ? "Expense" : "Income"}
+            </button>
+          ))}
+        </div>
+        <button
+          disabled={busy || !name.trim()}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            const res = await createCategoryAction({ name, kind });
+            setBusy(false);
+            if (!res.ok || !res.category) {
+              setError(!res.ok ? res.error : "Couldn't create category");
+              return;
+            }
+            onCreated(res.category);
+            setCreating(false);
+          }}
+          className="px-3 py-1.5 rounded-lg bg-acc text-white text-[11.5px] font-bold cursor-pointer border-none disabled:opacity-50"
+        >
+          {busy ? "…" : "Add"}
+        </button>
+        <button onClick={() => setCreating(false)} className="px-2.5 py-1.5 rounded-lg border border-line2 text-[11.5px] font-semibold cursor-pointer bg-card">
+          Cancel
+        </button>
+        {error && <div className="w-full text-[11.5px] font-semibold text-red">{error}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="flex-1 text-[12.5px] font-medium truncate">{rawValue}</div>
+      <select
+        className="field !w-auto min-w-[200px]"
+        value={value}
+        onChange={(e) => (e.target.value === CREATE_NEW ? setCreating(true) : onChange(e.target.value))}
+      >
+        <option value="">Auto-detect from merchant</option>
+        {options.map((cat) => (
+          <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
+        ))}
+        <option value={CREATE_NEW}>+ Create new category…</option>
+      </select>
     </div>
   );
 }

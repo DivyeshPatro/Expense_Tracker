@@ -60,4 +60,28 @@ describe("deterministic search parser (PRD §4.7)", () => {
     const p = parseQuery("swiggy in march", ctx);
     expect(describeQuery(p, "₹1,240", 3)).toBe("You spent ₹1,240 on Swiggy in March · 3 transactions");
   });
+
+  describe("explicit years — for imported history that predates the current year", () => {
+    it("parses 'food in march 2023' with the exact year, not the current-year default", () => {
+      const p = parseQuery("food in march 2023", ctx);
+      expect(p.monthKey).toBe("2023-03");
+      expect(p.category).toBe("Food");
+      expect(p.yearIsExplicit).toBe(true);
+    });
+
+    it("echoes the year in the answer only when it was explicitly given", () => {
+      const explicit = parseQuery("food in march 2023", ctx);
+      expect(describeQuery(explicit, "₹500", 2)).toBe("You spent ₹500 on Food in March 2023 · 2 transactions");
+      const implicit = parseQuery("food in march", ctx);
+      expect(describeQuery(implicit, "₹500", 2)).toBe("You spent ₹500 on Food in March · 2 transactions");
+    });
+
+    it("parses a bare year with no month ('expenses in 2023')", () => {
+      const p = parseQuery("expenses in 2023", ctx);
+      expect(p.yearKey).toBe("2023");
+      expect(p.monthKey).toBeNull();
+      expect(p.matched).toBe(true);
+      expect(describeQuery(p, "₹12,000", 18)).toBe("You spent ₹12,000 in 2023 · 18 transactions");
+    });
+  });
 });

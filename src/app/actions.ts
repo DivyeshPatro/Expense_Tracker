@@ -8,6 +8,7 @@ import { requireUser } from "@/server/session";
 import { createAccount } from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
+import { createCategory } from "@/server/services/categories";
 import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
 import {
   commitImport,
@@ -30,6 +31,7 @@ import {
   accountSchema,
   billSchema,
   budgetSchema,
+  categorySchema,
   expenseSchema,
   incomeSchema,
   participantSchema,
@@ -238,6 +240,22 @@ export async function deleteMyAccountAction(): Promise<ActionResult> {
     const user = await requireUser();
     await deleteUserAccount(user.id);
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Categories ───────────
+
+export async function createCategoryAction(
+  input: unknown
+): Promise<(ActionResult & { category?: { id: string; name: string; icon: string; kind: string } })> {
+  try {
+    const user = await requireUser();
+    const data = categorySchema.parse(input);
+    const category = await createCategory(user.id, data.name, data.kind);
+    refresh();
+    return { ok: true, category: { id: category.id, name: category.name, icon: category.icon ?? "📦", kind: category.kind } };
   } catch (e) {
     return fail(e);
   }

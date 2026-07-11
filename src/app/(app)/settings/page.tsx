@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { listCategories } from "@/server/services/categories";
 import { listImportBatches } from "@/server/services/import";
 import { requireUser } from "@/server/session";
+import { Categories, type CategoryRow } from "./categories";
 import { DangerZone } from "./danger-zone";
 import { ImportHistory, type ImportBatchRow } from "./import-history";
 
@@ -8,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const batches = await listImportBatches(user.id);
+  const [batches, categories] = await Promise.all([listImportBatches(user.id), listCategories(user.id)]);
   const batchRows: ImportBatchRow[] = batches.map((b) => ({
     id: b.id,
     source: b.source,
@@ -18,9 +20,18 @@ export default async function SettingsPage() {
     status: b.status,
     createdAt: b.createdAt.toISOString(),
   }));
+  const categoryRows: CategoryRow[] = categories
+    .filter((c) => c.kind !== "TRANSFER")
+    .map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "📦", kind: c.kind as "EXPENSE" | "INCOME" }));
 
   return (
     <div className="flex flex-col gap-4 max-w-[640px]" style={{ animation: "rise .25s ease" }}>
+      <section className="card p-6 flex flex-col gap-3">
+        <h2 className="text-[13.5px] font-bold m-0">Categories</h2>
+        <div className="text-[12.5px] text-mut">Your defaults plus anything custom you've added.</div>
+        <Categories categories={categoryRows} />
+      </section>
+
       <section className="card p-6 flex flex-col gap-3">
         <h2 className="text-[13.5px] font-bold m-0">Import data</h2>
         <div className="text-[12.5px] text-mut">Bring in transactions from Monito, a bank statement export, or any CSV/Excel sheet.</div>

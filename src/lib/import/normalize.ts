@@ -10,7 +10,7 @@ const INCOME_WORDS = ["credit", "income", "deposit", "cr", "received", "in"];
 
 export function normalizeRow(raw: Record<string, unknown>, rowIndex: number, mapping: ColumnMapping): NormalizedRow {
   const ymd = mapping.date ? parseFlexibleDate(raw[mapping.date]) : null;
-  const merchant = mapping.merchant ? String(raw[mapping.merchant] ?? "").trim() || null : null;
+  const mappedMerchant = mapping.merchant ? String(raw[mapping.merchant] ?? "").trim() || null : null;
   const categoryRaw = mapping.category ? String(raw[mapping.category] ?? "").trim() || null : null;
   const accountRaw = mapping.account ? String(raw[mapping.account] ?? "").trim() || null : null;
   const notes = mapping.notes ? String(raw[mapping.notes] ?? "").trim() || null : null;
@@ -45,6 +45,12 @@ export function normalizeRow(raw: Record<string, unknown>, rowIndex: number, map
   if (type === null && mapping.type && amountPaise !== null) {
     type = resolveTypeColumn(raw[mapping.type]);
   }
+
+  // Sources like Monito have no dedicated merchant/payee column — category + an
+  // optional free-text note stand in for it. Fall back through what's available
+  // so a transaction always has *some* readable name, rather than failing
+  // validation purely because the note happened to be blank.
+  const merchant = mappedMerchant || notes || categoryRaw || (type ? (type === "EXPENSE" ? "Expense" : "Income") : null);
 
   return { rowIndex, type, amountPaise, ymd, merchant, categoryRaw, accountRaw, notes, paymentMethod };
 }

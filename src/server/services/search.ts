@@ -18,7 +18,7 @@ export async function askLedgerly(userId: string, query: string, now = new Date(
   const [categories, accounts, rows] = await Promise.all([
     prisma.category.findMany({ where: { userId }, select: { name: true, kind: true } }),
     prisma.account.findMany({ where: { userId }, select: { id: true, name: true, type: true } }),
-    loadLedger(userId, 12, now),
+    loadLedger(userId, null, now), // full history — imported data can span years
   ]);
   const merchants = [...new Set(rows.map((r) => r.merchant))];
   const parsed = parseQuery(query, {
@@ -40,6 +40,7 @@ export async function askLedgerly(userId: string, query: string, now = new Date(
 function matches(r: LedgerRow, p: ParsedQuery): boolean {
   if (r.type !== p.type) return false;
   if (p.monthKey && !r.ymd.startsWith(p.monthKey)) return false;
+  if (p.yearKey && !r.ymd.startsWith(p.yearKey)) return false;
   if (p.merchant) {
     if (r.merchant !== p.merchant) return false;
   } else if (p.category && r.category !== p.category) return false;

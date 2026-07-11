@@ -91,3 +91,8 @@ export const billSchema = z.object({
 export const participantSchema = z.object({
   displayName: z.string().trim().min(1, "Name is required").max(60),
 });
+
+export const categorySchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(40),
+  kind: z.enum(["EXPENSE", "INCOME"]),
+});

@@ -86,8 +86,24 @@ export async function commitImport(userId: string, input: CommitInput): Promise<
   const toImport = input.rows.filter((r) => !r.skip && r.status !== "invalid");
   const skipped = input.rows.length - toImport.length;
 
-  const merchantRules = await prisma.merchantRule.findMany({ where: { userId } });
+  const [merchantRules, categories] = await Promise.all([
+    prisma.merchantRule.findMany({ where: { userId } }),
+    prisma.category.findMany({ where: { userId } }),
+  ]);
   const ruleByMerchant = new Map(merchantRules.map((r) => [normalizeMerchant(r.merchant), r.categoryId]));
+  const categoryByName = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]));
+
+  const resolveCategoryId = (row: PreviewRow): string | null => {
+    if (row.categoryRaw && input.categoryMap[row.categoryRaw]) return input.categoryMap[row.categoryRaw];
+    // "auto-detect" for a source with its own category column: match that text
+    // directly against the user's categories first — a stronger signal than
+    // merchant guessing, and the right default for Monito-shaped exports.
+    if (row.categoryRaw) {
+      const direct = categoryByName.get(row.categoryRaw.toLowerCase());
+      if (direct) return direct;
+    }
+    return ruleByMerchant.get(normalizeMerchant(row.merchant!)) ?? null;
+  };
 
   const batch = await prisma.$transaction(async (db) => {
     const b = await db.importBatch.create({
@@ -96,10 +112,9 @@ export async function commitImport(userId: string, input: CommitInput): Promise<
 
     let imported = 0;
     for (const row of toImport) {
-      const categoryId = row.categoryRaw
-        ? input.categoryMap[row.categoryRaw] || ruleByMerchant.get(normalizeMerchant(row.merchant!)) || null
-        : ruleByMerchant.get(normalizeMerchant(row.merchant!)) || null;
+      const categoryId = resolveCategoryId(row);
       const accountId = (row.accountRaw ? input.accountMap[row.accountRaw] : null) || input.defaultAccountId || null;
+      const notes = row.notes && row.notes !== row.merchant ? row.notes : null;
 
       const t = await db.transaction.create({
         data: {
@@ -110,7 +125,7 @@ export async function commitImport(userId: string, input: CommitInput): Promise<
           categoryId,
           merchant: row.merchant!,
           occurredAt: istNoon(row.ymd!),
-          notes: row.notes || null,
+          notes,
           paymentMethod: row.paymentMethod || null,
           importBatchId: b.id,
         },

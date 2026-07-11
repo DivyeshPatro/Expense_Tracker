@@ -5,13 +5,16 @@
 
 import * as XLSX from "xlsx";
 import type { ParsedSheet } from "./types";
+import { scanWorkbookSheets } from "./scan-sheet";
 
+/**
+ * Reads every sheet as a raw grid and hands it to the header-scanning parser
+ * (scan-sheet.ts), which finds the real header row wherever it sits — this
+ * tolerates banner rows, "Created on …" stamps, and repeated month-section
+ * headers that real exports (Monito, bank statements) commonly have.
+ */
 export function parseSpreadsheet(buffer: ArrayBuffer | Buffer): ParsedSheet {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  const sheetName = wb.SheetNames[0];
-  if (!sheetName) return { headers: [], rows: [] };
-  const sheet = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true });
-  const headers = (XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] as string[] | undefined) ?? [];
-  return { headers: headers.map(String).filter(Boolean), rows };
+  const grids = wb.SheetNames.map((name) => XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: "", raw: true }));
+  return scanWorkbookSheets(grids);
 }

@@ -35,12 +35,19 @@ export interface LedgerRow {
   myExpense: number;
 }
 
-export async function loadLedger(userId: string, monthsBack = 6, now = new Date()): Promise<LedgerRow[]> {
-  const startKey = shiftMonthKey(toYMD(now).slice(0, 7), -(monthsBack - 1));
-  const { start } = monthRange(startKey);
+/**
+ * monthsBack limits the window for recent-focused views (dashboard, analytics
+ * trend charts). Pass null for the full ledger — the transactions list and
+ * search must see everything, including imported history from years back.
+ */
+export async function loadLedger(userId: string, monthsBack: number | null = 6, now = new Date()): Promise<LedgerRow[]> {
+  const start =
+    monthsBack === null
+      ? undefined
+      : monthRange(shiftMonthKey(toYMD(now).slice(0, 7), -(monthsBack - 1))).start;
 
   const rows = await prisma.transaction.findMany({
-    where: { userId, deletedAt: null, occurredAt: { gte: start } },
+    where: { userId, deletedAt: null, ...(start ? { occurredAt: { gte: start } } : {}) },
     include: {
       account: { select: { name: true, type: true } },
       toAccount: { select: { name: true } },

@@ -11,7 +11,8 @@ export default async function TransactionsPage({
 }) {
   const user = await requireUser();
   const params = await searchParams;
-  const rows = await loadLedger(user.id, 12);
+  // full history, unbounded — this is the "see everything" screen (imports can span years)
+  const rows = await loadLedger(user.id, null);
 
   const listRows: TxListRow[] = rows.map((r) => ({
     id: r.id,

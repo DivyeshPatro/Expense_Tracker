@@ -6,22 +6,38 @@ import type { ColumnMapping, TargetField } from "./types";
 import { emptyMapping } from "./types";
 import { parseFlexibleAmount, parseFlexibleDate } from "./parse-value";
 
-function norm(s: string): string {
+export function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-const HEADER_SYNONYMS: Record<Exclude<TargetField, "ignore">, string[]> = {
+export const HEADER_SYNONYMS: Record<Exclude<TargetField, "ignore">, string[]> = {
   date: ["date", "transactiondate", "txndate", "postingdate", "valuedate", "trandate"],
   amount: ["amount", "amt", "value", "transactionamount"],
   debit: ["debit", "withdrawal", "withdrawalamt", "debitamount", "dr"],
   credit: ["credit", "deposit", "depositamt", "creditamount", "cr"],
-  type: ["type", "txntype", "transactiontype", "debitcredit", "drcr", "incomeexpense", "direction"],
+  type: ["type", "txntype", "transactiontype", "categorytype", "debitcredit", "drcr", "incomeexpense", "direction"],
   merchant: ["merchant", "description", "narration", "particulars", "payee", "details", "transactiondetails", "remarks"],
   category: ["category", "cat", "categoryname"],
   account: ["account", "accountname", "wallet", "paymentaccount", "bank", "source"],
   notes: ["notes", "note", "memo", "comment", "comments"],
   paymentMethod: ["paymentmethod", "mode", "channel", "paymentmode"],
 };
+
+/** True when a raw spreadsheet row looks like a header row (2+ cells match known field keywords). */
+export function looksLikeHeaderRow(cells: unknown[]): boolean {
+  const texts = cells.map((c) => norm(String(c ?? "")));
+  let matches = 0;
+  for (const n of texts) {
+    if (!n) continue;
+    for (const synonyms of Object.values(HEADER_SYNONYMS)) {
+      if (synonyms.some((s) => n === s)) {
+        matches++;
+        break;
+      }
+    }
+  }
+  return matches >= 2;
+}
 
 /** Suggests a column mapping from spreadsheet headers + a sample of rows. */
 export function suggestMapping(headers: string[], sampleRows: Record<string, unknown>[]): ColumnMapping {

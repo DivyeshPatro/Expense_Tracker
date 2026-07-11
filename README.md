@@ -36,7 +36,7 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 
 - [x] Accounts & transfers (5 types, running balances, credit-card payment as transfer)
 - [x] Transactions — expense / income / transfer, quick-add, soft delete + undo
-- [x] Categories — 28 seeded defaults + rule-based auto-categorization
+- [x] Categories — 28 seeded defaults + custom categories (Settings, and inline during import) + rule-based auto-categorization
 - [x] Budgets — monthly, 80%/100% thresholds, exactly-once alerts
 - [x] Bills — due-date urgency, "mark paid" rolls the due date
 - [x] Recurring transactions — idempotent daily cron
@@ -58,7 +58,7 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 
 ### Phase 3 — Data & polish
 
-- [x] Generic import wizard — upload CSV/XLSX → auto-detected column mapping (header heuristics + value-shape scoring) → category/account resolution → preview with duplicate detection (date+amount+merchant, ±1 day) and per-row validation → commit → one-click undo. Works for Monito exports, Indian bank statements (handles separate Debit/Credit columns, DD/MM/YYYY dates, Dr/Cr suffixes), or any spreadsheet — the mapping step *is* the generic adapter, so new sources need no code changes. Remembers mappings per named source for next time.
+- [x] Generic import wizard — upload CSV/XLSX → real header row auto-detected anywhere in the sheet (tolerates banner rows, "Created on …" stamps, and repeated month-section labels — verified against an actual Monito export) → column mapping (header heuristics + value-shape scoring) → category/account resolution (with inline "+ create category" for values that don't match anything yet, e.g. "Clothing") → preview with duplicate detection (date+amount+merchant, ±1 day) and per-row validation → commit → one-click undo. Handles sources with no dedicated merchant column at all (falls back to note → category → type as the transaction name) and Indian bank-statement conventions (separate Debit/Credit columns, DD/MM/YYYY dates, Dr/Cr suffixes). The mapping step *is* the generic adapter — new sources need no code changes. Remembers mappings per named source for next time.
 - [ ] PWA / offline logging
 
 ### Cross-cutting
@@ -66,8 +66,8 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 - [x] Auth (Better Auth, email/password, per-user data scoping)
 - [x] Dark mode (persisted), responsive layout (sidebar ↔ bottom nav + FAB)
 - [x] Settings — full data export (CSV/JSON), clear-all-transactions (reset the ledger without losing account/category/budget setup), self-serve account deletion — all behind a type-to-confirm modal
-- [x] 52 unit tests (money math, split rounding, settlement engine, search parser, import parsing/column-detection/dedupe)
-- [x] End-to-end Playwright walkthrough (18 prototype-parity checks + 12 import/export/data-management checks, all against a seeded DB)
+- [x] 59 unit tests (money math, split rounding, settlement engine, search parser incl. explicit-year queries, import parsing/column-detection/dedupe/sheet-scanning)
+- [x] End-to-end Playwright walkthroughs (18 prototype-parity checks + 12 import/export/data-management checks + 11 checks reproducing a real Monito export end-to-end, all against a seeded DB)
 - [ ] Supabase Row-Level Security policies (service-layer scoping is in place; RLS as defense-in-depth is not yet added)
 - [ ] Rate limiting on auth/import routes
 
