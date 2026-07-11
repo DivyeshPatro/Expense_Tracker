@@ -6,7 +6,7 @@
 import { PrismaClient } from "@prisma/client";
 import { auth } from "../src/server/auth";
 import { splitEqual } from "../src/lib/money";
-import { currentMonthKey, istNoon, shiftMonthKey, todayYMD } from "../src/lib/dates";
+import { addDaysYMD, currentMonthKey, istNoon, shiftMonthKey, todayYMD } from "../src/lib/dates";
 
 const prisma = new PrismaClient();
 
@@ -172,11 +172,30 @@ async function main() {
     if (t.type === "TRANSFER" && t.to) deltas.set(t.to, deltas.get(t.to)! + paise);
   }
 
+  // The gap between the 6 months of seeded transactions and each account's target
+  // closing balance becomes a real dated "Opening balance" transaction (just before
+  // the seeded window) rather than a synthetic openingBalance plug — otherwise
+  // "Clear transactions" (balance -> openingBalance) resets accounts to a
+  // meaningless number instead of a sane one.
+  const openingDate = addDaysYMD(d(shiftMonthKey(thisKey, -5), 1), -1);
   for (const a of ACCOUNTS) {
-    const opening = a.target - deltas.get(a.key)!;
+    const gap = a.target - deltas.get(a.key)!;
+    if (gap !== 0) {
+      await prisma.transaction.create({
+        data: {
+          userId: user.id,
+          type: gap > 0 ? "INCOME" : "EXPENSE",
+          amount: Math.abs(gap),
+          accountId: accountIds.get(a.key)!,
+          merchant: "Opening balance",
+          occurredAt: istNoon(openingDate),
+          notes: "Balance carried in from before you started tracking in Ledgerly",
+        },
+      });
+    }
     await prisma.account.update({
       where: { id: accountIds.get(a.key)! },
-      data: { openingBalance: opening, balance: a.target },
+      data: { openingBalance: 0, balance: a.target },
     });
   }
 

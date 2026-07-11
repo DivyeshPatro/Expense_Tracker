@@ -65,7 +65,7 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 
 - [x] Auth (Better Auth, email/password, per-user data scoping)
 - [x] Dark mode (persisted), responsive layout (sidebar ↔ bottom nav + FAB)
-- [x] Settings — full data export (CSV/JSON), clear-all-transactions (reset the ledger without losing account/category/budget setup), self-serve account deletion — all behind a type-to-confirm modal
+- [x] Settings — full data export (CSV/JSON), clear-all-transactions (resets every account back to its actual opening balance, not a stale computed number — see demo-seed fix below), self-serve account deletion — all behind a type-to-confirm modal
 - [x] Performance: the transaction list and search push filtering + pagination to Postgres (50/page) instead of loading full history into memory; the ⌘K palette's merchant suggestions are fetched on demand instead of a full-table scan on every navigation; the dashboard and analytics load a lean aggregation-only query (no account/toAccount/paidBy/receipt joins) instead of the full display shape, and cash-flow bars bucket in one pass instead of re-scanning the window per bar; the transaction list no longer fires a redundant client-side refetch (and a "Load more" race) immediately after every page load. Matters once you've imported years of history — dev mode (`next dev`) is still noticeably slower than a production build (`next build && next start`) regardless, since routes compile on first hit.
 - [x] 59 unit tests (money math, split rounding, settlement engine, search parser incl. explicit-year queries, import parsing/column-detection/dedupe/sheet-scanning)
 - [x] End-to-end Playwright walkthroughs (18 prototype-parity checks + 12 import/export/data-management checks + 11 checks reproducing a real Monito export end-to-end + 3 large-import/transaction-timeout checks + 11 dashboard-period/category-edit/kind-switch/pagination checks, all against a seeded DB)
@@ -112,7 +112,13 @@ npm run dev                 # http://localhost:3000
 Sign in with the seeded demo account — **arjun@ledgerly.app / ledgerly-demo**
 (fictional, local-only) — or sign up fresh; new users get the 28 default
 categories, the merchant→category dictionary, and a starter Cash account
-automatically.
+automatically. If you're planning to keep using the app for real, sign up
+with your own account rather than continuing to use the demo login — the
+demo's 6 months of sample history exists to show the product off, not to be
+built on top of. (Each demo account's real opening balance is 0, materialized
+as a real "Opening balance" transaction dated just before the seeded window,
+so "Clear all transactions" in Settings correctly resets it to 0 rather than
+some balance-minus-seed-history number.)
 
 ```bash
 npm test                    # unit tests: split rounding, settlement engine, parser, money

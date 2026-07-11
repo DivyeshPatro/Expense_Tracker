@@ -15,6 +15,31 @@ const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromi
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.setDefaultTimeout(120_000);
 
+// Category resolution is forced: every raw value that doesn't already match an
+// existing category name must be mapped or created before "Preview import"
+// unlocks. Create-on-the-spot for whatever's left in this large synthetic file.
+async function resolveUnresolvedCategories(page) {
+  for (let guard = 0; guard < 20; guard++) {
+    const rows = await page.locator('div.flex.items-center.gap-2\\.5').all();
+    let didWork = false;
+    for (const row of rows) {
+      const select = row.locator("select");
+      if ((await select.count()) === 0) continue;
+      if ((await select.locator('option:has-text("Create new category")').count()) === 0) continue;
+      const selectedText = (await select.locator("option:checked").textContent())?.trim();
+      if (selectedText === "Choose one…") {
+        await select.selectOption({ label: "+ Create new category…" });
+        await page.waitForSelector('input[placeholder="Category name"]');
+        await row.getByRole("button", { name: "Add", exact: true }).click();
+        await page.waitForTimeout(500);
+        didWork = true;
+        break;
+      }
+    }
+    if (!didWork) break;
+  }
+}
+
 try {
   await page.goto("http://localhost:3000/sign-in");
   await page.fill('input[type="email"]', "arjun@ledgerly.app");
@@ -29,6 +54,7 @@ try {
 
   await page.click("text=Continue");
   await page.waitForSelector("text=Map categories", { timeout: 10000 });
+  await resolveUnresolvedCategories(page);
   await page.click("text=Preview import");
   await page.waitForSelector("text=/\\d+ new/", { timeout: 20000 });
   const previewBody = await page.textContent("body");

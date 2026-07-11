@@ -49,7 +49,7 @@ try {
   await page.goto("http://localhost:3000/dashboard");
   await page.waitForSelector("text=TOTAL BALANCE");
   const dashBody = await page.textContent("body");
-  ok("account balances reset to opening balance after clear", dashBody.includes("₹2,43,320") || /TOTAL BALANCE/.test(dashBody));
+  ok("account balances reset to opening balance (₹0 for the demo seed) after clear, not a stale number", dashBody.includes("TOTAL BALANCE₹0") || /TOTAL BALANCE\s*₹0/.test(dashBody));
 
   // ── Import wizard: upload synthetic bank-statement CSV ──
   await page.goto("http://localhost:3000/import");
