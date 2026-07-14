@@ -1,17 +1,22 @@
 // Proves the Prisma interactive-transaction-timeout fix: imports ~~475-2900 rows
 // (multi-year Monito-shaped history) in one commit — well past what the
 // default 5s transaction timeout could survive under the old code.
-import { chromium } from "playwright-core";
+import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
 
-const SHOT = "/tmp/claude-0/-home-claude/a52814cf-53bd-5151-b67d-905c3e82b1dd/scratchpad";
-const CSV_PATH = `${SHOT}/monito-large.csv`;
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SHOT = path.join(SCRIPT_DIR, "..", "e2e-output");
+fs.mkdirSync(SHOT, { recursive: true });
+const CSV_PATH = path.join(SCRIPT_DIR, "..", "e2e", "fixtures", "monito-large.csv");
 const results = [];
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
 };
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", headless: true });
+const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.setDefaultTimeout(120_000);
 
@@ -46,6 +51,9 @@ try {
   await page.fill('input[type="password"]', "ledgerly-demo");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
+  await page.click('button:has-text("To date")');
+  await page.waitForSelector("text=BALANCE · TO DATE", { timeout: 8000 });
+  const balanceBefore = (await page.textContent("body")).match(/(?:TOTAL BALANCE|BALANCE · TO DATE)(−?₹[\d,.]+)/)?.[1];
 
   await page.goto("http://localhost:3000/import");
   await page.waitForSelector("text=Choose file");
@@ -71,6 +79,27 @@ try {
 
   const errorBody = await page.textContent("body").catch(() => "");
   ok("no Prisma transaction-timeout error surfaced anywhere on the page", !errorBody.includes("Transaction not found") && !errorBody.includes("old closed transaction"));
+
+  // Self-cleanup: undo this script's own import so it leaves the DB the way
+  // it found it. Without this, e2e-perf.mjs's own import of the same
+  // monito-large.csv fixture sees every row flagged as a duplicate ("0 new")
+  // when the two suites run back-to-back — this is what makes the suites
+  // composable from a single documented command without a manual reseed
+  // between them.
+  await page.goto("http://localhost:3000/settings");
+  await page.waitForSelector("text=IMPORT HISTORY");
+  await page.locator('button:has-text("Undo")').first().click();
+  await page.waitForSelector("text=Import undone", { timeout: 60_000 });
+
+  await page.goto("http://localhost:3000/dashboard");
+  await page.click('button:has-text("To date")');
+  await page.waitForSelector("text=BALANCE · TO DATE", { timeout: 8000 });
+  const balanceAfter = (await page.textContent("body")).match(/(?:TOTAL BALANCE|BALANCE · TO DATE)(−?₹[\d,.]+)/)?.[1];
+  ok(
+    "large import cleans up after itself (undo reverses the balance effect, leaving the DB as it found it)",
+    !!balanceBefore && balanceBefore === balanceAfter,
+    `${balanceBefore} -> ${balanceAfter}`
+  );
 } catch (e) {
   ok("script error", false, String(e).slice(0, 500));
   await page.screenshot({ path: `${SHOT}/large-import-error.png`, fullPage: true });

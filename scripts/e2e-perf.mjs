@@ -1,16 +1,22 @@
 // Proves the performance refactor: category rename/delete (Settings), and
 // that the transactions list actually paginates server-side rather than
 // loading everything (against the ~2900-row stress file).
-import { chromium } from "playwright-core";
+import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
 
-const SHOT = "/tmp/claude-0/-home-claude/a52814cf-53bd-5151-b67d-905c3e82b1dd/scratchpad";
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SHOT = path.join(SCRIPT_DIR, "..", "e2e-output");
+fs.mkdirSync(SHOT, { recursive: true });
+const FIXTURES = path.join(SCRIPT_DIR, "..", "e2e", "fixtures");
 const results = [];
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
 };
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", headless: true });
+const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 // Category resolution is now forced (no silent "auto-detect" fallback): any raw
@@ -133,7 +139,7 @@ try {
   // ── Import a larger dataset so pagination actually has something to page through ──
   await page.goto("http://localhost:3000/import");
   await page.waitForSelector("text=Choose file");
-  await page.setInputFiles('input[type="file"]', `${SHOT}/monito-large.csv`);
+  await page.setInputFiles('input[type="file"]', `${FIXTURES}/monito-large.csv`);
   await page.waitForSelector("text=Map your columns", { timeout: 10000 });
   await page.click("text=Continue");
   await page.waitForSelector("text=Map categories", { timeout: 8000 });
@@ -148,7 +154,11 @@ try {
   // the large import's history is scattered across years, so "To date" is
   // needed to actually see enough rows for a pagination check.
   await page.goto("http://localhost:3000/transactions?p=all");
-  await page.waitForSelector("text=/Today|Yesterday|Jul|Mar/");
+  // Which months actually appear depends on the current date and on what
+  // e2e-import.mjs (which clears the seed's current-month data earlier in
+  // the documented e2e:all sequence) left behind — match any date-group
+  // heading rather than hardcoding specific months.
+  await page.waitForSelector("text=/Today|Yesterday|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/");
   const rowsBefore = await page.locator('button[aria-label="Delete transaction"]').count();
   ok("initial page loads a bounded page, not the whole ledger", rowsBefore <= 50, `${rowsBefore} rows on first load`);
 

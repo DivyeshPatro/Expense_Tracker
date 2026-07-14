@@ -45,17 +45,17 @@ of truth this build implements. `HANDOFF.md` explains that bundle;
 - [x] Search — deterministic ⌘K parser ("swiggy in march", "upi expenses", explicit years like "food in march 2023") — filters pushed to the DB query, not loaded-then-filtered in JS
 - [x] Analytics — trend charts (fixed 6-month view) plus period-scoped stats (avg daily spend, biggest expense, savings rate) and a full category breakdown (not just top 5) with an Expense/Income toggle — click any category to jump to Transactions pre-filtered to that category and period
 - [ ] Receipts (upload/view/replace/delete via Supabase Storage)
-- [ ] Reports export by period (day/week/month/quarter/year/custom range, PDF/XLSX) — full-ledger CSV export exists (see Data & polish below); per-period report generation does not yet
+- [~] Reports export — full-ledger CSV and XLSX export both exist (Settings), and Analytics (period-scoped via the shared header picker) has a Print/Save-as-PDF view. True per-period XLSX/CSV export — i.e. an export limited to just the selected period/range rather than the whole ledger — is not yet wired.
 
 ### Phase 2 — Shared expenses
 
-- [x] Friends (ghost participants, no signup required) & groups
+- [x] Friends (ghost participants, no signup required) & groups — create/rename/delete a group, add/remove members, from the Shared page
 - [x] Splits — equal / exact, remainder paise to the payer, DB-enforced sum
 - [x] Settlement engine — net balances, greedy minimum-transaction suggestions
 - [x] Settle up (UPI / cash / bank) + history
-- [ ] Email invitations linking a ghost participant to a real account
-- [ ] Percentage & ratio split modes (equal/exact are live; schema supports both)
-- [ ] In-app notification center UI (budget/bill/settlement alerts are generated, not yet surfaced as a feed)
+- [x] Invitations linking a ghost participant to a real account — shareable-link only (`/invite/[token]`, 7-day expiry); no email delivery is wired up, by design (no email provider in scope)
+- [x] Percentage & ratio split modes — equal/exact/percent/ratio are all live end-to-end (UI + `splitByWeights`); `CUSTOM` (the fifth schema value) remains unhandled — nothing in the product sets it
+- [x] In-app notification center UI — bell dropdown in the top bar (unread badge, mark-all-read), reads the same `Notification` rows budgets/recurring already wrote
 
 ### Phase 3 — Data & polish
 
@@ -123,8 +123,15 @@ some balance-minus-seed-history number.)
 
 ```bash
 npm test                    # unit tests: split rounding, settlement engine, parser, money
-node scripts/e2e.mjs        # browser walkthrough (needs `npm run build && npm start` + Chromium)
+npm run e2e:all             # all 5 browser suites, in order, from a fresh seed (needs `npm run build && npm start` + Chromium)
 ```
+
+`e2e:all` reseeds the demo account once, then runs `e2e` → `e2e:import` → `e2e:monito` → `e2e:large-import` → `e2e:perf` in that
+order — each suite after the first depends on state left behind by the ones before it (e.g. `e2e:import` clears the seeded
+transactions before running its own import). Each suite is otherwise self-contained: `e2e:large-import` undoes its own
+~1500-2900-row import at the end so `e2e:perf`'s own import of the same fixture doesn't see every row as a duplicate. Run
+any single suite on its own with `npm run e2e`, `npm run e2e:import`, `npm run e2e:monito`, `npm run e2e:large-import`, or
+`npm run e2e:perf` — but note it'll see whatever state the DB is already in, so `npm run db:seed` first if in doubt.
 
 ## Architecture
 
@@ -155,6 +162,9 @@ Key invariants, enforced in code **and** the database:
 - Budget notifications are exactly-once per period via a unique dedupe key.
 - The recurring cron is idempotent: `nextRunAt` advances atomically with the
   materialized row.
+- The daily cron also reconciles every user's account balances against their
+  ledger (`reconcileAll`) and logs any drift — a pre-existing check that
+  previously existed in code but was never actually invoked.
 
 ## Deployment (Vercel + Supabase)
 

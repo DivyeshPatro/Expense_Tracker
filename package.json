@@ -10,7 +10,13 @@
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "e2e": "node scripts/e2e.mjs",
+    "e2e:import": "node scripts/e2e-import.mjs",
+    "e2e:monito": "node scripts/e2e-monito.mjs",
+    "e2e:large-import": "node scripts/e2e-large-import.mjs",
+    "e2e:perf": "node scripts/e2e-perf.mjs",
+    "e2e:all": "npm run db:seed && npm run e2e && npm run e2e:import && npm run e2e:monito && npm run e2e:large-import && npm run e2e:perf"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -29,6 +35,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "playwright": "^1.61.1",
     "prisma": "^6.10.0",
     "tailwindcss": "^4.1.0",
     "tsx": "^4.19.0",
