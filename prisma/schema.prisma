@@ -253,6 +253,7 @@ model RecurringRule {
   kind      RuleKind
 
   @@index([nextRunAt])
+  @@index([userId])
 }
 
 model Tag {
@@ -317,6 +318,8 @@ model Group {
   name        String
   createdById String
   members     GroupMember[]
+
+  @@index([createdById])
 }
 
 model GroupMember {
@@ -439,6 +442,8 @@ model ImportBatch {
   status        ImportStatus @default(PREVIEW)
   createdAt     DateTime     @default(now())
   // undo = soft-delete all tx where importBatchId = id
+
+  @@index([userId])
 }
 
 model ImportMapping {

@@ -70,7 +70,7 @@ export function CategoryBreakdown({
             </>
           );
           return c.id ? (
-            <Link key={c.name} href={txHref(c.id, tab)} className="no-underline text-ink hover:opacity-80">
+            <Link key={c.name} href={txHref(c.id, tab)} prefetch={false} className="no-underline text-ink hover:opacity-80">
               {content}
             </Link>
           ) : (

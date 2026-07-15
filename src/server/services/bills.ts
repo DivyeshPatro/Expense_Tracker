@@ -21,11 +21,10 @@ export interface BillView {
 }
 
 export async function listBills(userId: string, now = new Date()): Promise<BillView[]> {
-  const bills = await prisma.bill.findMany({
-    where: { userId, status: { not: "PAID" } },
-    orderBy: { dueDate: "asc" },
-  });
-  const cats = await prisma.category.findMany({ where: { userId } });
+  const [bills, cats] = await Promise.all([
+    prisma.bill.findMany({ where: { userId, status: { not: "PAID" } }, orderBy: { dueDate: "asc" } }),
+    prisma.category.findMany({ where: { userId } }),
+  ]);
   const catById = new Map(cats.map((c) => [c.id, c]));
 
   return bills.map((b) => {

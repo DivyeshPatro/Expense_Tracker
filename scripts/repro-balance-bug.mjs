@@ -1,10 +1,16 @@
 // Reproduces the reported "total balance incorrect" issue: import an
 // account-less dataset (like real Monito exports) WITHOUT touching the
 // default-account selector, exactly as a user would if they didn't notice it.
-import { chromium } from "playwright-core";
+import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
 
-const SHOT = "/tmp/claude-0/-home-claude/a52814cf-53bd-5151-b67d-905c3e82b1dd/scratchpad";
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", headless: true });
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SHOT = path.join(SCRIPT_DIR, "..", "e2e-output");
+fs.mkdirSync(SHOT, { recursive: true });
+const FIXTURES = path.join(SCRIPT_DIR, "..", "e2e", "fixtures");
+const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 async function resolveUnresolvedCategories(page) {
@@ -37,7 +43,7 @@ await page.waitForURL("**/dashboard", { timeout: 15000 });
 
 await page.goto("http://localhost:3000/import");
 await page.waitForSelector("text=Choose file");
-await page.setInputFiles('input[type="file"]', `${SHOT}/monito-large.csv`);
+await page.setInputFiles('input[type="file"]', `${FIXTURES}/monito-large.csv`);
 await page.waitForSelector("text=Map your columns", { timeout: 10000 });
 await page.click("text=Continue");
 await page.waitForSelector("text=Map categories", { timeout: 8000 });

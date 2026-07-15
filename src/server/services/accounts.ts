@@ -96,3 +96,14 @@ export async function reconcile(userId: string): Promise<{ accountId: string; dr
     return { accountId: a.id, drift: Number(a.balance) - (Number(a.openingBalance) + sum) };
   });
 }
+
+/** Runs reconcile() for every user with at least one account; returns only the accounts that drifted. Called by the daily cron since nothing else invokes reconcile(). */
+export async function reconcileAll(): Promise<{ userId: string; accountId: string; drift: number }[]> {
+  const users = await prisma.account.findMany({ select: { userId: true }, distinct: ["userId"] });
+  const out: { userId: string; accountId: string; drift: number }[] = [];
+  for (const { userId } of users) {
+    const rows = await reconcile(userId);
+    for (const r of rows) if (r.drift !== 0) out.push({ userId, ...r });
+  }
+  return out;
+}

@@ -1,9 +1,14 @@
 // Proves the import wizard against the user's actual Monito export shape:
 // banner rows, a month-section label, Category type/name split, blank notes.
-import { chromium } from "playwright-core";
+import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
 
-const SHOT = "/tmp/claude-0/-home-claude/a52814cf-53bd-5151-b67d-905c3e82b1dd/scratchpad";
-const CSV_PATH = `${SHOT}/monito-export.csv`;
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SHOT = path.join(SCRIPT_DIR, "..", "e2e-output");
+fs.mkdirSync(SHOT, { recursive: true });
+const CSV_PATH = path.join(SCRIPT_DIR, "..", "e2e", "fixtures", "monito-export.csv");
 const results = [];
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });
@@ -15,7 +20,7 @@ async function fillSearchStable(page, text) {
   await page.waitForTimeout(500);
 }
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", headless: true });
+const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 // Category resolution is forced: every raw value that doesn't already match an

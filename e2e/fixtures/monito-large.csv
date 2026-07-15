@@ -1,0 +1,1505 @@
+Monito Expense Manager,,,,
+Version 8.3,,,,
+Created on 13/07/2026,,,,
+,,,,
+Date,Category type,Category name,Note,Amount
+02/01/2021,Expense,Others,Electricity board,1718
+02/01/2021,Expense,Home,Swiggy,2526
+05/01/2021,Expense,Groceries,Swiggy,2380
+05/01/2021,Expense,Credit card Bill payment,Flipkart,2466
+07/01/2021,Expense,Credit card Bill payment,Local vendor,235
+08/01/2021,Expense,Home,Local vendor,790
+09/01/2021,Expense,Shopping,Flipkart,2109
+11/01/2021,Expense,Food,,2584
+11/01/2021,Expense,Entertainment,Local vendor,2012
+14/01/2021,Expense,Entertainment,Swiggy,2580
+16/01/2021,Expense,Rent,,2814
+16/01/2021,Expense,Groceries,Zomato,304
+18/01/2021,Expense,Credit card Bill payment,BigBasket,1563
+18/01/2021,Expense,Groceries,Swiggy,434
+21/01/2021,Expense,Groceries,Electricity board,2020
+23/01/2021,Expense,Entertainment,Movie tickets,2035
+22/01/2021,Expense,Clothing,Uber,459
+23/01/2021,Expense,Entertainment,Movie tickets,141
+25/01/2021,Expense,Travel,Movie tickets,1164
+26/01/2021,Expense,Clothing,Ola,2559
+27/01/2021,Expense,Food,Swiggy,265
+29/01/2021,Expense,Home,,1737
+31/01/2021,Income,Refund,,66088
+31/01/2021,Expense,Groceries,,1081
+03/02/2021,Expense,Credit card Bill payment,,257
+05/02/2021,Expense,Groceries,Movie tickets,1125
+06/02/2021,Expense,Home,Electricity board,253
+07/02/2021,Expense,Rent,Ola,1825
+09/02/2021,Expense,Entertainment,Uber,96
+10/02/2021,Expense,Credit card Bill payment,Uber,2713
+10/02/2021,Expense,Credit card Bill payment,Electricity board,2135
+12/02/2021,Expense,Home,Local vendor,2798
+12/02/2021,Income,Refund,,42024
+15/02/2021,Expense,Rent,Zomato,2130
+16/02/2021,Expense,Others,Flipkart,1897
+18/02/2021,Expense,Clothing,Movie tickets,974
+19/02/2021,Expense,Home,Swiggy,74
+19/02/2021,Expense,Entertainment,,2100
+20/02/2021,Expense,Food,BigBasket,281
+23/02/2021,Expense,Home,Flipkart,119
+23/02/2021,Expense,Others,Ola,979
+25/02/2021,Expense,Others,Zomato,2543
+28/02/2021,Expense,Credit card Bill payment,,2439
+27/02/2021,Expense,Home,BigBasket,658
+28/02/2021,Expense,Rent,Local vendor,1749
+02/03/2021,Expense,Travel,Movie tickets,2501
+03/03/2021,Expense,Travel,BigBasket,1801
+05/03/2021,Expense,Credit card Bill payment,Swiggy,2094
+08/03/2021,Expense,Groceries,Movie tickets,637
+08/03/2021,Expense,Entertainment,Swiggy,2679
+10/03/2021,Expense,Clothing,Amazon,2841
+11/03/2021,Expense,Shopping,Ola,1885
+11/03/2021,Expense,Shopping,Movie tickets,1333
+12/03/2021,Expense,Rent,Uber,2078
+16/03/2021,Expense,Shopping,,2888
+17/03/2021,Expense,Home,Amazon,1953
+18/03/2021,Expense,Clothing,Flipkart,1574
+19/03/2021,Expense,Rent,Uber,871
+19/03/2021,Expense,Home,,1158
+20/03/2021,Expense,Groceries,Amazon,2942
+22/03/2021,Expense,Credit card Bill payment,Flipkart,2362
+25/03/2021,Expense,Clothing,Zomato,2330
+26/03/2021,Expense,Clothing,Local vendor,2697
+27/03/2021,Expense,Home,,1929
+28/03/2021,Expense,Credit card Bill payment,Local vendor,1502
+30/03/2021,Expense,Shopping,Amazon,1007
+30/03/2021,Expense,Clothing,,1518
+02/04/2021,Expense,Food,Local vendor,1265
+01/04/2021,Expense,Credit card Bill payment,Electricity board,2937
+03/04/2021,Expense,Rent,,1449
+04/04/2021,Expense,Others,,1730
+05/04/2021,Income,Salary,,51804
+09/04/2021,Expense,Entertainment,Ola,2232
+08/04/2021,Expense,Others,Zomato,1954
+11/04/2021,Expense,Credit card Bill payment,Local vendor,1205
+11/04/2021,Expense,Clothing,Movie tickets,1514
+12/04/2021,Expense,Clothing,,2810
+15/04/2021,Expense,Rent,Electricity board,677
+16/04/2021,Income,Salary,,63657
+17/04/2021,Expense,Others,,786
+18/04/2021,Expense,Rent,,89
+21/04/2021,Expense,Entertainment,Movie tickets,2540
+20/04/2021,Expense,Entertainment,BigBasket,1193
+21/04/2021,Expense,Shopping,Zomato,747
+23/04/2021,Expense,Groceries,,2898
+24/04/2021,Expense,Groceries,Uber,2224
+27/04/2021,Expense,Others,Swiggy,1060
+27/04/2021,Expense,Groceries,Local vendor,585
+28/04/2021,Expense,Home,Zomato,1039
+01/05/2021,Expense,Shopping,,2121
+02/05/2021,Expense,Credit card Bill payment,Flipkart,2147
+04/05/2021,Expense,Food,BigBasket,1953
+05/05/2021,Expense,Others,Ola,2386
+06/05/2021,Expense,Entertainment,BigBasket,180
+06/05/2021,Expense,Travel,Flipkart,1516
+08/05/2021,Expense,Credit card Bill payment,BigBasket,155
+10/05/2021,Expense,Food,,1581
+11/05/2021,Expense,Others,Ola,1943
+13/05/2021,Expense,Groceries,Electricity board,1305
+14/05/2021,Expense,Clothing,Movie tickets,1005
+16/05/2021,Expense,Home,,588
+16/05/2021,Expense,Groceries,Ola,474
+19/05/2021,Expense,Travel,Uber,1690
+19/05/2021,Expense,Entertainment,BigBasket,749
+22/05/2021,Expense,Rent,Electricity board,107
+21/05/2021,Expense,Travel,Zomato,2371
+23/05/2021,Expense,Clothing,BigBasket,1843
+26/05/2021,Expense,Others,,975
+26/05/2021,Income,Refund,,34734
+28/05/2021,Expense,Travel,Zomato,2221
+30/05/2021,Expense,Food,Electricity board,572
+29/05/2021,Expense,Entertainment,Ola,254
+01/06/2021,Expense,Others,Movie tickets,2999
+01/06/2021,Expense,Clothing,Uber,168
+03/06/2021,Expense,Groceries,Ola,454
+04/06/2021,Expense,Credit card Bill payment,Zomato,1900
+07/06/2021,Income,Refund,,65083
+06/06/2021,Income,Refund,,61656
+08/06/2021,Expense,Travel,,2627
+09/06/2021,Expense,Groceries,,2957
+12/06/2021,Expense,Travel,Electricity board,2185
+11/06/2021,Expense,Home,Uber,2348
+13/06/2021,Expense,Credit card Bill payment,Amazon,131
+16/06/2021,Expense,Entertainment,,262
+16/06/2021,Expense,Travel,Ola,1926
+18/06/2021,Expense,Shopping,Electricity board,1459
+19/06/2021,Income,Salary,,62410
+19/06/2021,Expense,Home,Swiggy,137
+22/06/2021,Expense,Entertainment,BigBasket,1619
+23/06/2021,Expense,Rent,Uber,2531
+25/06/2021,Expense,Travel,Swiggy,169
+27/06/2021,Expense,Entertainment,BigBasket,1002
+28/06/2021,Expense,Others,Amazon,434
+28/06/2021,Expense,Food,,1728
+01/07/2021,Expense,Food,Amazon,2697
+30/06/2021,Expense,Travel,Local vendor,1949
+03/07/2021,Expense,Home,Swiggy,2516
+05/07/2021,Expense,Travel,BigBasket,2023
+05/07/2021,Expense,Clothing,Flipkart,2612
+06/07/2021,Expense,Rent,Local vendor,3021
+09/07/2021,Expense,Others,,356
+10/07/2021,Expense,Credit card Bill payment,Electricity board,2335
+11/07/2021,Expense,Credit card Bill payment,Zomato,516
+13/07/2021,Expense,Shopping,Flipkart,2071
+12/07/2021,Expense,Food,Flipkart,105
+15/07/2021,Expense,Groceries,Uber,120
+15/07/2021,Expense,Credit card Bill payment,Zomato,2279
+16/07/2021,Expense,Food,Zomato,1344
+19/07/2021,Income,Refund,,61179
+20/07/2021,Expense,Shopping,Uber,1913
+20/07/2021,Expense,Travel,BigBasket,1890
+21/07/2021,Expense,Groceries,Zomato,2934
+25/07/2021,Expense,Travel,Electricity board,1716
+26/07/2021,Expense,Entertainment,Amazon,1010
+26/07/2021,Expense,Groceries,Uber,2385
+29/07/2021,Expense,Groceries,Amazon,2328
+28/07/2021,Expense,Shopping,Swiggy,535
+31/07/2021,Expense,Rent,,2355
+31/07/2021,Expense,Home,,1580
+01/08/2021,Expense,Shopping,Zomato,2307
+03/08/2021,Expense,Groceries,Ola,2997
+05/08/2021,Expense,Others,Electricity board,603
+05/08/2021,Expense,Food,,1473
+07/08/2021,Expense,Credit card Bill payment,Swiggy,862
+08/08/2021,Expense,Shopping,Movie tickets,1161
+10/08/2021,Expense,Entertainment,Ola,2945
+10/08/2021,Expense,Credit card Bill payment,,2179
+12/08/2021,Expense,Travel,Ola,2933
+14/08/2021,Expense,Shopping,,1236
+15/08/2021,Expense,Entertainment,Movie tickets,3011
+16/08/2021,Expense,Others,Swiggy,1954
+19/08/2021,Expense,Food,Swiggy,2213
+19/08/2021,Expense,Others,Flipkart,2234
+20/08/2021,Expense,Shopping,Local vendor,2094
+22/08/2021,Expense,Shopping,Zomato,2064
+24/08/2021,Expense,Clothing,Uber,1013
+26/08/2021,Expense,Food,Ola,2797
+27/08/2021,Expense,Travel,Ola,2107
+27/08/2021,Expense,Clothing,,1058
+29/08/2021,Income,Refund,,62028
+31/08/2021,Expense,Shopping,Uber,234
+01/09/2021,Expense,Travel,BigBasket,1636
+03/09/2021,Expense,Credit card Bill payment,Movie tickets,1975
+02/09/2021,Expense,Shopping,Ola,2961
+05/09/2021,Income,Refund,,50532
+07/09/2021,Expense,Rent,Zomato,2942
+06/09/2021,Expense,Entertainment,Ola,565
+08/09/2021,Expense,Home,BigBasket,2037
+10/09/2021,Expense,Credit card Bill payment,Electricity board,755
+10/09/2021,Expense,Credit card Bill payment,Uber,831
+13/09/2021,Expense,Clothing,Amazon,738
+15/09/2021,Expense,Travel,Zomato,178
+15/09/2021,Expense,Home,,1101
+16/09/2021,Expense,Travel,Local vendor,391
+17/09/2021,Expense,Travel,,2962
+18/09/2021,Expense,Home,Zomato,447
+21/09/2021,Expense,Credit card Bill payment,Uber,1020
+21/09/2021,Income,Salary,,35123
+24/09/2021,Expense,Food,Flipkart,1253
+26/09/2021,Expense,Credit card Bill payment,,1237
+26/09/2021,Expense,Food,Flipkart,2308
+26/09/2021,Expense,Groceries,BigBasket,73
+28/09/2021,Expense,Rent,Swiggy,1123
+01/10/2021,Expense,Others,BigBasket,2097
+01/10/2021,Expense,Travel,Electricity board,677
+03/10/2021,Expense,Food,Flipkart,2066
+05/10/2021,Expense,Others,Movie tickets,1959
+04/10/2021,Expense,Others,BigBasket,1795
+06/10/2021,Expense,Home,Zomato,354
+09/10/2021,Income,Refund,,31902
+09/10/2021,Expense,Rent,Flipkart,1031
+12/10/2021,Expense,Others,Amazon,2071
+13/10/2021,Expense,Others,BigBasket,2574
+14/10/2021,Expense,Food,Uber,1710
+16/10/2021,Expense,Credit card Bill payment,Swiggy,792
+17/10/2021,Expense,Travel,Movie tickets,2061
+16/10/2021,Expense,Entertainment,,1718
+20/10/2021,Expense,Groceries,BigBasket,2709
+21/10/2021,Expense,Clothing,Amazon,2751
+20/10/2021,Expense,Groceries,,630
+24/10/2021,Expense,Home,Amazon,2447
+23/10/2021,Expense,Rent,Zomato,661
+26/10/2021,Expense,Travel,Local vendor,2143
+28/10/2021,Expense,Entertainment,Flipkart,1585
+28/10/2021,Expense,Credit card Bill payment,Zomato,608
+30/10/2021,Expense,Travel,,2514
+01/11/2021,Expense,Groceries,,2560
+01/11/2021,Expense,Shopping,Amazon,2140
+02/11/2021,Expense,Credit card Bill payment,Uber,2361
+05/11/2021,Expense,Home,Amazon,1607
+05/11/2021,Income,Refund,,50824
+07/11/2021,Expense,Others,Uber,2758
+08/11/2021,Expense,Rent,Uber,259
+10/11/2021,Expense,Rent,,1752
+11/11/2021,Expense,Shopping,Flipkart,2184
+12/11/2021,Income,Refund,,59583
+12/11/2021,Expense,Entertainment,,918
+14/11/2021,Expense,Shopping,Flipkart,2781
+17/11/2021,Expense,Rent,,564
+18/11/2021,Expense,Clothing,,934
+18/11/2021,Expense,Entertainment,Electricity board,1996
+20/11/2021,Expense,Credit card Bill payment,Movie tickets,2568
+22/11/2021,Expense,Travel,,2310
+22/11/2021,Expense,Groceries,Ola,1268
+24/11/2021,Expense,Clothing,Ola,311
+24/11/2021,Expense,Entertainment,Movie tickets,2411
+27/11/2021,Expense,Others,Uber,2877
+28/11/2021,Expense,Food,Electricity board,1336
+29/11/2021,Expense,Travel,Amazon,1461
+30/11/2021,Expense,Others,Electricity board,2519
+03/12/2021,Expense,Travel,Electricity board,193
+03/12/2021,Expense,Others,Movie tickets,156
+04/12/2021,Expense,Home,Local vendor,648
+06/12/2021,Expense,Clothing,,1580
+08/12/2021,Expense,Rent,Amazon,851
+10/12/2021,Expense,Rent,,1617
+09/12/2021,Expense,Rent,Electricity board,1612
+12/12/2021,Expense,Travel,,394
+13/12/2021,Expense,Others,Swiggy,1057
+14/12/2021,Expense,Others,Zomato,2933
+14/12/2021,Expense,Groceries,Electricity board,1153
+16/12/2021,Expense,Others,BigBasket,1270
+17/12/2021,Expense,Home,Zomato,1494
+18/12/2021,Expense,Clothing,,2999
+22/12/2021,Expense,Food,Ola,2544
+21/12/2021,Expense,Groceries,Ola,2512
+22/12/2021,Income,Salary,,41402
+24/12/2021,Expense,Entertainment,Zomato,641
+25/12/2021,Expense,Credit card Bill payment,,2848
+27/12/2021,Expense,Home,,3012
+30/12/2021,Income,Refund,,49444
+30/12/2021,Expense,Groceries,Zomato,2798
+01/01/2022,Expense,Entertainment,Amazon,1399
+03/01/2022,Expense,Shopping,Amazon,247
+03/01/2022,Expense,Rent,Flipkart,73
+03/01/2022,Expense,Home,Flipkart,1886
+07/01/2022,Expense,Groceries,,950
+08/01/2022,Expense,Entertainment,Swiggy,2901
+08/01/2022,Expense,Travel,Ola,1169
+10/01/2022,Expense,Travel,BigBasket,754
+12/01/2022,Expense,Travel,,372
+12/01/2022,Expense,Travel,Movie tickets,1812
+15/01/2022,Expense,Entertainment,,948
+16/01/2022,Expense,Home,Swiggy,3012
+17/01/2022,Expense,Home,Flipkart,1985
+18/01/2022,Expense,Shopping,Movie tickets,2701
+20/01/2022,Expense,Others,Local vendor,3002
+21/01/2022,Expense,Groceries,Local vendor,1708
+23/01/2022,Expense,Clothing,Local vendor,551
+23/01/2022,Expense,Food,Ola,2660
+25/01/2022,Expense,Clothing,Local vendor,2889
+27/01/2022,Income,Refund,,35998
+28/01/2022,Expense,Shopping,,1258
+27/01/2022,Expense,Home,Local vendor,2844
+30/01/2022,Expense,Travel,Uber,2156
+31/01/2022,Expense,Travel,Flipkart,1164
+31/01/2022,Expense,Groceries,Local vendor,2457
+03/02/2022,Expense,Others,Uber,1216
+05/02/2022,Expense,Travel,Electricity board,1328
+05/02/2022,Expense,Food,Flipkart,263
+06/02/2022,Expense,Shopping,Flipkart,1007
+07/02/2022,Expense,Rent,Movie tickets,808
+09/02/2022,Expense,Entertainment,Zomato,570
+10/02/2022,Expense,Entertainment,Electricity board,1534
+11/02/2022,Expense,Travel,,421
+12/02/2022,Expense,Food,Zomato,112
+14/02/2022,Income,Salary,,40385
+15/02/2022,Expense,Travel,,312
+18/02/2022,Expense,Rent,Swiggy,714
+19/02/2022,Expense,Travel,Swiggy,533
+20/02/2022,Expense,Rent,,1853
+21/02/2022,Expense,Credit card Bill payment,Local vendor,1189
+24/02/2022,Expense,Food,Swiggy,2928
+23/02/2022,Expense,Travel,Zomato,294
+25/02/2022,Expense,Shopping,Flipkart,1520
+28/02/2022,Expense,Entertainment,Local vendor,1831
+01/03/2022,Expense,Others,,2289
+28/02/2022,Expense,Entertainment,Local vendor,2636
+03/03/2022,Expense,Rent,BigBasket,453
+05/03/2022,Expense,Clothing,,2145
+04/03/2022,Expense,Others,Movie tickets,850
+06/03/2022,Expense,Entertainment,Swiggy,2086
+08/03/2022,Expense,Credit card Bill payment,BigBasket,65
+09/03/2022,Expense,Shopping,,801
+10/03/2022,Expense,Home,Ola,2630
+12/03/2022,Expense,Clothing,Ola,245
+12/03/2022,Expense,Entertainment,Swiggy,797
+15/03/2022,Expense,Shopping,Electricity board,219
+17/03/2022,Expense,Shopping,Swiggy,1771
+17/03/2022,Expense,Credit card Bill payment,Amazon,2760
+18/03/2022,Expense,Groceries,,2453
+19/03/2022,Expense,Clothing,,2468
+21/03/2022,Expense,Groceries,Local vendor,1283
+22/03/2022,Expense,Groceries,Zomato,2984
+23/03/2022,Expense,Credit card Bill payment,BigBasket,619
+26/03/2022,Expense,Rent,Movie tickets,707
+27/03/2022,Expense,Clothing,Amazon,140
+27/03/2022,Expense,Travel,,2382
+29/03/2022,Expense,Home,Local vendor,1688
+01/04/2022,Expense,Clothing,Amazon,1221
+01/04/2022,Expense,Rent,Swiggy,1389
+02/04/2022,Expense,Travel,,503
+04/04/2022,Expense,Rent,Movie tickets,2138
+05/04/2022,Expense,Credit card Bill payment,,109
+07/04/2022,Expense,Food,BigBasket,1928
+09/04/2022,Income,Refund,,63015
+09/04/2022,Expense,Food,Swiggy,1359
+12/04/2022,Expense,Food,Zomato,2723
+13/04/2022,Expense,Others,Swiggy,480
+12/04/2022,Expense,Others,,500
+16/04/2022,Expense,Others,Local vendor,996
+17/04/2022,Expense,Clothing,,545
+17/04/2022,Expense,Entertainment,Electricity board,579
+20/04/2022,Expense,Clothing,BigBasket,2907
+19/04/2022,Income,Salary,,58377
+20/04/2022,Expense,Food,BigBasket,2261
+24/04/2022,Expense,Rent,Electricity board,1786
+25/04/2022,Expense,Home,Local vendor,2424
+25/04/2022,Expense,Travel,Amazon,107
+26/04/2022,Expense,Groceries,Flipkart,656
+28/04/2022,Expense,Home,Uber,1289
+29/04/2022,Expense,Food,Electricity board,1404
+01/05/2022,Expense,Home,,1140
+02/05/2022,Expense,Entertainment,Movie tickets,1185
+02/05/2022,Expense,Entertainment,Amazon,2070
+05/05/2022,Expense,Credit card Bill payment,Electricity board,2476
+05/05/2022,Expense,Groceries,Electricity board,2270
+06/05/2022,Expense,Entertainment,Ola,2192
+10/05/2022,Expense,Shopping,Amazon,2135
+11/05/2022,Expense,Groceries,Amazon,2560
+12/05/2022,Expense,Entertainment,Electricity board,2559
+14/05/2022,Expense,Travel,Ola,932
+15/05/2022,Expense,Credit card Bill payment,Ola,658
+16/05/2022,Expense,Groceries,Electricity board,259
+16/05/2022,Income,Salary,,50537
+19/05/2022,Expense,Travel,Swiggy,2767
+18/05/2022,Expense,Shopping,Swiggy,446
+20/05/2022,Expense,Food,BigBasket,160
+23/05/2022,Expense,Others,,475
+22/05/2022,Expense,Groceries,,1412
+25/05/2022,Expense,Food,Amazon,1528
+27/05/2022,Expense,Food,Flipkart,2085
+26/05/2022,Income,Refund,,63309
+30/05/2022,Expense,Groceries,BigBasket,388
+31/05/2022,Expense,Credit card Bill payment,Movie tickets,1740
+01/06/2022,Expense,Groceries,Amazon,1565
+03/06/2022,Expense,Entertainment,,2465
+02/06/2022,Expense,Food,BigBasket,493
+04/06/2022,Expense,Food,Swiggy,1565
+06/06/2022,Expense,Others,Zomato,2292
+07/06/2022,Expense,Food,Ola,86
+09/06/2022,Expense,Travel,Uber,93
+11/06/2022,Expense,Clothing,BigBasket,992
+12/06/2022,Expense,Clothing,Local vendor,1444
+12/06/2022,Expense,Entertainment,Zomato,2168
+15/06/2022,Expense,Travel,Ola,953
+14/06/2022,Income,Refund,,54592
+16/06/2022,Expense,Entertainment,Movie tickets,1949
+17/06/2022,Expense,Shopping,Swiggy,2887
+19/06/2022,Expense,Entertainment,Zomato,2747
+19/06/2022,Expense,Others,Zomato,639
+21/06/2022,Expense,Home,Amazon,1966
+23/06/2022,Expense,Entertainment,Ola,1120
+24/06/2022,Expense,Food,Electricity board,2372
+27/06/2022,Expense,Rent,,2922
+27/06/2022,Expense,Credit card Bill payment,,542
+27/06/2022,Expense,Credit card Bill payment,Local vendor,137
+01/07/2022,Expense,Entertainment,BigBasket,1079
+01/07/2022,Expense,Entertainment,BigBasket,2977
+01/07/2022,Income,Refund,,30499
+03/07/2022,Expense,Clothing,Amazon,58
+04/07/2022,Expense,Others,,1175
+07/07/2022,Expense,Rent,Amazon,913
+07/07/2022,Expense,Rent,BigBasket,851
+08/07/2022,Expense,Others,Flipkart,854
+10/07/2022,Expense,Others,Zomato,1264
+13/07/2022,Expense,Travel,Flipkart,1786
+14/07/2022,Expense,Clothing,BigBasket,479
+15/07/2022,Income,Salary,,38694
+16/07/2022,Expense,Others,Local vendor,2141
+17/07/2022,Expense,Entertainment,Ola,2207
+20/07/2022,Expense,Groceries,Local vendor,1620
+19/07/2022,Income,Refund,,46133
+21/07/2022,Expense,Home,Electricity board,2538
+24/07/2022,Expense,Others,Zomato,2175
+24/07/2022,Expense,Travel,,431
+26/07/2022,Expense,Travel,Ola,1528
+27/07/2022,Expense,Shopping,Amazon,2865
+27/07/2022,Expense,Rent,Flipkart,366
+28/07/2022,Expense,Groceries,Amazon,1691
+01/08/2022,Income,Salary,,32431
+31/07/2022,Expense,Credit card Bill payment,Zomato,2845
+02/08/2022,Expense,Shopping,Movie tickets,1697
+05/08/2022,Expense,Clothing,Movie tickets,2469
+05/08/2022,Expense,Entertainment,Electricity board,231
+07/08/2022,Expense,Shopping,Ola,2290
+08/08/2022,Expense,Groceries,Electricity board,1071
+08/08/2022,Expense,Travel,Amazon,2917
+10/08/2022,Expense,Food,Movie tickets,1166
+13/08/2022,Expense,Groceries,Electricity board,1011
+12/08/2022,Expense,Travel,Ola,656
+15/08/2022,Expense,Credit card Bill payment,Movie tickets,1153
+16/08/2022,Expense,Rent,Zomato,1891
+18/08/2022,Expense,Groceries,,2302
+17/08/2022,Expense,Others,Swiggy,719
+20/08/2022,Expense,Others,Ola,1242
+20/08/2022,Expense,Travel,Swiggy,2812
+23/08/2022,Expense,Entertainment,Uber,2972
+25/08/2022,Expense,Food,Flipkart,595
+26/08/2022,Expense,Credit card Bill payment,Local vendor,751
+25/08/2022,Expense,Clothing,Swiggy,123
+29/08/2022,Expense,Home,Swiggy,1709
+28/08/2022,Expense,Entertainment,Electricity board,1326
+30/08/2022,Expense,Shopping,Local vendor,2080
+01/09/2022,Expense,Shopping,BigBasket,1607
+01/09/2022,Expense,Home,BigBasket,331
+04/09/2022,Expense,Rent,Swiggy,2281
+06/09/2022,Expense,Shopping,Electricity board,2683
+05/09/2022,Expense,Travel,Local vendor,2069
+07/09/2022,Expense,Rent,Electricity board,2488
+10/09/2022,Expense,Travel,BigBasket,1111
+10/09/2022,Expense,Food,Uber,2201
+11/09/2022,Expense,Food,,1536
+14/09/2022,Expense,Food,Swiggy,1482
+15/09/2022,Expense,Travel,Movie tickets,907
+15/09/2022,Expense,Groceries,,2588
+17/09/2022,Expense,Travel,Zomato,838
+19/09/2022,Expense,Others,Zomato,1417
+20/09/2022,Expense,Entertainment,Movie tickets,2378
+22/09/2022,Expense,Groceries,Ola,2943
+22/09/2022,Expense,Rent,Flipkart,1917
+24/09/2022,Expense,Travel,Uber,1643
+25/09/2022,Expense,Others,,1218
+25/09/2022,Expense,Groceries,Swiggy,2362
+28/09/2022,Expense,Groceries,Movie tickets,1987
+29/09/2022,Expense,Entertainment,Movie tickets,2866
+01/10/2022,Income,Refund,,33124
+30/09/2022,Expense,Home,Local vendor,1485
+03/10/2022,Expense,Groceries,Ola,2110
+05/10/2022,Expense,Travel,Flipkart,1780
+05/10/2022,Expense,Entertainment,Flipkart,2449
+07/10/2022,Expense,Entertainment,,253
+09/10/2022,Expense,Clothing,Zomato,2231
+09/10/2022,Expense,Food,Movie tickets,283
+10/10/2022,Expense,Credit card Bill payment,BigBasket,1732
+12/10/2022,Expense,Entertainment,Uber,828
+13/10/2022,Expense,Credit card Bill payment,Swiggy,285
+14/10/2022,Expense,Shopping,Local vendor,587
+17/10/2022,Expense,Entertainment,Uber,2115
+17/10/2022,Expense,Shopping,,158
+19/10/2022,Expense,Travel,Local vendor,1075
+19/10/2022,Expense,Others,Uber,697
+21/10/2022,Expense,Home,Local vendor,1072
+23/10/2022,Expense,Credit card Bill payment,Ola,972
+23/10/2022,Expense,Home,Flipkart,1574
+26/10/2022,Expense,Shopping,BigBasket,467
+26/10/2022,Expense,Travel,Local vendor,1483
+29/10/2022,Expense,Groceries,Uber,1782
+28/10/2022,Expense,Groceries,Zomato,2968
+30/10/2022,Expense,Shopping,Amazon,1591
+02/11/2022,Expense,Food,Swiggy,1552
+04/11/2022,Expense,Groceries,BigBasket,457
+05/11/2022,Expense,Travel,BigBasket,1371
+05/11/2022,Expense,Groceries,Flipkart,851
+08/11/2022,Expense,Travel,Amazon,360
+09/11/2022,Expense,Rent,Swiggy,2446
+08/11/2022,Expense,Groceries,BigBasket,1720
+10/11/2022,Expense,Entertainment,Swiggy,1998
+11/11/2022,Expense,Credit card Bill payment,Flipkart,2565
+14/11/2022,Expense,Rent,Flipkart,740
+14/11/2022,Expense,Home,Electricity board,2329
+17/11/2022,Expense,Clothing,Uber,1996
+17/11/2022,Expense,Rent,Electricity board,1896
+18/11/2022,Expense,Clothing,Swiggy,331
+21/11/2022,Expense,Clothing,Local vendor,1220
+21/11/2022,Income,Refund,,64299
+23/11/2022,Expense,Food,Ola,2881
+23/11/2022,Expense,Credit card Bill payment,Movie tickets,2042
+25/11/2022,Expense,Travel,,2857
+26/11/2022,Expense,Home,Uber,2557
+27/11/2022,Expense,Clothing,Amazon,1341
+28/11/2022,Expense,Travel,Local vendor,130
+02/12/2022,Expense,Rent,Uber,2541
+03/12/2022,Expense,Rent,Local vendor,672
+02/12/2022,Expense,Home,Amazon,1959
+04/12/2022,Expense,Entertainment,BigBasket,2556
+06/12/2022,Expense,Food,Flipkart,162
+06/12/2022,Expense,Rent,Uber,1641
+09/12/2022,Expense,Home,Amazon,1300
+10/12/2022,Expense,Shopping,Movie tickets,472
+11/12/2022,Expense,Clothing,BigBasket,2442
+12/12/2022,Expense,Groceries,Ola,761
+15/12/2022,Expense,Clothing,Movie tickets,1458
+15/12/2022,Expense,Groceries,Flipkart,2162
+18/12/2022,Expense,Rent,,2505
+19/12/2022,Expense,Groceries,Zomato,933
+18/12/2022,Expense,Credit card Bill payment,Movie tickets,1934
+20/12/2022,Expense,Rent,Zomato,1002
+21/12/2022,Expense,Credit card Bill payment,Uber,2840
+24/12/2022,Expense,Others,Ola,2952
+24/12/2022,Expense,Travel,Movie tickets,2107
+27/12/2022,Expense,Home,BigBasket,2873
+28/12/2022,Expense,Shopping,Uber,81
+30/12/2022,Expense,Food,Swiggy,2151
+31/12/2022,Expense,Travel,Ola,1649
+31/12/2022,Expense,Home,Ola,1075
+02/01/2023,Expense,Others,Electricity board,2374
+02/01/2023,Expense,Entertainment,,1868
+03/01/2023,Expense,Entertainment,Amazon,1999
+05/01/2023,Expense,Clothing,,2337
+07/01/2023,Expense,Rent,Electricity board,319
+09/01/2023,Expense,Entertainment,Uber,1661
+11/01/2023,Expense,Entertainment,BigBasket,552
+11/01/2023,Expense,Groceries,Ola,1673
+12/01/2023,Expense,Credit card Bill payment,Local vendor,2477
+15/01/2023,Expense,Credit card Bill payment,,2491
+15/01/2023,Expense,Groceries,Ola,475
+15/01/2023,Expense,Entertainment,Zomato,342
+19/01/2023,Expense,Clothing,Ola,383
+18/01/2023,Expense,Travel,Movie tickets,1711
+19/01/2023,Expense,Food,Local vendor,300
+23/01/2023,Expense,Shopping,,2959
+24/01/2023,Expense,Travel,Swiggy,611
+24/01/2023,Expense,Food,Electricity board,1860
+25/01/2023,Expense,Shopping,Local vendor,1016
+27/01/2023,Expense,Credit card Bill payment,Amazon,1343
+28/01/2023,Expense,Others,Flipkart,2703
+29/01/2023,Expense,Clothing,,1682
+30/01/2023,Expense,Home,Amazon,77
+02/02/2023,Expense,Shopping,Uber,302
+02/02/2023,Expense,Clothing,Uber,2561
+03/02/2023,Income,Refund,,33251
+04/02/2023,Expense,Groceries,BigBasket,774
+06/02/2023,Expense,Others,Local vendor,2126
+09/02/2023,Income,Refund,,35174
+08/02/2023,Expense,Credit card Bill payment,,2847
+12/02/2023,Expense,Rent,,2901
+13/02/2023,Expense,Food,Movie tickets,518
+12/02/2023,Expense,Shopping,Flipkart,1167
+15/02/2023,Income,Refund,,60209
+17/02/2023,Expense,Food,Local vendor,721
+17/02/2023,Expense,Credit card Bill payment,Amazon,2751
+20/02/2023,Expense,Entertainment,,3012
+19/02/2023,Expense,Clothing,Ola,841
+22/02/2023,Expense,Rent,Amazon,2706
+22/02/2023,Expense,Others,Local vendor,939
+23/02/2023,Expense,Entertainment,Local vendor,1828
+27/02/2023,Expense,Others,,1052
+27/02/2023,Expense,Rent,,2006
+01/03/2023,Expense,Groceries,Electricity board,1771
+01/03/2023,Expense,Entertainment,Zomato,1137
+03/03/2023,Expense,Groceries,Amazon,2618
+04/03/2023,Expense,Credit card Bill payment,Local vendor,636
+07/03/2023,Expense,Food,Local vendor,2436
+07/03/2023,Expense,Rent,,2006
+08/03/2023,Expense,Others,,808
+10/03/2023,Expense,Shopping,Local vendor,1068
+11/03/2023,Income,Refund,,44609
+11/03/2023,Expense,Groceries,Movie tickets,1648
+14/03/2023,Expense,Shopping,Local vendor,1345
+15/03/2023,Income,Salary,,65574
+16/03/2023,Expense,Home,Local vendor,292
+17/03/2023,Expense,Credit card Bill payment,,381
+19/03/2023,Expense,Entertainment,Zomato,1840
+21/03/2023,Expense,Others,,2194
+23/03/2023,Expense,Shopping,,2063
+23/03/2023,Expense,Others,Local vendor,438
+23/03/2023,Income,Salary,,60682
+25/03/2023,Expense,Others,BigBasket,1457
+27/03/2023,Expense,Clothing,BigBasket,416
+27/03/2023,Income,Salary,,47455
+31/03/2023,Expense,Credit card Bill payment,Zomato,2478
+31/03/2023,Expense,Shopping,Movie tickets,1758
+01/04/2023,Expense,Rent,Zomato,1063
+04/04/2023,Expense,Clothing,Zomato,1147
+04/04/2023,Expense,Others,BigBasket,1522
+06/04/2023,Expense,Others,Zomato,320
+07/04/2023,Expense,Home,Swiggy,1937
+07/04/2023,Expense,Shopping,,1377
+09/04/2023,Expense,Entertainment,,870
+12/04/2023,Expense,Credit card Bill payment,Flipkart,368
+13/04/2023,Expense,Travel,Zomato,2217
+13/04/2023,Expense,Clothing,Flipkart,905
+15/04/2023,Expense,Shopping,,771
+16/04/2023,Expense,Others,,401
+17/04/2023,Expense,Food,Movie tickets,2147
+20/04/2023,Expense,Others,,1898
+20/04/2023,Expense,Groceries,Electricity board,799
+22/04/2023,Expense,Groceries,Electricity board,193
+23/04/2023,Income,Salary,,45255
+25/04/2023,Expense,Food,,53
+24/04/2023,Expense,Credit card Bill payment,Zomato,2884
+28/04/2023,Income,Salary,,32322
+27/04/2023,Expense,Home,Electricity board,2085
+30/04/2023,Expense,Clothing,Electricity board,297
+30/04/2023,Expense,Shopping,Local vendor,2507
+01/05/2023,Expense,Travel,Local vendor,736
+04/05/2023,Expense,Food,Electricity board,2971
+05/05/2023,Expense,Credit card Bill payment,Swiggy,140
+05/05/2023,Expense,Shopping,,185
+06/05/2023,Expense,Clothing,Swiggy,920
+09/05/2023,Expense,Groceries,Uber,1242
+11/05/2023,Expense,Groceries,Local vendor,1465
+10/05/2023,Expense,Shopping,Movie tickets,479
+12/05/2023,Expense,Groceries,Uber,1342
+15/05/2023,Expense,Groceries,Uber,2520
+16/05/2023,Expense,Travel,Ola,1538
+16/05/2023,Expense,Entertainment,Swiggy,950
+19/05/2023,Expense,Shopping,BigBasket,597
+18/05/2023,Expense,Entertainment,,1428
+20/05/2023,Expense,Home,Swiggy,2860
+21/05/2023,Expense,Entertainment,Electricity board,1485
+24/05/2023,Expense,Food,Flipkart,2126
+25/05/2023,Expense,Entertainment,Amazon,1928
+25/05/2023,Expense,Travel,Ola,368
+27/05/2023,Expense,Entertainment,Local vendor,616
+30/05/2023,Expense,Clothing,Amazon,2668
+31/05/2023,Expense,Clothing,Movie tickets,2201
+01/06/2023,Expense,Food,Movie tickets,152
+03/06/2023,Expense,Credit card Bill payment,Zomato,588
+03/06/2023,Expense,Others,Zomato,1299
+04/06/2023,Expense,Groceries,Uber,1974
+07/06/2023,Expense,Clothing,,2430
+06/06/2023,Expense,Entertainment,Electricity board,1166
+09/06/2023,Expense,Food,Amazon,1528
+09/06/2023,Expense,Home,Flipkart,2417
+10/06/2023,Expense,Others,BigBasket,1856
+12/06/2023,Expense,Groceries,Zomato,1209
+14/06/2023,Expense,Food,Flipkart,1589
+15/06/2023,Expense,Credit card Bill payment,Swiggy,2659
+18/06/2023,Expense,Groceries,Local vendor,450
+17/06/2023,Expense,Shopping,Zomato,1714
+19/06/2023,Expense,Groceries,Movie tickets,2843
+21/06/2023,Income,Refund,,50978
+22/06/2023,Expense,Entertainment,Uber,2549
+24/06/2023,Expense,Shopping,Ola,424
+24/06/2023,Expense,Travel,Uber,2072
+25/06/2023,Expense,Groceries,Movie tickets,1296
+27/06/2023,Expense,Shopping,,3007
+30/06/2023,Expense,Home,Swiggy,1279
+30/06/2023,Expense,Home,Uber,1868
+02/07/2023,Expense,Shopping,BigBasket,1942
+04/07/2023,Expense,Travel,Electricity board,2066
+04/07/2023,Expense,Others,Ola,1873
+05/07/2023,Expense,Rent,Zomato,1327
+06/07/2023,Expense,Home,Local vendor,91
+08/07/2023,Expense,Entertainment,Swiggy,971
+08/07/2023,Expense,Food,Movie tickets,2633
+10/07/2023,Expense,Credit card Bill payment,Swiggy,2689
+11/07/2023,Expense,Shopping,Ola,2782
+13/07/2023,Expense,Food,Swiggy,1422
+15/07/2023,Expense,Rent,Uber,2185
+15/07/2023,Expense,Food,,2845
+17/07/2023,Expense,Home,,1832
+20/07/2023,Expense,Shopping,Flipkart,1126
+20/07/2023,Expense,Others,Zomato,2336
+20/07/2023,Expense,Clothing,Amazon,178
+23/07/2023,Expense,Others,Movie tickets,1704
+23/07/2023,Expense,Entertainment,Ola,84
+26/07/2023,Expense,Entertainment,Electricity board,512
+28/07/2023,Expense,Travel,Movie tickets,1085
+28/07/2023,Expense,Home,Amazon,267
+29/07/2023,Expense,Travel,Zomato,2865
+01/08/2023,Expense,Travel,Uber,1337
+02/08/2023,Expense,Home,Local vendor,1882
+02/08/2023,Income,Refund,,51210
+03/08/2023,Expense,Credit card Bill payment,Electricity board,765
+04/08/2023,Expense,Clothing,Flipkart,618
+07/08/2023,Expense,Entertainment,Amazon,2163
+07/08/2023,Expense,Travel,,720
+08/08/2023,Expense,Credit card Bill payment,Ola,2194
+11/08/2023,Expense,Groceries,,2856
+13/08/2023,Expense,Entertainment,Zomato,906
+14/08/2023,Expense,Credit card Bill payment,Movie tickets,1863
+15/08/2023,Expense,Groceries,Zomato,1334
+16/08/2023,Expense,Credit card Bill payment,Local vendor,200
+18/08/2023,Expense,Others,Flipkart,1750
+19/08/2023,Expense,Clothing,Ola,2822
+21/08/2023,Expense,Travel,Flipkart,1537
+20/08/2023,Expense,Clothing,Amazon,681
+22/08/2023,Expense,Groceries,Ola,1931
+23/08/2023,Expense,Credit card Bill payment,Uber,1386
+26/08/2023,Expense,Groceries,Flipkart,112
+27/08/2023,Income,Salary,,55552
+27/08/2023,Income,Refund,,65711
+30/08/2023,Expense,Entertainment,,1213
+29/08/2023,Expense,Credit card Bill payment,Electricity board,1761
+31/08/2023,Expense,Food,Amazon,1964
+02/09/2023,Expense,Food,Movie tickets,1075
+02/09/2023,Expense,Groceries,Electricity board,653
+04/09/2023,Expense,Rent,,2513
+05/09/2023,Expense,Home,Local vendor,2356
+07/09/2023,Expense,Food,Swiggy,886
+10/09/2023,Expense,Travel,BigBasket,1343
+09/09/2023,Expense,Home,Amazon,1444
+12/09/2023,Expense,Credit card Bill payment,Movie tickets,1332
+13/09/2023,Expense,Credit card Bill payment,Local vendor,1378
+15/09/2023,Expense,Rent,Flipkart,2348
+16/09/2023,Expense,Shopping,Uber,1426
+18/09/2023,Expense,Clothing,Ola,2284
+19/09/2023,Expense,Credit card Bill payment,Zomato,1440
+19/09/2023,Expense,Entertainment,Uber,1546
+22/09/2023,Expense,Entertainment,Flipkart,2211
+22/09/2023,Income,Salary,,48650
+23/09/2023,Expense,Rent,BigBasket,986
+24/09/2023,Expense,Travel,Local vendor,794
+25/09/2023,Expense,Food,Electricity board,2700
+27/09/2023,Expense,Groceries,Ola,1060
+30/09/2023,Expense,Rent,Amazon,433
+01/10/2023,Expense,Others,Swiggy,2030
+03/10/2023,Expense,Clothing,BigBasket,2514
+03/10/2023,Expense,Home,Electricity board,758
+05/10/2023,Expense,Food,Swiggy,1387
+06/10/2023,Expense,Credit card Bill payment,Ola,497
+07/10/2023,Expense,Shopping,BigBasket,945
+08/10/2023,Expense,Entertainment,Swiggy,2218
+09/10/2023,Expense,Home,Electricity board,434
+11/10/2023,Income,Refund,,44542
+12/10/2023,Expense,Groceries,,1298
+13/10/2023,Expense,Rent,Swiggy,2066
+14/10/2023,Expense,Shopping,Ola,204
+17/10/2023,Expense,Clothing,,1343
+19/10/2023,Expense,Entertainment,Local vendor,2403
+19/10/2023,Expense,Rent,Swiggy,2385
+19/10/2023,Expense,Shopping,Zomato,2809
+23/10/2023,Expense,Food,Uber,1802
+24/10/2023,Expense,Travel,Local vendor,1776
+23/10/2023,Expense,Shopping,Zomato,2226
+26/10/2023,Expense,Clothing,Electricity board,1426
+28/10/2023,Expense,Rent,Local vendor,2155
+27/10/2023,Expense,Clothing,Electricity board,266
+29/10/2023,Expense,Home,,2468
+01/11/2023,Expense,Groceries,Movie tickets,2462
+02/11/2023,Expense,Entertainment,Zomato,2578
+03/11/2023,Expense,Entertainment,Flipkart,2083
+05/11/2023,Expense,Others,Flipkart,2915
+05/11/2023,Expense,Food,Swiggy,1105
+07/11/2023,Expense,Groceries,Movie tickets,2514
+08/11/2023,Expense,Shopping,Electricity board,2636
+08/11/2023,Expense,Home,,186
+12/11/2023,Expense,Clothing,Amazon,971
+12/11/2023,Expense,Food,Uber,2351
+14/11/2023,Expense,Rent,Movie tickets,1352
+14/11/2023,Expense,Entertainment,Amazon,2122
+15/11/2023,Expense,Shopping,Amazon,1638
+18/11/2023,Expense,Rent,,860
+20/11/2023,Expense,Entertainment,,2041
+20/11/2023,Expense,Rent,Swiggy,1272
+22/11/2023,Expense,Groceries,Flipkart,2082
+22/11/2023,Expense,Credit card Bill payment,Amazon,1599
+24/11/2023,Expense,Shopping,Movie tickets,1760
+25/11/2023,Expense,Home,,485
+26/11/2023,Expense,Food,Movie tickets,1187
+28/11/2023,Expense,Entertainment,BigBasket,142
+29/11/2023,Expense,Shopping,,748
+30/11/2023,Expense,Clothing,Electricity board,1209
+02/12/2023,Expense,Entertainment,Uber,442
+02/12/2023,Expense,Credit card Bill payment,,109
+05/12/2023,Expense,Home,Amazon,760
+06/12/2023,Expense,Food,,2513
+06/12/2023,Expense,Credit card Bill payment,Ola,2857
+08/12/2023,Expense,Rent,BigBasket,730
+10/12/2023,Expense,Others,Ola,1961
+10/12/2023,Expense,Home,Uber,2696
+14/12/2023,Expense,Travel,Movie tickets,2107
+15/12/2023,Expense,Travel,Ola,1787
+14/12/2023,Expense,Credit card Bill payment,,1277
+17/12/2023,Income,Refund,,41102
+17/12/2023,Income,Refund,,65554
+18/12/2023,Expense,Groceries,Movie tickets,2113
+20/12/2023,Expense,Entertainment,,213
+21/12/2023,Expense,Rent,Movie tickets,1646
+22/12/2023,Expense,Rent,,2871
+26/12/2023,Expense,Groceries,Flipkart,2156
+25/12/2023,Expense,Travel,Ola,2004
+27/12/2023,Expense,Food,Flipkart,1406
+30/12/2023,Expense,Others,Flipkart,2549
+29/12/2023,Expense,Shopping,Flipkart,818
+01/01/2024,Expense,Others,Electricity board,1203
+03/01/2024,Expense,Clothing,Local vendor,2938
+02/01/2024,Expense,Food,Electricity board,442
+04/01/2024,Expense,Credit card Bill payment,Flipkart,603
+05/01/2024,Expense,Credit card Bill payment,Flipkart,67
+06/01/2024,Expense,Food,Movie tickets,176
+09/01/2024,Expense,Shopping,Uber,2404
+10/01/2024,Income,Refund,,69995
+12/01/2024,Expense,Entertainment,,2158
+11/01/2024,Expense,Clothing,,1146
+14/01/2024,Expense,Clothing,Amazon,2397
+15/01/2024,Expense,Entertainment,BigBasket,1519
+16/01/2024,Expense,Entertainment,Movie tickets,2715
+18/01/2024,Expense,Shopping,,2628
+20/01/2024,Expense,Entertainment,Ola,2650
+21/01/2024,Expense,Entertainment,Swiggy,2197
+22/01/2024,Income,Salary,,34139
+23/01/2024,Expense,Entertainment,Movie tickets,1165
+24/01/2024,Expense,Clothing,Uber,2489
+26/01/2024,Expense,Clothing,Movie tickets,140
+26/01/2024,Expense,Clothing,Swiggy,806
+28/01/2024,Expense,Travel,Uber,2470
+30/01/2024,Expense,Clothing,Flipkart,736
+30/01/2024,Expense,Groceries,Local vendor,816
+02/02/2024,Expense,Others,,2437
+04/02/2024,Expense,Groceries,BigBasket,2996
+04/02/2024,Expense,Travel,Electricity board,1991
+05/02/2024,Expense,Rent,Amazon,1609
+07/02/2024,Expense,Groceries,Local vendor,2836
+09/02/2024,Expense,Entertainment,Uber,2715
+09/02/2024,Expense,Clothing,Zomato,1330
+11/02/2024,Expense,Clothing,Zomato,2581
+11/02/2024,Expense,Others,Amazon,2090
+13/02/2024,Expense,Travel,Amazon,990
+14/02/2024,Expense,Credit card Bill payment,Movie tickets,2028
+17/02/2024,Expense,Travel,Ola,887
+19/02/2024,Expense,Others,BigBasket,955
+20/02/2024,Expense,Groceries,,475
+19/02/2024,Expense,Shopping,Uber,2027
+22/02/2024,Expense,Home,Amazon,2121
+23/02/2024,Expense,Clothing,Flipkart,1846
+24/02/2024,Expense,Others,Electricity board,901
+25/02/2024,Expense,Entertainment,BigBasket,2960
+27/02/2024,Expense,Food,BigBasket,775
+27/02/2024,Expense,Travel,Movie tickets,3016
+01/03/2024,Expense,Home,,329
+01/03/2024,Expense,Clothing,,1237
+02/03/2024,Expense,Groceries,Ola,625
+04/03/2024,Expense,Groceries,,889
+06/03/2024,Expense,Rent,,1700
+06/03/2024,Expense,Travel,Local vendor,1581
+09/03/2024,Expense,Home,Zomato,1892
+09/03/2024,Expense,Rent,Swiggy,1472
+10/03/2024,Expense,Credit card Bill payment,Flipkart,285
+14/03/2024,Expense,Entertainment,,2638
+14/03/2024,Expense,Home,,2753
+14/03/2024,Expense,Home,Amazon,2395
+17/03/2024,Expense,Entertainment,Flipkart,762
+19/03/2024,Expense,Groceries,Amazon,1958
+19/03/2024,Expense,Home,Electricity board,2915
+22/03/2024,Expense,Shopping,,464
+23/03/2024,Expense,Entertainment,Local vendor,1627
+23/03/2024,Expense,Rent,Local vendor,2716
+26/03/2024,Expense,Others,Local vendor,2887
+27/03/2024,Expense,Others,Ola,163
+28/03/2024,Expense,Clothing,,1260
+30/03/2024,Expense,Shopping,Uber,2942
+29/03/2024,Expense,Shopping,Flipkart,691
+30/03/2024,Expense,Food,Flipkart,59
+03/04/2024,Expense,Food,BigBasket,3005
+02/04/2024,Expense,Rent,Movie tickets,263
+03/04/2024,Expense,Credit card Bill payment,Uber,824
+06/04/2024,Expense,Home,Amazon,2615
+08/04/2024,Expense,Food,Swiggy,629
+09/04/2024,Income,Salary,,53351
+09/04/2024,Expense,Entertainment,Local vendor,2681
+12/04/2024,Expense,Credit card Bill payment,Electricity board,1565
+11/04/2024,Expense,Food,Ola,1922
+14/04/2024,Expense,Others,Uber,3006
+16/04/2024,Expense,Home,,1097
+15/04/2024,Expense,Travel,Amazon,2534
+17/04/2024,Expense,Food,,1740
+18/04/2024,Expense,Clothing,Uber,1374
+20/04/2024,Expense,Credit card Bill payment,Flipkart,2624
+21/04/2024,Expense,Travel,Flipkart,2181
+23/04/2024,Expense,Entertainment,Swiggy,395
+24/04/2024,Expense,Rent,Electricity board,710
+25/04/2024,Expense,Credit card Bill payment,Local vendor,2181
+28/04/2024,Expense,Shopping,Uber,2810
+27/04/2024,Expense,Others,Electricity board,1143
+30/04/2024,Expense,Rent,Movie tickets,2534
+01/05/2024,Expense,Others,Zomato,974
+03/05/2024,Expense,Credit card Bill payment,,1115
+04/05/2024,Expense,Groceries,Local vendor,617
+04/05/2024,Expense,Groceries,Uber,2008
+07/05/2024,Expense,Shopping,Uber,3042
+09/05/2024,Expense,Travel,Movie tickets,570
+08/05/2024,Expense,Entertainment,BigBasket,2745
+10/05/2024,Expense,Food,Ola,1240
+13/05/2024,Expense,Food,Local vendor,2803
+14/05/2024,Expense,Others,Uber,3049
+16/05/2024,Expense,Groceries,Flipkart,2194
+16/05/2024,Expense,Clothing,Amazon,2673
+17/05/2024,Expense,Groceries,Swiggy,1236
+19/05/2024,Expense,Entertainment,Amazon,889
+20/05/2024,Expense,Travel,BigBasket,939
+20/05/2024,Expense,Credit card Bill payment,Uber,2348
+24/05/2024,Expense,Rent,Movie tickets,372
+24/05/2024,Expense,Others,Zomato,327
+25/05/2024,Expense,Travel,Amazon,1757
+27/05/2024,Expense,Clothing,Swiggy,467
+27/05/2024,Expense,Clothing,Movie tickets,1353
+28/05/2024,Expense,Others,Ola,1253
+31/05/2024,Expense,Rent,Swiggy,1818
+02/06/2024,Expense,Clothing,,1260
+01/06/2024,Expense,Rent,Zomato,933
+03/06/2024,Expense,Home,Local vendor,1372
+05/06/2024,Expense,Entertainment,BigBasket,1485
+07/06/2024,Expense,Travel,Electricity board,448
+08/06/2024,Expense,Clothing,Zomato,919
+08/06/2024,Expense,Travel,Swiggy,1754
+09/06/2024,Expense,Shopping,Zomato,600
+12/06/2024,Expense,Food,,501
+12/06/2024,Expense,Food,Local vendor,922
+14/06/2024,Expense,Travel,,2759
+16/06/2024,Expense,Groceries,,1058
+18/06/2024,Expense,Shopping,BigBasket,255
+19/06/2024,Expense,Food,Local vendor,1100
+20/06/2024,Expense,Travel,,1890
+20/06/2024,Expense,Shopping,Movie tickets,1025
+21/06/2024,Expense,Credit card Bill payment,,2983
+25/06/2024,Expense,Food,Swiggy,1369
+25/06/2024,Expense,Groceries,Movie tickets,2913
+27/06/2024,Expense,Food,Movie tickets,2660
+28/06/2024,Expense,Travel,Zomato,2377
+28/06/2024,Expense,Travel,BigBasket,1532
+01/07/2024,Expense,Rent,Zomato,2397
+01/07/2024,Expense,Food,Electricity board,2419
+04/07/2024,Expense,Credit card Bill payment,Flipkart,1384
+05/07/2024,Expense,Rent,Electricity board,2043
+07/07/2024,Expense,Rent,Zomato,624
+06/07/2024,Expense,Shopping,Local vendor,1152
+07/07/2024,Expense,Others,BigBasket,2186
+09/07/2024,Expense,Food,Ola,2003
+12/07/2024,Expense,Home,Zomato,3023
+11/07/2024,Expense,Credit card Bill payment,Electricity board,1975
+14/07/2024,Expense,Clothing,Ola,2502
+14/07/2024,Expense,Clothing,Flipkart,863
+15/07/2024,Expense,Entertainment,Movie tickets,2615
+19/07/2024,Expense,Credit card Bill payment,Local vendor,2696
+20/07/2024,Expense,Credit card Bill payment,Electricity board,2214
+21/07/2024,Expense,Entertainment,Zomato,1695
+22/07/2024,Expense,Groceries,Movie tickets,2712
+22/07/2024,Expense,Shopping,Local vendor,2571
+23/07/2024,Expense,Rent,Zomato,2766
+26/07/2024,Expense,Entertainment,Ola,459
+26/07/2024,Expense,Entertainment,Uber,2846
+28/07/2024,Expense,Home,Local vendor,2874
+31/07/2024,Expense,Groceries,Zomato,1537
+30/07/2024,Expense,Rent,,2246
+01/08/2024,Income,Salary,,44359
+04/08/2024,Expense,Groceries,Movie tickets,2676
+03/08/2024,Expense,Groceries,Ola,1195
+04/08/2024,Expense,Groceries,Local vendor,2484
+06/08/2024,Expense,Rent,,2816
+09/08/2024,Expense,Shopping,BigBasket,1309
+08/08/2024,Expense,Rent,Swiggy,1977
+12/08/2024,Expense,Entertainment,Swiggy,1700
+13/08/2024,Expense,Travel,Local vendor,1017
+14/08/2024,Expense,Travel,Flipkart,1759
+15/08/2024,Expense,Clothing,Local vendor,1425
+16/08/2024,Expense,Entertainment,,2574
+16/08/2024,Expense,Shopping,,1297
+20/08/2024,Expense,Clothing,,2025
+20/08/2024,Expense,Travel,Swiggy,2381
+21/08/2024,Expense,Groceries,,1946
+22/08/2024,Expense,Clothing,Movie tickets,849
+24/08/2024,Expense,Groceries,Electricity board,1786
+25/08/2024,Income,Salary,,38772
+26/08/2024,Expense,Groceries,Ola,2183
+27/08/2024,Expense,Entertainment,Uber,1521
+28/08/2024,Expense,Travel,,1623
+31/08/2024,Expense,Credit card Bill payment,,2226
+01/09/2024,Expense,Entertainment,Movie tickets,1483
+03/09/2024,Income,Salary,,52642
+05/09/2024,Expense,Groceries,Electricity board,1256
+05/09/2024,Expense,Food,Ola,1463
+06/09/2024,Expense,Groceries,,796
+07/09/2024,Expense,Food,Swiggy,2323
+10/09/2024,Expense,Groceries,Amazon,776
+10/09/2024,Expense,Shopping,Amazon,1127
+13/09/2024,Expense,Clothing,Ola,2778
+12/09/2024,Expense,Others,,2875
+14/09/2024,Expense,Credit card Bill payment,BigBasket,2371
+17/09/2024,Expense,Groceries,Movie tickets,65
+18/09/2024,Expense,Credit card Bill payment,,446
+20/09/2024,Expense,Travel,Flipkart,243
+20/09/2024,Expense,Credit card Bill payment,Electricity board,1270
+20/09/2024,Expense,Rent,BigBasket,879
+22/09/2024,Expense,Entertainment,BigBasket,1814
+24/09/2024,Expense,Clothing,Uber,1612
+25/09/2024,Expense,Credit card Bill payment,Flipkart,718
+28/09/2024,Expense,Travel,,1190
+28/09/2024,Expense,Credit card Bill payment,,833
+30/09/2024,Expense,Shopping,Ola,2454
+02/10/2024,Expense,Credit card Bill payment,,1075
+01/10/2024,Expense,Food,Electricity board,3041
+02/10/2024,Expense,Credit card Bill payment,Zomato,644
+06/10/2024,Expense,Entertainment,Amazon,2881
+06/10/2024,Expense,Shopping,Flipkart,1438
+06/10/2024,Expense,Rent,Electricity board,1935
+10/10/2024,Expense,Others,Swiggy,1072
+09/10/2024,Expense,Clothing,Ola,283
+11/10/2024,Expense,Rent,Uber,835
+13/10/2024,Income,Salary,,32200
+14/10/2024,Income,Refund,,53993
+16/10/2024,Expense,Clothing,,715
+16/10/2024,Expense,Home,Uber,1558
+18/10/2024,Expense,Travel,,941
+19/10/2024,Expense,Travel,,2355
+22/10/2024,Expense,Shopping,Zomato,2976
+22/10/2024,Expense,Rent,BigBasket,2460
+22/10/2024,Expense,Credit card Bill payment,Amazon,2911
+26/10/2024,Expense,Groceries,Zomato,2987
+26/10/2024,Expense,Food,Swiggy,2296
+27/10/2024,Expense,Entertainment,,1668
+29/10/2024,Expense,Food,,1640
+31/10/2024,Expense,Entertainment,,604
+31/10/2024,Expense,Shopping,Movie tickets,2722
+03/11/2024,Expense,Rent,Swiggy,2834
+04/11/2024,Expense,Credit card Bill payment,Zomato,2803
+05/11/2024,Expense,Travel,,2810
+07/11/2024,Expense,Entertainment,Local vendor,1585
+08/11/2024,Expense,Groceries,Flipkart,441
+09/11/2024,Expense,Home,Flipkart,1367
+09/11/2024,Income,Salary,,38372
+12/11/2024,Expense,Food,Uber,2661
+11/11/2024,Expense,Food,Swiggy,1488
+15/11/2024,Expense,Rent,Movie tickets,376
+14/11/2024,Expense,Food,Local vendor,2517
+16/11/2024,Income,Salary,,60395
+18/11/2024,Expense,Clothing,Electricity board,2933
+20/11/2024,Expense,Others,Amazon,3039
+20/11/2024,Expense,Rent,,970
+23/11/2024,Income,Salary,,36466
+22/11/2024,Expense,Shopping,Uber,2064
+25/11/2024,Expense,Food,Movie tickets,2233
+25/11/2024,Expense,Food,Flipkart,427
+26/11/2024,Expense,Travel,Flipkart,1227
+29/11/2024,Expense,Food,,962
+29/11/2024,Expense,Entertainment,Uber,2157
+02/12/2024,Expense,Travel,BigBasket,833
+03/12/2024,Expense,Travel,Flipkart,2724
+04/12/2024,Expense,Others,BigBasket,189
+06/12/2024,Expense,Credit card Bill payment,Electricity board,72
+07/12/2024,Expense,Rent,,1166
+07/12/2024,Expense,Credit card Bill payment,Electricity board,507
+08/12/2024,Expense,Rent,Movie tickets,732
+11/12/2024,Expense,Food,Movie tickets,2623
+13/12/2024,Expense,Entertainment,Ola,628
+13/12/2024,Expense,Home,Uber,2804
+13/12/2024,Expense,Shopping,BigBasket,2984
+16/12/2024,Expense,Entertainment,,1931
+16/12/2024,Expense,Shopping,,750
+18/12/2024,Expense,Clothing,BigBasket,2042
+21/12/2024,Expense,Groceries,Movie tickets,2149
+20/12/2024,Expense,Rent,Amazon,1872
+24/12/2024,Expense,Credit card Bill payment,,2912
+24/12/2024,Expense,Shopping,BigBasket,2141
+25/12/2024,Expense,Credit card Bill payment,Movie tickets,201
+27/12/2024,Expense,Others,Flipkart,2840
+29/12/2024,Expense,Groceries,Amazon,1685
+29/12/2024,Expense,Clothing,BigBasket,1830
+30/12/2024,Expense,Shopping,,2221
+02/01/2025,Expense,Rent,Swiggy,1338
+02/01/2025,Expense,Credit card Bill payment,Ola,2117
+03/01/2025,Expense,Shopping,Flipkart,1146
+06/01/2025,Expense,Travel,Zomato,136
+07/01/2025,Expense,Credit card Bill payment,Flipkart,354
+09/01/2025,Expense,Groceries,Zomato,2726
+08/01/2025,Expense,Home,,383
+10/01/2025,Expense,Others,,1708
+12/01/2025,Expense,Others,,2854
+14/01/2025,Expense,Clothing,,1747
+13/01/2025,Expense,Clothing,Flipkart,2779
+16/01/2025,Expense,Others,Ola,2876
+17/01/2025,Expense,Food,,1640
+18/01/2025,Income,Salary,,36573
+19/01/2025,Expense,Shopping,Ola,874
+22/01/2025,Expense,Shopping,Swiggy,2636
+21/01/2025,Expense,Home,Ola,1205
+25/01/2025,Expense,Rent,Electricity board,2278
+25/01/2025,Expense,Entertainment,Zomato,1077
+26/01/2025,Expense,Home,Amazon,2065
+28/01/2025,Expense,Groceries,Uber,2686
+28/01/2025,Expense,Shopping,Local vendor,2470
+29/01/2025,Expense,Rent,Uber,1634
+01/02/2025,Expense,Shopping,Electricity board,669
+03/02/2025,Expense,Credit card Bill payment,,1055
+02/02/2025,Expense,Food,Electricity board,1529
+06/02/2025,Expense,Groceries,Swiggy,1699
+05/02/2025,Expense,Groceries,Zomato,104
+06/02/2025,Expense,Clothing,Flipkart,436
+08/02/2025,Expense,Food,Uber,2531
+11/02/2025,Expense,Home,Swiggy,2281
+10/02/2025,Expense,Travel,Uber,1331
+12/02/2025,Expense,Entertainment,Amazon,2273
+14/02/2025,Expense,Others,Ola,2224
+15/02/2025,Expense,Groceries,Uber,853
+17/02/2025,Expense,Credit card Bill payment,,509
+17/02/2025,Expense,Credit card Bill payment,Movie tickets,2772
+19/02/2025,Expense,Entertainment,BigBasket,2951
+21/02/2025,Expense,Entertainment,Flipkart,1533
+21/02/2025,Expense,Groceries,Amazon,1651
+23/02/2025,Expense,Food,Zomato,1324
+24/02/2025,Expense,Food,,1888
+26/02/2025,Expense,Clothing,Amazon,858
+26/02/2025,Expense,Clothing,Zomato,2173
+01/03/2025,Expense,Shopping,Amazon,1428
+03/03/2025,Expense,Rent,Flipkart,2515
+02/03/2025,Expense,Clothing,Uber,1816
+06/03/2025,Expense,Home,Uber,2759
+05/03/2025,Expense,Rent,Swiggy,1193
+07/03/2025,Expense,Groceries,Swiggy,2493
+09/03/2025,Expense,Clothing,Uber,817
+09/03/2025,Expense,Home,Zomato,1642
+12/03/2025,Expense,Rent,,2282
+12/03/2025,Expense,Others,Swiggy,1162
+13/03/2025,Expense,Shopping,Amazon,1198
+15/03/2025,Expense,Groceries,Electricity board,1614
+17/03/2025,Expense,Credit card Bill payment,Ola,289
+19/03/2025,Expense,Groceries,,2568
+20/03/2025,Expense,Credit card Bill payment,Uber,401
+21/03/2025,Expense,Others,Uber,2493
+23/03/2025,Expense,Clothing,Amazon,1301
+23/03/2025,Expense,Others,Ola,669
+25/03/2025,Expense,Home,Local vendor,2598
+26/03/2025,Expense,Others,,1531
+26/03/2025,Expense,Travel,,2041
+28/03/2025,Expense,Credit card Bill payment,Flipkart,1093
+31/03/2025,Expense,Others,Ola,1415
+01/04/2025,Expense,Shopping,Ola,2138
+03/04/2025,Expense,Travel,Local vendor,1076
+03/04/2025,Expense,Home,Amazon,2053
+03/04/2025,Expense,Travel,,2330
+07/04/2025,Expense,Travel,Movie tickets,1455
+06/04/2025,Expense,Shopping,Flipkart,2813
+07/04/2025,Expense,Groceries,Electricity board,480
+11/04/2025,Expense,Home,Local vendor,2023
+11/04/2025,Income,Refund,,31673
+12/04/2025,Expense,Entertainment,Zomato,1891
+15/04/2025,Expense,Others,Electricity board,2704
+16/04/2025,Expense,Entertainment,Ola,1022
+17/04/2025,Income,Refund,,36257
+17/04/2025,Expense,Groceries,Electricity board,2658
+18/04/2025,Expense,Travel,Flipkart,2698
+21/04/2025,Expense,Entertainment,Flipkart,1934
+22/04/2025,Expense,Rent,Uber,1217
+22/04/2025,Expense,Credit card Bill payment,Ola,1974
+26/04/2025,Expense,Home,Movie tickets,2092
+25/04/2025,Expense,Home,Zomato,684
+28/04/2025,Expense,Groceries,Ola,1696
+28/04/2025,Income,Refund,,40421
+01/05/2025,Expense,Entertainment,,540
+30/04/2025,Expense,Food,Zomato,1221
+03/05/2025,Expense,Credit card Bill payment,Movie tickets,1401
+04/05/2025,Expense,Entertainment,Ola,771
+06/05/2025,Expense,Rent,,892
+08/05/2025,Expense,Travel,BigBasket,2881
+08/05/2025,Expense,Entertainment,Movie tickets,1820
+09/05/2025,Expense,Others,Local vendor,686
+12/05/2025,Expense,Travel,Zomato,2786
+12/05/2025,Expense,Home,Movie tickets,1126
+13/05/2025,Expense,Groceries,Flipkart,1302
+14/05/2025,Expense,Shopping,Flipkart,483
+15/05/2025,Expense,Others,Movie tickets,1843
+17/05/2025,Expense,Shopping,Swiggy,655
+19/05/2025,Expense,Food,Swiggy,373
+20/05/2025,Expense,Credit card Bill payment,,1565
+21/05/2025,Expense,Groceries,,2369
+24/05/2025,Expense,Home,Swiggy,900
+23/05/2025,Expense,Groceries,Swiggy,1138
+25/05/2025,Expense,Travel,Swiggy,409
+27/05/2025,Expense,Rent,BigBasket,1855
+29/05/2025,Expense,Entertainment,Flipkart,611
+29/05/2025,Expense,Groceries,Electricity board,1755
+01/06/2025,Expense,Entertainment,Swiggy,396
+31/05/2025,Expense,Shopping,Amazon,1052
+02/06/2025,Expense,Travel,Electricity board,3016
+04/06/2025,Expense,Others,Amazon,1512
+06/06/2025,Expense,Clothing,Uber,1771
+06/06/2025,Expense,Home,Electricity board,1268
+07/06/2025,Expense,Rent,BigBasket,682
+08/06/2025,Expense,Shopping,Ola,510
+09/06/2025,Expense,Food,,917
+12/06/2025,Expense,Travel,Local vendor,2804
+12/06/2025,Expense,Rent,Amazon,260
+15/06/2025,Expense,Entertainment,Flipkart,1124
+17/06/2025,Income,Refund,,69763
+16/06/2025,Expense,Others,Swiggy,2401
+19/06/2025,Expense,Travel,Local vendor,149
+20/06/2025,Expense,Entertainment,,994
+22/06/2025,Expense,Entertainment,Swiggy,733
+21/06/2025,Expense,Rent,Uber,2521
+23/06/2025,Expense,Entertainment,Uber,132
+25/06/2025,Expense,Travel,Local vendor,2125
+26/06/2025,Expense,Groceries,Electricity board,2815
+28/06/2025,Expense,Others,,2825
+29/06/2025,Expense,Others,Electricity board,219
+01/07/2025,Expense,Food,Uber,418
+02/07/2025,Expense,Travel,,313
+02/07/2025,Expense,Credit card Bill payment,Flipkart,2862
+04/07/2025,Expense,Others,BigBasket,3025
+07/07/2025,Expense,Groceries,Uber,1906
+06/07/2025,Expense,Others,Movie tickets,92
+07/07/2025,Expense,Groceries,Ola,2338
+09/07/2025,Expense,Rent,Uber,2296
+11/07/2025,Expense,Shopping,Electricity board,808
+11/07/2025,Expense,Clothing,Flipkart,2839
+15/07/2025,Income,Refund,,64716
+15/07/2025,Expense,Entertainment,Movie tickets,1323
+16/07/2025,Expense,Entertainment,,249
+17/07/2025,Expense,Credit card Bill payment,,2807
+18/07/2025,Expense,Groceries,Local vendor,1572
+20/07/2025,Expense,Groceries,Uber,2156
+21/07/2025,Expense,Clothing,Ola,3042
+23/07/2025,Expense,Food,,2972
+25/07/2025,Expense,Clothing,,1567
+26/07/2025,Expense,Groceries,Uber,244
+26/07/2025,Expense,Clothing,Movie tickets,1949
+27/07/2025,Expense,Food,,2253
+29/07/2025,Expense,Shopping,Electricity board,1425
+30/07/2025,Expense,Credit card Bill payment,Flipkart,314
+03/08/2025,Income,Refund,,38949
+02/08/2025,Expense,Credit card Bill payment,Ola,2537
+03/08/2025,Expense,Clothing,Flipkart,2311
+06/08/2025,Expense,Groceries,Local vendor,2444
+08/08/2025,Expense,Shopping,,1453
+09/08/2025,Expense,Home,Swiggy,223
+11/08/2025,Expense,Home,Amazon,407
+11/08/2025,Expense,Home,Movie tickets,231
+12/08/2025,Expense,Travel,Ola,1561
+15/08/2025,Income,Refund,,47715
+14/08/2025,Expense,Clothing,Local vendor,1195
+17/08/2025,Expense,Rent,Uber,2359
+19/08/2025,Expense,Travel,,1768
+18/08/2025,Expense,Entertainment,Swiggy,2110
+19/08/2025,Expense,Food,Uber,328
+21/08/2025,Expense,Others,Electricity board,598
+24/08/2025,Expense,Home,,1937
+23/08/2025,Expense,Others,BigBasket,1570
+26/08/2025,Expense,Entertainment,Electricity board,2214
+26/08/2025,Expense,Travel,Amazon,2366
+28/08/2025,Expense,Travel,Movie tickets,672
+30/08/2025,Expense,Groceries,Local vendor,135
+31/08/2025,Expense,Credit card Bill payment,Flipkart,1681
+31/08/2025,Expense,Travel,,987
+03/09/2025,Expense,Clothing,Movie tickets,2145
+03/09/2025,Expense,Home,Uber,1994
+06/09/2025,Expense,Rent,,2279
+07/09/2025,Expense,Credit card Bill payment,Amazon,2036
+08/09/2025,Expense,Rent,Swiggy,90
+10/09/2025,Expense,Others,Flipkart,860
+12/09/2025,Expense,Others,Amazon,2587
+13/09/2025,Expense,Food,Swiggy,713
+12/09/2025,Expense,Clothing,Amazon,282
+15/09/2025,Income,Refund,,57648
+16/09/2025,Expense,Clothing,Uber,2886
+16/09/2025,Expense,Clothing,Swiggy,1074
+18/09/2025,Expense,Groceries,Movie tickets,2028
+19/09/2025,Expense,Food,Amazon,815
+20/09/2025,Expense,Clothing,,1389
+23/09/2025,Expense,Others,Amazon,1033
+23/09/2025,Expense,Home,Electricity board,659
+24/09/2025,Expense,Others,Swiggy,704
+26/09/2025,Expense,Home,,698
+28/09/2025,Expense,Rent,Swiggy,138
+28/09/2025,Expense,Clothing,Movie tickets,1957
+01/10/2025,Expense,Clothing,Swiggy,1419
+03/10/2025,Expense,Shopping,Swiggy,2489
+02/10/2025,Expense,Shopping,Uber,1327
+04/10/2025,Expense,Clothing,Uber,1542
+06/10/2025,Expense,Food,,2063
+07/10/2025,Expense,Home,,2201
+09/10/2025,Expense,Credit card Bill payment,Flipkart,1607
+11/10/2025,Expense,Shopping,Electricity board,1598
+11/10/2025,Expense,Clothing,Ola,2550
+13/10/2025,Expense,Rent,Ola,1182
+15/10/2025,Expense,Rent,Swiggy,107
+16/10/2025,Expense,Entertainment,Local vendor,704
+18/10/2025,Expense,Entertainment,Zomato,2251
+19/10/2025,Expense,Travel,,1198
+20/10/2025,Expense,Food,Amazon,525
+21/10/2025,Expense,Others,Local vendor,2027
+21/10/2025,Expense,Groceries,,2750
+24/10/2025,Expense,Others,Ola,2564
+25/10/2025,Expense,Clothing,,2159
+27/10/2025,Expense,Home,Electricity board,663
+27/10/2025,Expense,Food,BigBasket,2496
+30/10/2025,Expense,Entertainment,Ola,2430
+31/10/2025,Expense,Travel,Ola,465
+31/10/2025,Expense,Rent,Amazon,1371
+01/11/2025,Expense,Credit card Bill payment,Local vendor,1104
+03/11/2025,Expense,Clothing,Movie tickets,1370
+03/11/2025,Expense,Groceries,Zomato,2575
+06/11/2025,Expense,Others,Local vendor,2016
+06/11/2025,Expense,Travel,Flipkart,2891
+08/11/2025,Expense,Rent,Amazon,1591
+09/11/2025,Expense,Travel,Amazon,398
+10/11/2025,Expense,Shopping,,736
+13/11/2025,Expense,Rent,Movie tickets,1575
+13/11/2025,Expense,Others,BigBasket,1295
+15/11/2025,Expense,Shopping,Swiggy,970
+17/11/2025,Expense,Shopping,,1865
+18/11/2025,Expense,Travel,,1843
+20/11/2025,Expense,Others,Amazon,523
+21/11/2025,Expense,Entertainment,Swiggy,1704
+22/11/2025,Expense,Others,BigBasket,3038
+23/11/2025,Expense,Travel,,929
+24/11/2025,Expense,Home,Uber,830
+25/11/2025,Expense,Shopping,Ola,362
+26/11/2025,Expense,Home,Zomato,157
+29/11/2025,Expense,Rent,Ola,616
+01/12/2025,Expense,Credit card Bill payment,BigBasket,1461
+01/12/2025,Expense,Travel,,2455
+03/12/2025,Expense,Shopping,Ola,2932
+04/12/2025,Expense,Travel,Ola,2872
+05/12/2025,Expense,Shopping,,56
+08/12/2025,Expense,Food,,711
+08/12/2025,Expense,Shopping,Swiggy,1226
+09/12/2025,Expense,Others,Movie tickets,2585
+12/12/2025,Expense,Clothing,BigBasket,1103
+12/12/2025,Expense,Credit card Bill payment,Electricity board,2099
+13/12/2025,Expense,Entertainment,,2430
+15/12/2025,Expense,Entertainment,Swiggy,1163
+16/12/2025,Expense,Rent,Zomato,2764
+18/12/2025,Expense,Entertainment,,184
+18/12/2025,Income,Salary,,40479
+19/12/2025,Expense,Home,Swiggy,420
+22/12/2025,Expense,Shopping,Zomato,1477
+24/12/2025,Expense,Travel,Flipkart,2316
+25/12/2025,Expense,Travel,Zomato,274
+25/12/2025,Expense,Entertainment,Swiggy,342
+27/12/2025,Expense,Rent,Uber,2182
+29/12/2025,Expense,Others,Flipkart,2281
+30/12/2025,Expense,Shopping,,51
+31/12/2025,Expense,Shopping,Electricity board,2326
+31/12/2025,Expense,Others,Movie tickets,2802
+02/01/2026,Expense,Rent,Electricity board,3037
+03/01/2026,Expense,Others,Amazon,494
+06/01/2026,Expense,Groceries,Flipkart,1581
+07/01/2026,Expense,Rent,Uber,2828
+09/01/2026,Expense,Travel,Movie tickets,2600
+08/01/2026,Expense,Others,,584
+09/01/2026,Expense,Credit card Bill payment,Amazon,1902
+11/01/2026,Income,Refund,,30572
+14/01/2026,Expense,Credit card Bill payment,Amazon,87
+14/01/2026,Expense,Food,Local vendor,2280
+17/01/2026,Expense,Home,Electricity board,330
+18/01/2026,Expense,Food,Electricity board,1954
+18/01/2026,Expense,Credit card Bill payment,Flipkart,1376
+19/01/2026,Expense,Entertainment,Zomato,2764
+21/01/2026,Expense,Rent,,969
+22/01/2026,Expense,Home,Electricity board,2020
+23/01/2026,Expense,Groceries,Ola,2210
+26/01/2026,Expense,Shopping,Electricity board,816
+25/01/2026,Expense,Travel,Local vendor,2490
+29/01/2026,Expense,Groceries,BigBasket,1629
+29/01/2026,Expense,Rent,Zomato,2303
+31/01/2026,Expense,Others,Flipkart,1822
+01/02/2026,Expense,Home,Ola,683
+03/02/2026,Expense,Food,Swiggy,1339
+03/02/2026,Expense,Shopping,Ola,986
+06/02/2026,Expense,Groceries,,379
+05/02/2026,Expense,Rent,Zomato,1934
+07/02/2026,Expense,Groceries,,2814
+08/02/2026,Expense,Clothing,Local vendor,572
+11/02/2026,Expense,Home,BigBasket,1802
+12/02/2026,Expense,Entertainment,Electricity board,2283
+13/02/2026,Expense,Food,BigBasket,823
+15/02/2026,Expense,Groceries,BigBasket,2777
+14/02/2026,Expense,Shopping,,549
+16/02/2026,Expense,Credit card Bill payment,Local vendor,2902
+19/02/2026,Expense,Entertainment,,1547
+20/02/2026,Expense,Credit card Bill payment,Ola,209
+21/02/2026,Expense,Travel,,2503
+21/02/2026,Expense,Rent,Movie tickets,1140
+23/02/2026,Expense,Food,Swiggy,759
+24/02/2026,Income,Salary,,43332
+26/02/2026,Expense,Credit card Bill payment,Uber,1788
+27/02/2026,Expense,Clothing,Uber,859
+28/02/2026,Expense,Credit card Bill payment,Amazon,959
+02/03/2026,Expense,Others,Electricity board,2727
+04/03/2026,Expense,Food,Local vendor,454
+04/03/2026,Expense,Home,BigBasket,2716
+07/03/2026,Expense,Shopping,Ola,333
+07/03/2026,Expense,Travel,Flipkart,2841
+08/03/2026,Expense,Others,Local vendor,377
+09/03/2026,Expense,Others,Local vendor,2693
+12/03/2026,Expense,Others,Ola,2684
+14/03/2026,Expense,Food,Zomato,113
+14/03/2026,Expense,Groceries,Electricity board,1754
+17/03/2026,Expense,Groceries,Amazon,1200
+18/03/2026,Expense,Food,Local vendor,2861
+19/03/2026,Expense,Home,Uber,2855
+19/03/2026,Expense,Clothing,Flipkart,259
+22/03/2026,Expense,Groceries,Uber,2535
+23/03/2026,Expense,Shopping,Zomato,1082
+23/03/2026,Expense,Food,Amazon,2639
+24/03/2026,Expense,Food,Amazon,210
+27/03/2026,Expense,Entertainment,Local vendor,1390
+29/03/2026,Expense,Travel,Electricity board,2595
+30/03/2026,Expense,Food,Electricity board,1286
+30/03/2026,Expense,Credit card Bill payment,Flipkart,2808
+02/04/2026,Income,Salary,,47343
+03/04/2026,Expense,Rent,Swiggy,2161
+04/04/2026,Expense,Food,Uber,493
+06/04/2026,Expense,Home,Ola,432
+06/04/2026,Expense,Home,Zomato,990
+08/04/2026,Expense,Shopping,Uber,1373
+08/04/2026,Expense,Groceries,Swiggy,330
+09/04/2026,Expense,Credit card Bill payment,Ola,206
+10/04/2026,Expense,Rent,Swiggy,371
+12/04/2026,Expense,Credit card Bill payment,Flipkart,2426
+15/04/2026,Expense,Travel,Zomato,1456
+14/04/2026,Expense,Credit card Bill payment,Zomato,2960
+17/04/2026,Expense,Entertainment,Ola,2403
+19/04/2026,Expense,Groceries,BigBasket,1344
+19/04/2026,Expense,Groceries,Uber,1340
+21/04/2026,Expense,Food,Uber,1645
+23/04/2026,Expense,Others,Zomato,2334
+23/04/2026,Expense,Clothing,Swiggy,273
+25/04/2026,Expense,Food,Ola,521
+26/04/2026,Expense,Food,Flipkart,2967
+27/04/2026,Expense,Shopping,Ola,1792
+29/04/2026,Expense,Shopping,,2881
+01/05/2026,Expense,Credit card Bill payment,,69
+02/05/2026,Expense,Entertainment,Ola,1507
+04/05/2026,Expense,Others,Amazon,501
+05/05/2026,Expense,Home,Flipkart,800
+06/05/2026,Expense,Rent,Local vendor,1320
+06/05/2026,Expense,Rent,,999
+09/05/2026,Expense,Entertainment,Movie tickets,717
+09/05/2026,Expense,Rent,Movie tickets,1744
+11/05/2026,Expense,Credit card Bill payment,Ola,698
+11/05/2026,Expense,Travel,Flipkart,2939
+12/05/2026,Expense,Shopping,,2882
+14/05/2026,Expense,Shopping,BigBasket,1476
+16/05/2026,Expense,Others,Zomato,923
+18/05/2026,Expense,Credit card Bill payment,Local vendor,986
+19/05/2026,Income,Refund,,39150
+21/05/2026,Expense,Food,Ola,1361
+22/05/2026,Expense,Travel,Electricity board,963
+23/05/2026,Expense,Groceries,Local vendor,2619
+23/05/2026,Expense,Clothing,Movie tickets,117
+25/05/2026,Expense,Entertainment,Amazon,1366
+26/05/2026,Expense,Clothing,,2031
+28/05/2026,Expense,Others,Zomato,2335
+29/05/2026,Expense,Clothing,Electricity board,212
+31/05/2026,Expense,Shopping,Local vendor,1010
+02/06/2026,Expense,Clothing,Swiggy,1329
+02/06/2026,Expense,Clothing,Local vendor,2487
+03/06/2026,Expense,Food,,200
+05/06/2026,Expense,Shopping,Local vendor,2058
+05/06/2026,Expense,Groceries,,167
+08/06/2026,Expense,Entertainment,Local vendor,885
+10/06/2026,Expense,Home,,2672
+10/06/2026,Expense,Others,Movie tickets,96
+12/06/2026,Expense,Food,BigBasket,2836
+14/06/2026,Expense,Food,Uber,1191
+15/06/2026,Income,Refund,,45663
+15/06/2026,Expense,Entertainment,Amazon,2102
+17/06/2026,Expense,Entertainment,Zomato,872
+18/06/2026,Expense,Shopping,Uber,865
+20/06/2026,Expense,Shopping,Amazon,2669
+22/06/2026,Income,Refund,,33424
+22/06/2026,Expense,Others,Amazon,1815
+25/06/2026,Expense,Food,Amazon,662
+25/06/2026,Expense,Entertainment,Flipkart,159
+25/06/2026,Expense,Rent,Movie tickets,1473
+27/06/2026,Expense,Groceries,Movie tickets,2242
+28/06/2026,Expense,Rent,Uber,237

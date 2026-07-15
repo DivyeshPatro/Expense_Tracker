@@ -10,6 +10,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { currentMonthKey, todayYMD } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
+import { armStuckNavFallback } from "@/lib/resilient-nav";
 
 const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics"];
 
@@ -39,25 +40,8 @@ export function HeaderPeriodPicker() {
     extra.forEach((v, k) => params.set(k, v));
     const q = params.toString();
     const href = q ? `${pathname}?${q}` : pathname;
-    const before = window.location.pathname + window.location.search;
-    const stuck = () => window.location.pathname + window.location.search === before;
     router.push(href);
-    // Next's client router occasionally drops a push() silently on heavier
-    // force-dynamic routes (Dashboard/Analytics with a large dataset): the
-    // RSC fetch completes with a valid response but the router never commits
-    // it — no URL change, no re-render, no console error. Benchmarked against
-    // 280 navigations under a 3900+ row dataset: a router.replace() retry
-    // recovered 0 of the stuck cases (every stuck push either commits within
-    // ~150ms or never commits at all — there's no middle zone a retry could
-    // catch), so it only added a wasted RSC round trip. A single hard
-    // navigation after a short grace period is the last-resort safety net so
-    // the chosen period is never silently lost; it only fires if truly
-    // nothing has happened yet, so a user who's since navigated elsewhere is
-    // left alone.
-    window.setTimeout(() => {
-      if (!stuck()) return;
-      window.location.assign(href);
-    }, 500);
+    armStuckNavFallback(href);
   };
 
   return <PeriodPicker mode={mode} monthKey={periodKey} currentMonthKey={currentKey} from={from} to={to} today={today} onNavigate={go} />;

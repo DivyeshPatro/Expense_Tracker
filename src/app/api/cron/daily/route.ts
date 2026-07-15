@@ -3,6 +3,7 @@
 
 import { NextResponse } from "next/server";
 import { materializeDueRules } from "@/server/services/recurring";
+import { reconcileAll } from "@/server/services/accounts";
 
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
@@ -11,5 +12,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const created = await materializeDueRules();
-  return NextResponse.json({ ok: true, created });
+  const drift = await reconcileAll();
+  if (drift.length > 0) {
+    console.error("[cron/daily] balance drift detected", drift);
+  }
+  return NextResponse.json({ ok: true, created, drift });
 }

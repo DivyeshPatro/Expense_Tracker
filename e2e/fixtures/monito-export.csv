@@ -1,0 +1,27 @@
+Monito Expense Manager,,,,
+Version 8.3,,,,
+Created on 13/07/2026,,,,
+,,,,
+Date,Category type,Category name,Note,Amount
+March 2023,,,,
+15/03/2023,Expense,Food,Dosa,60
+18/03/2023,Expense,Rent,,8000
+20/03/2023,Expense,Groceries,Bristi mandi,450
+25/03/2023,Income,Refund,Refund,500
+April 2023,,,,
+02/04/2023,Expense,Clothing,Kurta set,1200
+10/04/2023,Expense,Home,Curtains,2200
+12/04/2023,Expense,Others,Misc stuff,300
+May 2023,,,,
+05/05/2023,Expense,Credit card Bill payment,HDFC card,15000
+08/05/2023,Expense,Food,Pizza,550
+11/05/2023,Expense,Groceries,,700
+18/05/2023,Expense,Rent,,8000
+22/05/2023,Expense,Clothing,Shoes,2500
+25/05/2023,Expense,Home,Bulb,150
+28/05/2023,Expense,Others,Repair,900
+June 2023,,,,
+05/06/2023,Expense,Credit card Bill payment,ICICI card,12000
+10/06/2023,Expense,Food,Chai,20
+15/06/2023,Expense,Groceries,Vegetables,380
+18/06/2023,Expense,Rent,,8000

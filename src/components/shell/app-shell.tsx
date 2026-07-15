@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { armStuckNavFallback } from "@/lib/resilient-nav";
 import { CommandPalette } from "./palette";
 import { Modals } from "./modals";
 import { NotificationBell } from "./notifications";
@@ -87,52 +88,52 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
   }, [setPaletteOpen, closeModal]);
 
   return (
-    <Suspense fallback={null}>
-      <div className="flex min-h-screen">
-        <Sidebar badge={badge} userName={refData.userName} />
-        <div className="flex-1 min-w-0 flex flex-col">
-          {/* top bar */}
-          <div className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3 print:hidden">
-          <div className="flex items-center gap-2.5">
-            <div className="md:hidden w-[26px] h-[26px] rounded-lg bg-acc grid place-items-center text-white font-extrabold text-[13px]">₹</div>
-            <h1 className="text-base font-bold tracking-tight flex-1 m-0">{title}</h1>
-            <button
-              onClick={() => setPaletteOpen(true)}
-              className="hidden md:flex items-center gap-2 px-3 py-[7px] rounded-lg border border-line2 text-[12.5px] font-medium text-mut bg-card cursor-pointer whitespace-nowrap hover:border-acc"
-            >
-              🔎 Search
-              <span className="text-[10.5px] border border-line2 rounded px-[5px] py-px text-mut2">⌘K</span>
-            </button>
-            <button
-              onClick={() => setPaletteOpen(true)}
-              aria-label="Search"
-              className="md:hidden w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer"
-            >
-              🔎
-            </button>
-            <ThemeToggle />
-            <NotificationBell initialUnread={notifBadge} />
-            <button
-              onClick={() => openModal("exp")}
-              className="btn-primary hidden md:block shadow-[0_2px_8px_color-mix(in_oklab,var(--acc)_40%,transparent)]"
-            >
-              ＋ Add expense
-            </button>
-          </div>
-          <HeaderPeriodPicker />
-          </div>
-          {/* content */}
-          <div className="flex-1 box-border w-full max-w-[1180px] mx-auto px-[clamp(14px,2.5vw,28px)] py-[clamp(14px,2.5vw,28px)] pb-[120px]">
-            {children}
-          </div>
+    <div className="flex min-h-screen">
+      <Sidebar badge={badge} userName={refData.userName} />
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* top bar: kept outside the content Suspense boundary so the nav, search,
+            and period picker stay immediately interactive while a slower-loading
+            page (e.g. Analytics) is still streaming in — see period-picker.tsx */}
+        <div className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3 print:hidden">
+        <div className="flex items-center gap-2.5">
+          <div className="md:hidden w-[26px] h-[26px] rounded-lg bg-acc grid place-items-center text-white font-extrabold text-[13px]">₹</div>
+          <h1 className="text-base font-bold tracking-tight flex-1 m-0">{title}</h1>
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="hidden md:flex items-center gap-2 px-3 py-[7px] rounded-lg border border-line2 text-[12.5px] font-medium text-mut bg-card cursor-pointer whitespace-nowrap hover:border-acc"
+          >
+            🔎 Search
+            <span className="text-[10.5px] border border-line2 rounded px-[5px] py-px text-mut2">⌘K</span>
+          </button>
+          <button
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search"
+            className="md:hidden w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer"
+          >
+            🔎
+          </button>
+          <ThemeToggle />
+          <NotificationBell initialUnread={notifBadge} />
+          <button
+            onClick={() => openModal("exp")}
+            className="btn-primary hidden md:block shadow-[0_2px_8px_color-mix(in_oklab,var(--acc)_40%,transparent)]"
+          >
+            ＋ Add expense
+          </button>
         </div>
-        <BottomNav badge={badge} />
-        <Fab />
-        <Modals />
-        <CommandPalette />
-        <Toast />
+        <HeaderPeriodPicker />
+        </div>
+        {/* content */}
+        <div className="flex-1 box-border w-full max-w-[1180px] mx-auto px-[clamp(14px,2.5vw,28px)] py-[clamp(14px,2.5vw,28px)] pb-[120px]">
+          <Suspense fallback={null}>{children}</Suspense>
+        </div>
       </div>
-    </Suspense>
+      <BottomNav badge={badge} />
+      <Fab />
+      <Modals />
+      <CommandPalette />
+      <Toast />
+    </div>
   );
 }
 
@@ -153,6 +154,7 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
           <div key={n.href}>
             <Link
               href={withPeriod(n.href, params)}
+              onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] no-underline ${
                 active ? "bg-acc text-white font-bold" : "text-mut font-medium hover:bg-accsoft"
               }`}
@@ -244,7 +246,12 @@ function BottomNav({ badge }: { badge: number }) {
         {MOBILE_NAV.map((n) => {
           const active = pathname.startsWith(n.href);
           return (
-            <Link key={n.href} href={withPeriod(n.href, params)} className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border no-underline relative">
+            <Link
+              key={n.href}
+              href={withPeriod(n.href, params)}
+              onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
+              className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border no-underline relative"
+            >
               <span className="text-[17px]" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.icon}</span>
               <span className="text-[10px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
               {n.href === "/shared" && badge > 0 && (
@@ -279,7 +286,15 @@ function MoreSheet({ close, params }: { close: () => void; params: string }) {
       >
         <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-2.5" />
         {items.map((i) => (
-          <Link key={i.href} href={withPeriod(i.href, params)} onClick={close} className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline text-ink hover:bg-accsoft">
+          <Link
+            key={i.href}
+            href={withPeriod(i.href, params)}
+            onClick={() => {
+              close();
+              armStuckNavFallback(withPeriod(i.href, params));
+            }}
+            className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline text-ink hover:bg-accsoft"
+          >
             <span className="w-5 text-center">{i.icon}</span>
             {i.label}
           </Link>

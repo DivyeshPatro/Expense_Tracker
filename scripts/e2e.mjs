@@ -1,14 +1,18 @@
 // End-to-end walkthrough of Ledgerly against the seeded demo user.
-import { chromium } from "playwright-core";
+import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
 
-const SHOT = "/tmp/claude-0/-home-claude/a52814cf-53bd-5151-b67d-905c3e82b1dd/scratchpad";
+const SHOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "e2e-output");
+fs.mkdirSync(SHOT, { recursive: true });
 const results = [];
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
 };
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", headless: true });
+const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 try {

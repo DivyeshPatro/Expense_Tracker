@@ -1,17 +1,22 @@
 // End-to-end walkthrough of Settings (export/clear) and the Import wizard,
 // using a synthetic Indian-bank-statement-style CSV (Debit/Credit columns,
 // DD/MM/YYYY dates, one deliberately broken row).
-import { chromium } from "playwright-core";
+import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
 
-const SHOT = "/tmp/claude-0/-home-claude/a52814cf-53bd-5151-b67d-905c3e82b1dd/scratchpad";
-const CSV_PATH = `${SHOT}/sample-statement.csv`;
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SHOT = path.join(SCRIPT_DIR, "..", "e2e-output");
+fs.mkdirSync(SHOT, { recursive: true });
+const CSV_PATH = path.join(SCRIPT_DIR, "..", "e2e", "fixtures", "sample-statement.csv");
 const results = [];
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
 };
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", headless: true });
+const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 try {

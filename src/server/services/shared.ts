@@ -1,6 +1,7 @@
 // Shared expenses: participants (ghost or linked), net balances from unsettled
 // splits minus settlements, and the deterministic settlement suggestions.
 
+import { cache } from "react";
 import { minimizeSettlements, type SettleTransfer } from "@/lib/settlement";
 import { prisma } from "../db";
 import { audit } from "./audit";
@@ -33,7 +34,11 @@ export async function addParticipant(userId: string, displayName: string) {
  *   − the owner's owed share on expenses they paid
  *   adjusted by settlements (TO_OWNER reduces what they owe; FROM_OWNER reduces what the owner owes).
  */
-export async function netBalances(userId: string): Promise<ParticipantView[]> {
+// Wrapped in React's per-request cache: layout.tsx computes this for the sidebar
+// badge on every navigation, and sharedSummary() (Dashboard/Shared pages) needs
+// the identical query set again in the same request — cache() dedupes the
+// second call instead of hitting Postgres twice for the same userId.
+export const netBalances = cache(async (userId: string): Promise<ParticipantView[]> => {
   const [participants, txs, settlements] = await Promise.all([
     listParticipants(userId),
     prisma.transaction.findMany({
@@ -70,7 +75,7 @@ export async function netBalances(userId: string): Promise<ParticipantView[]> {
     net: nets.get(p.id) ?? 0,
     linkedUserId: p.linkedUserId,
   }));
-}
+});
 
 export interface SharedSummary {
   youOwe: number;
