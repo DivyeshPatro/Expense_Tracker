@@ -2,6 +2,7 @@
 // CSV covers the transaction ledger (the data people actually want to take
 // elsewhere); JSON is a complete structural dump of everything the user owns.
 
+import * as XLSX from "xlsx";
 import { toYMD } from "@/lib/dates";
 import { prisma } from "../db";
 
@@ -37,6 +38,32 @@ export async function exportTransactionsCsv(userId: string): Promise<string> {
 
 function csvCell(v: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+export async function exportTransactionsXlsx(userId: string): Promise<Buffer> {
+  const rows = await prisma.transaction.findMany({
+    where: { userId, deletedAt: null },
+    include: { account: { select: { name: true } }, toAccount: { select: { name: true } }, category: { select: { name: true } } },
+    orderBy: { occurredAt: "asc" },
+  });
+
+  const sheetRows = rows.map((t) => ({
+    Date: toYMD(t.occurredAt),
+    Type: t.type,
+    Amount: Number(t.amount) / 100,
+    Account: t.account?.name ?? "",
+    "To Account": t.toAccount?.name ?? "",
+    Category: t.category?.name ?? "",
+    Merchant: t.merchant,
+    Notes: t.notes ?? "",
+    "Payment Method": t.paymentMethod ?? "",
+    Recurring: t.isRecurring ? "yes" : "no",
+  }));
+
+  const sheet = XLSX.utils.json_to_sheet(sheetRows);
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, "Transactions");
+  return XLSX.write(book, { type: "buffer", bookType: "xlsx" });
 }
 
 export async function exportFullJson(userId: string) {

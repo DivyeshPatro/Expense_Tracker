@@ -12,6 +12,7 @@ import {
   addTransferAction,
   createAccountAction,
   createBillAction,
+  createGroupAction,
   saveBudgetAction,
   settleAction,
   type ActionResult,
@@ -29,6 +30,7 @@ const TITLES: Record<string, string> = {
   account: "New account",
   bill: "New bill",
   friend: "Add friend",
+  group: "New group",
 };
 
 export function Modals() {
@@ -55,6 +57,7 @@ export function Modals() {
         {modal.type === "account" && <AccountForm />}
         {modal.type === "bill" && <BillForm />}
         {modal.type === "friend" && <FriendForm />}
+        {modal.type === "group" && <GroupForm />}
       </div>
     </div>
   );
@@ -138,21 +141,31 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const [date, setDate] = useState(todayYMD());
   const [notes, setNotes] = useState("");
   const [split, setSplit] = useState(!!prefill?.split);
-  const [mode, setMode] = useState<"EQUAL" | "EXACT">("EQUAL");
+  const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">("EQUAL");
   const [parts, setParts] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(refData.participants.slice(0, 2).map((p) => [p.id, !!prefill?.split]))
   );
   const [exact, setExact] = useState<Record<string, string>>({});
+  const [weights, setWeights] = useState<Record<string, string>>({});
 
   const selected = refData.participants.filter((p) => parts[p.id]);
   const amtPaise = Math.round((Number(amount) || 0) * 100);
+  const weighted = mode === "PERCENT" || mode === "RATIO";
   let splitInfo = "Select friends to split with";
   if (selected.length) {
     if (mode === "EQUAL") {
       splitInfo = `${formatPaise(Math.floor(amtPaise / (selected.length + 1)))} each · you + ${selected.length} ${selected.length > 1 ? "friends" : "friend"}`;
-    } else {
+    } else if (mode === "EXACT") {
       const sum = selected.reduce((s, p) => s + Math.round((Number(exact[p.id]) || 0) * 100), 0);
       splitInfo = `Your share: ${formatPaise(Math.max(0, amtPaise - sum))}${sum > amtPaise ? " · ⚠ splits exceed total" : ""}`;
+    } else {
+      const meW = Number(weights.me) || 0;
+      const friendW = selected.reduce((s, p) => s + (Number(weights[p.id]) || 0), 0);
+      const total = meW + friendW;
+      splitInfo =
+        total > 0
+          ? `Your share: ${formatPaise(Math.floor((amtPaise * meW) / total))}${mode === "PERCENT" ? ` (${meW}%)` : ` (${meW} ${meW === 1 ? "part" : "parts"})`}`
+          : "Enter a weight for each person";
     }
   }
 
@@ -220,15 +233,15 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                 );
               })}
             </div>
-            <div className="flex gap-1.5">
-              {(["EQUAL", "EXACT"] as const).map((m) => (
+            <div className="flex gap-1.5 flex-wrap">
+              {(["EQUAL", "EXACT", "PERCENT", "RATIO"] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => setMode(m)}
                   className="px-[13px] py-1.5 rounded-lg text-xs font-semibold cursor-pointer border-none"
                   style={{ background: mode === m ? "var(--acc)" : "var(--accSoft)", color: mode === m ? "#fff" : "var(--acc)" }}
                 >
-                  {m === "EQUAL" ? "Equal split" : "Exact amounts"}
+                  {m === "EQUAL" ? "Equal split" : m === "EXACT" ? "Exact amounts" : m === "PERCENT" ? "Percent" : "Ratio"}
                 </button>
               ))}
             </div>
@@ -243,6 +256,34 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                       value={exact[p.id] ?? ""}
                       onChange={(e) => setExact((s) => ({ ...s, [p.id]: e.target.value }))}
                       placeholder="0"
+                      className="field !w-[110px] !px-2.5 !py-2"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            {weighted && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex-1 text-[12.5px] font-semibold">You</div>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={weights.me ?? ""}
+                    onChange={(e) => setWeights((s) => ({ ...s, me: e.target.value }))}
+                    placeholder={mode === "PERCENT" ? "%" : "parts"}
+                    className="field !w-[110px] !px-2.5 !py-2"
+                  />
+                </div>
+                {selected.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2.5">
+                    <div className="flex-1 text-[12.5px] font-semibold">{p.name}</div>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={weights[p.id] ?? ""}
+                      onChange={(e) => setWeights((s) => ({ ...s, [p.id]: e.target.value }))}
+                      placeholder={mode === "PERCENT" ? "%" : "parts"}
                       className="field !w-[110px] !px-2.5 !py-2"
                     />
                   </div>
@@ -276,6 +317,12 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                         mode === "EXACT"
                           ? Object.fromEntries(selected.map((p) => [p.id, Math.round((Number(exact[p.id]) || 0) * 100)]))
                           : undefined,
+                      weights: weighted
+                        ? {
+                            me: Number(weights.me) || 0,
+                            ...Object.fromEntries(selected.map((p) => [p.id, Number(weights[p.id]) || 0])),
+                          }
+                        : undefined,
                     }
                   : undefined,
               }),
@@ -562,6 +609,55 @@ function FriendForm() {
       <ErrorNote error={error} />
       <SubmitButton busy={busy} onClick={() => run(() => addParticipantAction({ displayName: name }), "Friend added")}>
         Add friend
+      </SubmitButton>
+    </div>
+  );
+}
+
+// ─────────── Group ───────────
+
+function GroupForm() {
+  const { refData } = useUI();
+  const { run, busy, error } = useSubmit();
+  const [name, setName] = useState("");
+  const [parts, setParts] = useState<Record<string, boolean>>({});
+  const selected = refData.participants.filter((p) => parts[p.id]);
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="GROUP NAME">
+        <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Flat 402" autoFocus />
+      </Field>
+      <Field label="MEMBERS">
+        <div className="flex gap-2 flex-wrap mt-1.5">
+          {refData.participants.length === 0 && <div className="text-[12.5px] text-mut2">Add a friend first.</div>}
+          {refData.participants.map((p) => {
+            const on = !!parts[p.id];
+            return (
+              <button
+                key={p.id}
+                onClick={() => setParts((s) => ({ ...s, [p.id]: !s[p.id] }))}
+                className="flex items-center gap-[7px] px-3 py-[7px] rounded-full text-[12.5px] font-semibold cursor-pointer"
+                style={{
+                  border: `1px solid ${on ? "var(--acc)" : "var(--line2)"}`,
+                  background: on ? "var(--accSoft)" : "transparent",
+                  color: on ? "var(--acc)" : "var(--mut)",
+                }}
+              >
+                <span className="w-[18px] h-[18px] rounded-full grid place-items-center text-[9.5px] font-bold text-white" style={{ background: p.color }}>
+                  {p.initial}
+                </span>
+                {p.name}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+      <ErrorNote error={error} />
+      <SubmitButton
+        busy={busy}
+        onClick={() => run(() => createGroupAction({ name, participantIds: selected.map((p) => p.id) }), "Group created")}
+      >
+        Create group
       </SubmitButton>
     </div>
   );

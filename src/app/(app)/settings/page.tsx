@@ -49,6 +49,9 @@ export default async function SettingsPage() {
           <a href="/api/export/csv" className="px-3.5 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold text-acc no-underline hover:bg-accsoft">
             Export transactions (CSV)
           </a>
+          <a href="/api/export/xlsx" className="px-3.5 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold text-acc no-underline hover:bg-accsoft">
+            Export transactions (XLSX)
+          </a>
           <a href="/api/export/json" className="px-3.5 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold text-acc no-underline hover:bg-accsoft">
             Export everything (JSON)
           </a>

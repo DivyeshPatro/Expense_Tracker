@@ -1,19 +1,22 @@
 import { OpenModalButton } from "@/components/shell/buttons";
+import { GroupsPanel } from "@/components/shared/groups-panel";
+import { InviteButton } from "@/components/shared/invite-button";
 import { friendlyDay, toYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { txDisplay } from "@/lib/tx-display";
 import { loadLedger } from "@/server/services/ledger";
-import { firstGroup, settlementHistory, sharedSummary } from "@/server/services/shared";
+import { listGroups } from "@/server/services/groups";
+import { settlementHistory, sharedSummary } from "@/server/services/shared";
 import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function SharedPage() {
   const user = await requireUser();
-  const [summary, history, group, rows] = await Promise.all([
+  const [summary, history, groups, rows] = await Promise.all([
     sharedSummary(user.id),
     settlementHistory(user.id),
-    firstGroup(user.id),
+    listGroups(user.id),
     loadLedger(user.id, 6),
   ]);
   const sharedTx = rows
@@ -28,8 +31,7 @@ export default async function SharedPage() {
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
       <div className="flex justify-between items-center flex-wrap gap-2">
         <div className="flex items-center gap-2 text-[12.5px] font-semibold text-mut flex-wrap">
-          {group && <span className="px-[11px] py-[5px] rounded-full bg-accsoft text-acc">🏠 {group.name}</span>}
-          {group && group.memberNames.join(" · ")}
+          <GroupsPanel groups={groups} />
           <OpenModalButton type="friend" className="text-[11.5px] font-semibold text-acc cursor-pointer px-[9px] py-1 rounded-[7px] bg-transparent border border-line2 hover:bg-accsoft">
             ＋ Add friend
           </OpenModalButton>
@@ -86,6 +88,7 @@ export default async function SharedPage() {
                     Settle
                   </OpenModalButton>
                 )}
+                {!m.linkedUserId && <InviteButton participantId={m.id} />}
               </div>
             );
           })}

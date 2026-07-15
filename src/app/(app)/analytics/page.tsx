@@ -5,6 +5,7 @@ import { listAccounts } from "@/server/services/accounts";
 import { categoryTotals, loadLedgerAgg, loadLedgerAggRange, merchantTotals, monthAgg } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
 import { CategoryBreakdown } from "./category-breakdown";
+import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,9 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+      <div className="flex justify-end">
+        <PrintButton />
+      </div>
       <div className="flex flex-wrap gap-3.5">
         <div className="card flex-[1_1_160px] p-[var(--pad)]">
           <div className="text-[11px] text-mut font-semibold tracking-[.06em]">AVG DAILY SPEND</div>

@@ -19,6 +19,15 @@ import {
   type CommitInput,
 } from "@/server/services/import";
 import { addParticipant, recordSettlement } from "@/server/services/shared";
+import { listNotifications, markAllRead } from "@/server/services/notifications";
+import {
+  addGroupMember,
+  createGroup,
+  deleteGroup,
+  removeGroupMember,
+  renameGroup,
+} from "@/server/services/groups";
+import { acceptInvitation, createInvitation } from "@/server/services/invitations";
 import {
   addExpense,
   addIncome,
@@ -36,6 +45,8 @@ import {
   changeCategoryKindSchema,
   renameCategorySchema,
   expenseSchema,
+  groupMemberSchema,
+  groupSchema,
   incomeSchema,
   participantSchema,
   settlementSchema,
@@ -307,4 +318,105 @@ export async function deleteCategoryAction(categoryId: string): Promise<ActionRe
 export async function searchMerchantsAction(query: string): Promise<string[]> {
   const user = await requireUser();
   return searchMerchants(user.id, query);
+}
+
+// ─────────── Notifications ───────────
+
+export async function listNotificationsAction() {
+  const user = await requireUser();
+  return listNotifications(user.id);
+}
+
+export async function markNotificationsReadAction(): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await markAllRead(user.id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Groups ───────────
+
+export async function createGroupAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const data = groupSchema.parse(input);
+    await createGroup(user.id, data.name, data.participantIds);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function renameGroupAction(groupId: string, name: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await renameGroup(user.id, groupId, name);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function addGroupMemberAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const data = groupMemberSchema.parse(input);
+    await addGroupMember(user.id, data.groupId, data.participantId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function removeGroupMemberAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const data = groupMemberSchema.parse(input);
+    await removeGroupMember(user.id, data.groupId, data.participantId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteGroupAction(groupId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await deleteGroup(user.id, groupId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Invitations ───────────
+
+export async function createInvitationAction(participantId: string): Promise<ActionResult & { token?: string }> {
+  try {
+    const user = await requireUser();
+    const { token } = await createInvitation(user.id, participantId);
+    return { ok: true, token };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function acceptInvitationAction(token: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await acceptInvitation(token, user.id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
 }

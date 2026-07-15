@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 
-export type ModalType = "exp" | "inc" | "tr" | "settle" | "budget" | "account" | "bill" | "friend";
+export type ModalType = "exp" | "inc" | "tr" | "settle" | "budget" | "account" | "bill" | "friend" | "group";
 
 export interface ModalPrefill {
   split?: boolean;

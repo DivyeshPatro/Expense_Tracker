@@ -13,6 +13,7 @@ export interface ParticipantView {
   initial: string;
   color: string;
   net: number; // paise: positive ⇒ they owe you, negative ⇒ you owe them
+  linkedUserId: string | null;
 }
 
 export async function listParticipants(userId: string) {
@@ -67,6 +68,7 @@ export async function netBalances(userId: string): Promise<ParticipantView[]> {
     initial: p.displayName.charAt(0).toUpperCase(),
     color: p.color ?? AVATAR_COLORS[0],
     net: nets.get(p.id) ?? 0,
+    linkedUserId: p.linkedUserId,
   }));
 }
 

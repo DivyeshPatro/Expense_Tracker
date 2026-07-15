@@ -9,6 +9,7 @@ import { Suspense, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { CommandPalette } from "./palette";
 import { Modals } from "./modals";
+import { NotificationBell } from "./notifications";
 import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type RefData } from "./ui-context";
 
@@ -46,15 +47,27 @@ function withPeriod(href: string, currentSearch: string): string {
   return href.includes("?") ? `${href}&${qs}` : `${href}?${qs}`;
 }
 
-export function AppShell({ refData, badge, children }: { refData: RefData; badge: number; children: React.ReactNode }) {
+export function AppShell({
+  refData,
+  badge,
+  notifBadge,
+  children,
+}: {
+  refData: RefData;
+  badge: number;
+  notifBadge: number;
+  children: React.ReactNode;
+}) {
   return (
     <UIProvider refData={refData}>
-      <ShellInner badge={badge}>{children}</ShellInner>
+      <ShellInner badge={badge} notifBadge={notifBadge}>
+        {children}
+      </ShellInner>
     </UIProvider>
   );
 }
 
-function ShellInner({ badge, children }: { badge: number; children: React.ReactNode }) {
+function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge: number; children: React.ReactNode }) {
   const { openModal, setPaletteOpen, closeModal, refData } = useUI();
   const pathname = usePathname();
   const title = NAV.find((n) => pathname.startsWith(n.href))?.label ?? (pathname.startsWith("/import") ? "Import data" : "Ledgerly");
@@ -79,7 +92,7 @@ function ShellInner({ badge, children }: { badge: number; children: React.ReactN
         <Sidebar badge={badge} userName={refData.userName} />
         <div className="flex-1 min-w-0 flex flex-col">
           {/* top bar */}
-          <div className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3">
+          <div className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3 print:hidden">
           <div className="flex items-center gap-2.5">
             <div className="md:hidden w-[26px] h-[26px] rounded-lg bg-acc grid place-items-center text-white font-extrabold text-[13px]">₹</div>
             <h1 className="text-base font-bold tracking-tight flex-1 m-0">{title}</h1>
@@ -98,6 +111,7 @@ function ShellInner({ badge, children }: { badge: number; children: React.ReactN
               🔎
             </button>
             <ThemeToggle />
+            <NotificationBell initialUnread={notifBadge} />
             <button
               onClick={() => openModal("exp")}
               className="btn-primary hidden md:block shadow-[0_2px_8px_color-mix(in_oklab,var(--acc)_40%,transparent)]"
@@ -128,7 +142,7 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
   const params = useSearchParams().toString();
 
   return (
-    <aside className="hidden md:flex w-[216px] flex-none border-r border-line bg-side px-3 py-5 flex-col gap-0.5 sticky top-0 h-screen box-border">
+    <aside className="hidden md:flex w-[216px] flex-none border-r border-line bg-side px-3 py-5 flex-col gap-0.5 sticky top-0 h-screen box-border print:hidden">
       <div className="flex items-center gap-[9px] px-2 pb-[18px] pt-1">
         <div className="w-7 h-7 rounded-[9px] bg-acc grid place-items-center text-white font-extrabold text-sm">₹</div>
         <div className="font-extrabold text-[15px] tracking-tight">Ledgerly</div>
@@ -226,7 +240,7 @@ function BottomNav({ badge }: { badge: number }) {
   const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import"].some((h) => pathname.startsWith(h));
   return (
     <>
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)]">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden">
         {MOBILE_NAV.map((n) => {
           const active = pathname.startsWith(n.href);
           return (
@@ -326,7 +340,7 @@ function Fab() {
       <button
         aria-label="Quick add"
         onClick={() => setOpen((o) => !o)}
-        className="fixed right-5 w-[54px] h-[54px] rounded-full bg-acc text-white text-[25px] grid place-items-center cursor-pointer z-[47] select-none border-none bottom-[76px] md:bottom-6 hover:brightness-108"
+        className="fixed right-5 w-[54px] h-[54px] rounded-full bg-acc text-white text-[25px] grid place-items-center cursor-pointer z-[47] select-none border-none bottom-[76px] md:bottom-6 hover:brightness-108 print:hidden"
         style={{ boxShadow: "0 8px 22px color-mix(in oklab, var(--acc) 45%, transparent)" }}
       >
         {open ? "✕" : "＋"}

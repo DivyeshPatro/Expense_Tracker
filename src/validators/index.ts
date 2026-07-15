@@ -17,10 +17,12 @@ export const paiseFromRupees = z
 export const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date");
 
 export const splitSchema = z.object({
-  mode: z.enum(["EQUAL", "EXACT"]),
+  mode: z.enum(["EQUAL", "EXACT", "PERCENT", "RATIO"]),
   participantIds: z.array(z.string().min(1)).min(1, "Pick at least one friend to split with"),
   payerParticipantId: z.string().nullable(),
   exactAmounts: z.record(z.string(), z.number().int().nonnegative()).optional(),
+  // Keyed by participantId, plus "me" for the owner's own weight — used by PERCENT/RATIO.
+  weights: z.record(z.string(), z.number().positive()).optional(),
 });
 
 export const expenseSchema = z.object({
@@ -105,4 +107,14 @@ export const changeCategoryKindSchema = z.object({
 export const categorySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(40),
   kind: z.enum(["EXPENSE", "INCOME"]),
+});
+
+export const groupSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(60),
+  participantIds: z.array(z.string().min(1)).min(1, "Pick at least one friend"),
+});
+
+export const groupMemberSchema = z.object({
+  groupId: z.string().min(1),
+  participantId: z.string().min(1),
 });

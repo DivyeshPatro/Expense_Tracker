@@ -2,7 +2,7 @@
 // updates account running balances and appends an audit row, so
 // balance = openingBalance + Σ ledger always holds (PRD §4.1 AC).
 
-import { splitEqual, splitExact, type SplitShare } from "@/lib/money";
+import { splitByWeights, splitEqual, splitExact, type SplitShare } from "@/lib/money";
 import { istNoon } from "@/lib/dates";
 import type { Prisma, TxType } from "@prisma/client";
 import { prisma } from "../db";
@@ -29,10 +29,11 @@ export async function applyBalances(
 }
 
 export interface SplitInput {
-  mode: "EQUAL" | "EXACT";
+  mode: "EQUAL" | "EXACT" | "PERCENT" | "RATIO";
   participantIds: string[]; // friends included in the split (owner is always included)
   payerParticipantId: string | null; // null ⇒ paid by owner
   exactAmounts?: Record<string, number>; // participantId → paise (EXACT mode, friends only)
+  weights?: Record<string, number>; // participantId → weight, plus "me" for the owner (PERCENT/RATIO)
 }
 
 export interface ExpenseInput {
@@ -55,6 +56,13 @@ function computeShares(amount: number, split: SplitInput): SplitShare[] {
     if (split.payerParticipantId === null) return splitExact(amount, others, null);
     const withoutPayer = others.filter((o) => o.participantId !== split.payerParticipantId);
     return splitExact(amount, withoutPayer, split.payerParticipantId);
+  }
+  if (split.mode === "PERCENT" || split.mode === "RATIO") {
+    const parts = [
+      { participantId: null as string | null, weight: split.weights?.["me"] ?? 0 },
+      ...split.participantIds.map((id) => ({ participantId: id as string | null, weight: split.weights?.[id] ?? 0 })),
+    ];
+    return splitByWeights(amount, parts, split.payerParticipantId);
   }
   return splitEqual(amount, ids, split.payerParticipantId);
 }
