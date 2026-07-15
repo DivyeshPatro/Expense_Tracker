@@ -32,8 +32,12 @@ import {
   addExpense,
   addIncome,
   addTransfer,
+  getTransactionDetail,
   restoreTransaction,
   softDeleteTransaction,
+  updateExpense,
+  updateIncome,
+  updateTransfer,
 } from "@/server/services/transactions";
 import { askLedgerly, searchMerchants } from "@/server/services/search";
 import type { ColumnMapping } from "@/lib/import/types";
@@ -51,6 +55,9 @@ import {
   participantSchema,
   settlementSchema,
   transferSchema,
+  updateExpenseSchema,
+  updateIncomeSchema,
+  updateTransferSchema,
 } from "@/validators";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -118,6 +125,47 @@ export async function undoDeleteAction(id: string): Promise<ActionResult> {
   try {
     const user = await requireUser();
     await restoreTransaction(user.id, id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function getTransactionDetailAction(id: string) {
+  const user = await requireUser();
+  return getTransactionDetail(user.id, id);
+}
+
+export async function updateExpenseAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, ...data } = updateExpenseSchema.parse(input);
+    await updateExpense(user.id, id, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function updateIncomeAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, ...data } = updateIncomeSchema.parse(input);
+    await updateIncome(user.id, id, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function updateTransferAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, ...data } = updateTransferSchema.parse(input);
+    await updateTransfer(user.id, id, data);
     refresh();
     return { ok: true };
   } catch (e) {

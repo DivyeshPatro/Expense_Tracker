@@ -2,14 +2,15 @@
 
 // Transaction list: All/Expenses/Income/Transfers tabs, live text filter,
 // month/category chips (set by "Ask Ledgerly" / Analytics drill-down), the
-// shared period picker (header), day grouping, delete with a confirm step
-// (then a 5s undo). Filtering and pagination happen server-side
-// (queryTransactionsAction) — this screen can be browsing years of imported
-// history, so it never loads more than one page of rows into the browser at
-// a time.
+// shared period picker (header), day grouping. Tapping a row opens its detail
+// sheet (view, edit, or delete-with-confirm-then-5s-undo — see
+// transaction-detail.tsx); rows themselves carry no destructive action.
+// Filtering and pagination happen server-side (queryTransactionsAction) —
+// this screen can be browsing years of imported history, so it never loads
+// more than one page of rows into the browser at a time.
 
 import { useEffect, useRef, useState } from "react";
-import { deleteTransactionAction, queryTransactionsAction, undoDeleteAction } from "@/app/actions";
+import { queryTransactionsAction } from "@/app/actions";
 import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import type { LedgerRow } from "@/server/services/ledger";
@@ -43,7 +44,7 @@ export function TransactionsList({
   initialCategory: CategoryRef | null;
   period: Period;
 }) {
-  const { showToast } = useUI();
+  const { openModal } = useUI();
   const [rows, setRows] = useState(initialRows);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [page, setPage] = useState(0);
@@ -51,7 +52,6 @@ export function TransactionsList({
   const [tab, setTab] = useState<TxType | null>(initialTab);
   const [month, setMonth] = useState<string | null>(initialMonth);
   const [category, setCategory] = useState<CategoryRef | null>(initialCategory);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   // What filters produced the `rows` currently on screen — compared against
@@ -76,8 +76,10 @@ export function TransactionsList({
     setLoading(false);
   }
 
-  // palette navigation ("Ask Ledgerly"), an Analytics category drill-down, or
-  // the header period picker all re-push this route with new params
+  // palette navigation ("Ask Ledgerly"), an Analytics category drill-down, the
+  // header period picker, or a router.refresh() after editing/deleting a
+  // transaction from its detail sheet all re-push/re-render this route with
+  // a fresh initialRows — resync every time so the list never goes stale.
   useEffect(() => {
     setQ(initialQ);
     setTab(initialTab);
@@ -86,10 +88,9 @@ export function TransactionsList({
     setRows(initialRows);
     setHasMore(initialHasMore);
     setPage(0);
-    setConfirmId(null);
     appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQ, initialTab, initialMonth, initialCategory?.id, periodKey]);
+  }, [initialQ, initialTab, initialMonth, initialCategory?.id, periodKey, initialRows]);
 
   useEffect(() => {
     const categoryId = category?.id ?? null;
@@ -119,21 +120,6 @@ export function TransactionsList({
     setHasMore(result.hasMore);
     setPage(next);
     setLoading(false);
-  }
-
-  async function handleDelete(id: string) {
-    setConfirmId(null);
-    const res = await deleteTransactionAction(id);
-    if (!res.ok) {
-      showToast(res.error);
-      return;
-    }
-    setRows((r) => r.filter((row) => row.id !== id));
-    showToast("Transaction deleted", async () => {
-      const undo = await undoDeleteAction(id);
-      if (undo.ok) refetch({ type: tab ?? undefined, monthKey: month, categoryId: category?.id, textQuery: q });
-      showToast(undo.ok ? "Restored" : "Could not restore");
-    });
   }
 
   const groups: { label: string; items: (ReturnType<typeof txDisplay> & { id: string })[] }[] = [];
@@ -194,42 +180,19 @@ export function TransactionsList({
           <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mx-0.5 mt-1 mb-2 uppercase">{g.label}</div>
           <div className="card px-4 py-1.5">
             {g.items.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 py-[11px] border-b border-line last:border-b-0">
+              <button
+                key={t.id}
+                onClick={() => openModal("txDetail", { transactionId: t.id })}
+                aria-label={`${t.name}, ${t.meta}, ${t.amtF}`}
+                className="w-full flex items-center gap-3 py-[11px] border-b border-line last:border-b-0 bg-transparent border-x-0 border-t-0 cursor-pointer text-left min-h-[44px]"
+              >
                 <div className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none" style={{ background: t.iconBg }}>{t.icon}</div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold truncate">{t.name}</div>
                   <div className="text-[11.5px] text-mut2 truncate">{t.meta}</div>
                 </div>
-                {confirmId === t.id ? (
-                  <div className="flex items-center gap-1.5 flex-none">
-                    <span className="text-[11.5px] text-mut2 whitespace-nowrap">Delete?</span>
-                    <button
-                      onClick={() => handleDelete(t.id)}
-                      className="px-2 py-1 rounded-lg bg-red text-white text-[11px] font-bold cursor-pointer border-none"
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={() => setConfirmId(null)}
-                      className="px-2 py-1 rounded-lg border border-line2 text-[11px] font-semibold cursor-pointer bg-card"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="text-[13px] font-bold" style={{ color: t.amtColor }}>{t.amtF}</div>
-                    <button
-                      title="Delete"
-                      aria-label="Delete transaction"
-                      onClick={() => setConfirmId(t.id)}
-                      className="text-[13px] text-mut2 cursor-pointer p-1 bg-transparent border-none hover:text-red"
-                    >
-                      ✕
-                    </button>
-                  </>
-                )}
-              </div>
+                <div className="text-[13px] font-bold flex-none" style={{ color: t.amtColor }}>{t.amtF}</div>
+              </button>
             ))}
           </div>
         </div>

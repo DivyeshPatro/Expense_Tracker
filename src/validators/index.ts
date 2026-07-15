@@ -53,6 +53,10 @@ export const transferSchema = z.object({
   notes: z.string().trim().max(500).optional(),
 });
 
+export const updateExpenseSchema = z.object({ id: z.string().min(1) }).merge(expenseSchema);
+export const updateIncomeSchema = z.object({ id: z.string().min(1) }).merge(incomeSchema);
+export const updateTransferSchema = z.object({ id: z.string().min(1) }).merge(transferSchema);
+
 export const settlementSchema = z.object({
   participantId: z.string().min(1),
   direction: z.enum(["TO_OWNER", "FROM_OWNER"]),

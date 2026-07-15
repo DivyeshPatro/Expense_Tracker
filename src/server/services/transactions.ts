@@ -183,6 +183,147 @@ export async function addTransfer(userId: string, input: TransferInput) {
   return tx.id;
 }
 
+export interface TransactionDetail {
+  id: string;
+  type: TxType;
+  amount: number; // paise
+  accountId: string | null;
+  accountName: string | null;
+  toAccountId: string | null;
+  toAccountName: string | null;
+  categoryId: string | null;
+  merchant: string;
+  ymd: string; // YYYY-MM-DD
+  notes: string | null;
+  paidByParticipantId: string | null;
+  isRecurring: boolean;
+  splits: { participantId: string | null; owedAmount: number; method: string }[];
+}
+
+/** Full detail for the edit form — a fresh, richer read than the list's lean LedgerRow (which has just enough for display, not for reconstructing per-participant split amounts). */
+export async function getTransactionDetail(userId: string, id: string): Promise<TransactionDetail | null> {
+  const t = await prisma.transaction.findFirst({
+    where: { id, userId, deletedAt: null },
+    include: {
+      account: { select: { name: true } },
+      toAccount: { select: { name: true } },
+      splits: { select: { participantId: true, owedAmount: true, method: true } },
+    },
+  });
+  if (!t) return null;
+  return {
+    id: t.id,
+    type: t.type,
+    amount: Number(t.amount),
+    accountId: t.accountId,
+    accountName: t.account?.name ?? null,
+    toAccountId: t.toAccountId,
+    toAccountName: t.toAccount?.name ?? null,
+    categoryId: t.categoryId,
+    merchant: t.merchant,
+    ymd: t.occurredAt.toISOString().slice(0, 10),
+    notes: t.notes,
+    paidByParticipantId: t.paidByParticipantId,
+    isRecurring: t.isRecurring,
+    splits: t.splits.map((s) => ({ participantId: s.participantId, owedAmount: Number(s.owedAmount), method: s.method })),
+  };
+}
+
+/**
+ * Update path for all three types mirrors create: reverse the transaction's
+ * old balance effect, apply the edited fields, re-apply the new balance
+ * effect — all inside one DB transaction so balance = openingBalance + Σ
+ * ledger holds at every commit, exactly like softDeleteTransaction/
+ * restoreTransaction below already do for delete/undo.
+ */
+export async function updateExpense(userId: string, id: string, input: ExpenseInput) {
+  const shares = input.split ? computeShares(input.amount, input.split) : null;
+  const paidByParticipantId = input.split?.payerParticipantId ?? null;
+  const newAccountId = paidByParticipantId === null ? input.accountId : null;
+
+  await prisma.$transaction(async (db) => {
+    const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null }, include: { splits: true } });
+    if (!old) throw new Error("Transaction not found");
+    if (old.type !== "EXPENSE") throw new Error("Not an expense");
+
+    await applyBalances(db, old, -1);
+    if (old.splits.length) await db.expenseSplit.deleteMany({ where: { txId: id } });
+
+    const updated = await db.transaction.update({
+      where: { id },
+      data: {
+        amount: input.amount,
+        accountId: newAccountId,
+        categoryId: input.categoryId,
+        merchant: input.merchant,
+        occurredAt: istNoon(input.date),
+        notes: input.notes || null,
+        paidByParticipantId,
+        splits: shares
+          ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
+          : undefined,
+      },
+    });
+    await applyBalances(db, updated, 1);
+    await audit(db, userId, "update", "Transaction", id, old, updated);
+  });
+
+  if (input.categoryId) await checkBudgetThresholds(userId, input.categoryId);
+}
+
+export async function updateIncome(userId: string, id: string, input: IncomeInput) {
+  await prisma.$transaction(async (db) => {
+    const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
+    if (!old) throw new Error("Transaction not found");
+    if (old.type !== "INCOME") throw new Error("Not income");
+
+    await applyBalances(db, old, -1);
+    const updated = await db.transaction.update({
+      where: { id },
+      data: {
+        amount: input.amount,
+        accountId: input.accountId,
+        categoryId: input.categoryId,
+        merchant: input.merchant,
+        occurredAt: istNoon(input.date),
+        notes: input.notes || null,
+      },
+    });
+    await applyBalances(db, updated, 1);
+    await audit(db, userId, "update", "Transaction", id, old, updated);
+  });
+}
+
+export async function updateTransfer(userId: string, id: string, input: TransferInput) {
+  if (input.fromAccountId === input.toAccountId) throw new Error("Pick two different accounts");
+  const [from, to] = await Promise.all([
+    prisma.account.findFirst({ where: { id: input.fromAccountId, userId } }),
+    prisma.account.findFirst({ where: { id: input.toAccountId, userId } }),
+  ]);
+  if (!from || !to) throw new Error("Account not found");
+
+  await prisma.$transaction(async (db) => {
+    const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
+    if (!old) throw new Error("Transaction not found");
+    if (old.type !== "TRANSFER") throw new Error("Not a transfer");
+
+    await applyBalances(db, old, -1);
+    const updated = await db.transaction.update({
+      where: { id },
+      data: {
+        amount: input.amount,
+        accountId: input.fromAccountId,
+        toAccountId: input.toAccountId,
+        merchant: `${from.name} → ${to.name}`,
+        occurredAt: istNoon(input.date),
+        notes: input.notes || null,
+      },
+    });
+    await applyBalances(db, updated, 1);
+    await audit(db, userId, "update", "Transaction", id, old, updated);
+  });
+}
+
 /** Soft delete with undo (PRD §4.2): balances reverse exactly; restore re-applies. */
 export async function softDeleteTransaction(userId: string, id: string) {
   await prisma.$transaction(async (db) => {
