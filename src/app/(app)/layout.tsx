@@ -1,7 +1,8 @@
 import { AppShell } from "@/components/shell/app-shell";
 import type { RefData } from "@/components/shell/ui-context";
-import { prisma } from "@/server/db";
-import { netBalances } from "@/server/services/shared";
+import { listAccountRows } from "@/server/services/accounts";
+import { listCategories } from "@/server/services/categories";
+import { netBalances, listParticipants } from "@/server/services/shared";
 import { unreadCount } from "@/server/services/notifications";
 import { requireUser } from "@/server/session";
 
@@ -12,10 +13,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // re-invokes layouts per request). Merchant suggestions for the palette are
   // fetched on demand instead of pre-loading (a full merchant ranking scans
   // every transaction, which gets slower as import history grows).
+  //
+  // accounts/categories/participants are each cache()-wrapped in their service
+  // module: when the page below (e.g. Dashboard) needs the same list, it calls
+  // the same function and React dedupes the fetch instead of hitting Postgres
+  // twice for one request.
   const [accounts, categories, participants, nets, notifBadge] = await Promise.all([
-    prisma.account.findMany({ where: { userId: user.id, isArchived: false }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, icon: true } }),
-    prisma.category.findMany({ where: { userId: user.id, parentId: null }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, icon: true } }),
-    prisma.participant.findMany({ where: { ownerId: user.id }, orderBy: { displayName: "asc" } }),
+    listAccountRows(user.id),
+    listCategories(user.id),
+    listParticipants(user.id),
     netBalances(user.id),
     unreadCount(user.id),
   ]);

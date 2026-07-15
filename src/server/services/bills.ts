@@ -5,6 +5,7 @@ import { advance, daysFromToday, istNoon, toYMD, todayYMD, MONTH_NAMES } from "@
 import { MISC_META } from "@/lib/categories";
 import { prisma } from "../db";
 import { audit } from "./audit";
+import { listCategories } from "./categories";
 import { applyBalances } from "./transactions";
 
 export interface BillView {
@@ -23,7 +24,7 @@ export interface BillView {
 export async function listBills(userId: string, now = new Date()): Promise<BillView[]> {
   const [bills, cats] = await Promise.all([
     prisma.bill.findMany({ where: { userId, status: { not: "PAID" } }, orderBy: { dueDate: "asc" } }),
-    prisma.category.findMany({ where: { userId } }),
+    listCategories(userId),
   ]);
   const catById = new Map(cats.map((c) => [c.id, c]));
 

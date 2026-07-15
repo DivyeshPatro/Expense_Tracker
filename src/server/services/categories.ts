@@ -2,12 +2,18 @@
 // rows seeded from the default set at signup, so renames/additions never
 // collide between users (Architecture doc §4).
 
+import { cache } from "react";
 import type { TxType } from "@prisma/client";
 import { prisma } from "../db";
 
-export async function listCategories(userId: string) {
+// cache()-wrapped: the layout (nav/category chips) and Bills (icon/color lookup)
+// both need the full category list for the same request — dedupes the second
+// fetch instead of hitting Postgres twice for the same userId. Subcategories
+// (Category.parentId) are schema-only — nothing in the product sets that
+// column, so this list is already "top-level only" in practice.
+export const listCategories = cache(async (userId: string) => {
   return prisma.category.findMany({ where: { userId }, orderBy: { name: "asc" } });
-}
+});
 
 const KIND_ICON: Record<TxType, string> = { EXPENSE: "📦", INCOME: "💼", TRANSFER: "⇄" };
 

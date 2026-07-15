@@ -17,9 +17,12 @@ export interface ParticipantView {
   linkedUserId: string | null;
 }
 
-export async function listParticipants(userId: string) {
+// cache()-wrapped: the layout (sidebar friend list) and netBalances() both need
+// every participant for the same request — dedupes the second fetch instead of
+// hitting Postgres twice for the same userId.
+export const listParticipants = cache(async (userId: string) => {
   return prisma.participant.findMany({ where: { ownerId: userId }, orderBy: { displayName: "asc" } });
-}
+});
 
 export async function addParticipant(userId: string, displayName: string) {
   const count = await prisma.participant.count({ where: { ownerId: userId } });

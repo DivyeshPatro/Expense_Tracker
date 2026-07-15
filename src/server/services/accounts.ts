@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/categories";
 import { currentMonthKey, monthRange } from "@/lib/dates";
 import type { AccountType } from "@prisma/client";
@@ -15,7 +16,27 @@ export interface AccountView {
   periodNet: number; // paise net movement within the requested window (defaults to this month)
 }
 
-/** range defaults to the current month when omitted — matches the shared period picker's own default, and keeps callers that don't need periodNet (dashboard, analytics) from scanning all-time history for a number they never read. */
+export interface AccountRow {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  balance: number; // paise, negative for credit-card debt
+}
+
+/**
+ * Bare account rows — id/name/icon/color/balance only, no periodNet. cache()-wrapped:
+ * the layout (sidebar/palette account list) and Dashboard (accounts card, which
+ * never reads type/typeLabel/periodNet) both just need this shape, so they share
+ * one fetch instead of two, and Dashboard skips the ledger scan listAccounts()
+ * below would otherwise run to compute a periodNet nothing reads.
+ */
+export const listAccountRows = cache(async (userId: string): Promise<AccountRow[]> => {
+  const accounts = await prisma.account.findMany({ where: { userId, isArchived: false }, orderBy: { createdAt: "asc" } });
+  return accounts.map((a) => ({ id: a.id, name: a.name, icon: a.icon ?? "🏦", color: a.color ?? "#2a63f6", balance: Number(a.balance) }));
+});
+
+/** range defaults to the current month when omitted — matches the shared period picker's own default. Use listAccountRows instead when the caller doesn't need type/typeLabel/periodNet (e.g. Dashboard). */
 export async function listAccounts(userId: string, range?: { start?: Date; end?: Date }, now = new Date()): Promise<AccountView[]> {
   const defaultRange = monthRange(currentMonthKey(now));
   const effective = range ?? defaultRange;

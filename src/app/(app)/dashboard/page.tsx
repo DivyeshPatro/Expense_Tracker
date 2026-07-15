@@ -10,7 +10,7 @@ import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonth
 import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
-import { listAccounts } from "@/server/services/accounts";
+import { listAccountRows } from "@/server/services/accounts";
 import { listBills } from "@/server/services/bills";
 import { listBudgets } from "@/server/services/budgets";
 import { cashTotals, categoryTotals, loadLedgerAgg, loadLedgerAggRange, monthAgg, recentTransactions } from "@/server/services/ledger";
@@ -33,8 +33,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const periodQS = periodQueryParams(selectedPeriod);
   const withPeriodQS = (href: string) => (periodQS ? `${href}?${periodQS}` : href);
 
+  // rows (6 months) always covers the current month, so it's handed to
+  // listBudgets below instead of that service doing its own narrower 1-month
+  // fetch — same in-flight promise, no extra round trip, still fully parallel
+  // (listBudgets's own budget.findMany still fires immediately either way).
+  const rowsPromise = loadLedgerAgg(user.id, 6, now);
   const [rows, periodRows, period, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared] = await Promise.all([
-    loadLedgerAgg(user.id, 6, now),
+    rowsPromise,
     loadLedgerAggRange(user.id, range.start, range.end),
     cashTotals(user.id, { start: range.start, end: range.end }),
     // cash moved after the period ends — walks today's balance back to the period-end balance
@@ -43,8 +48,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     // their cash effect is real but absent from every account's balance
     cashTotals(user.id, { unassignedOnly: true }),
     recentTransactions(user.id, 6),
-    listAccounts(user.id, undefined, now),
-    listBudgets(user.id, now),
+    listAccountRows(user.id),
+    listBudgets(user.id, now, rowsPromise),
     listBills(user.id, now),
     sharedSummary(user.id),
   ]);

@@ -3,7 +3,7 @@
 
 import { currentMonthKey } from "@/lib/dates";
 import { prisma } from "../db";
-import { loadLedger, categoryTotals } from "./ledger";
+import { loadLedgerAgg, categoryTotals, type AggRow } from "./ledger";
 
 export interface BudgetView {
   id: string;
@@ -19,11 +19,25 @@ export interface BudgetView {
   alertAt: number;
 }
 
-export async function listBudgets(userId: string, now = new Date()): Promise<BudgetView[]> {
+/**
+ * precomputedRows lets a caller that already fetched (or is already fetching, as
+ * a promise) a wider aggregation window this request — e.g. Dashboard's 6-month
+ * loadLedgerAgg, which always covers the current month — hand those rows in
+ * instead of triggering a second, narrower Transaction scan. categoryTotals()
+ * filters to the current month regardless of how wide the input window is, so
+ * the result is identical either way. Passing the in-flight promise (rather
+ * than an already-awaited array) keeps this call's own budget.findMany firing
+ * immediately in parallel, same as before.
+ */
+export async function listBudgets(
+  userId: string,
+  now = new Date(),
+  precomputedRows?: AggRow[] | Promise<AggRow[]>
+): Promise<BudgetView[]> {
   const key = currentMonthKey(now);
   const [budgets, rows] = await Promise.all([
     prisma.budget.findMany({ where: { userId }, include: { category: true }, orderBy: { limit: "desc" } }),
-    loadLedger(userId, 1, now),
+    precomputedRows ?? loadLedgerAgg(userId, 1, now),
   ]);
   const totals = categoryTotals(rows, key);
   const byCat = new Map(totals.map((t) => [t.name, t.total]));
