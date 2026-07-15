@@ -41,19 +41,22 @@ try {
   await page.waitForSelector("text=Expense added", { timeout: 10000 });
   ok("add expense happy path with toast", true);
 
-  // ── transactions: delete + undo ──
+  // ── transactions: open detail, delete + undo (Phase 1 moved delete off the
+  // row and into the detail sheet, behind a confirm step) ──
   await page.goto("http://localhost:3000/transactions");
   await page.waitForSelector("text=Today");
-  const before = await page.locator('button[aria-label="Delete transaction"]').count();
-  await page.locator('button[aria-label="Delete transaction"]').first().click();
-  await page.waitForSelector("text=Delete?");
-  await page.click('button:has-text("Delete")');
+  const before = await page.locator(".card button.w-full").count();
+  await page.locator(".card button.w-full").first().click();
+  await page.getByRole("button", { name: "Delete", exact: true }).waitFor({ timeout: 8000 });
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.waitForSelector("text=Delete this transaction?");
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
   await page.waitForSelector("text=Transaction deleted");
-  await page.click("text=Undo");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
   await page.waitForSelector("text=Restored");
   let after = 0;
   for (let i = 0; i < 20; i++) {
-    after = await page.locator('button[aria-label="Delete transaction"]').count();
+    after = await page.locator(".card button.w-full").count();
     if (after === before) break;
     await page.waitForTimeout(400);
   }
@@ -81,7 +84,10 @@ try {
   await page.screenshot({ path: `${SHOT}/03-shared.png`, fullPage: true });
 
   // add split expense ₹999 with equal split → check math note
-  await page.click("text=👥 Add split expense");
+  // ("Add split expense" no longer lives in the ⌘K palette — Phase 2 trimmed
+  // that duplicate; the desktop quick-add chooser is the remaining entry point)
+  await page.click('button[aria-label="Quick add (desktop)"]');
+  await page.click('button:has-text("Split with friends")');
   await page.waitForSelector("text=Split with friends");
   await page.fill('input[type="number"] >> nth=0', "999");
   await page.waitForSelector("text=/₹333 each|₹333.* you \\+ 2 friends/");

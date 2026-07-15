@@ -148,10 +148,12 @@ try {
   ok("delete from detail view reverses the balance effect", afterFinalDelete1 === before1, `expected back to ${before1}, got ${afterFinalDelete1}`);
 
   // ═══════════ Income ═══════════
+  // Add income/Transfer no longer live in the ⌘K palette (Phase 2 trimmed
+  // those duplicate rows) — use the desktop quick-add chooser instead, the
+  // remaining non-form entry point for these two types.
   const beforeInc = await accountBalance("HDFC Savings");
-  await page.click('button:has-text("Search")');
-  await page.waitForTimeout(250);
-  await page.locator("text=Add income").first().click();
+  await page.click('button[aria-label="Quick add (desktop)"]');
+  await page.getByRole("button", { name: "💰 Income" }).click();
   await page.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
   await page.fill('input[placeholder="0"]', "2000");
   await page.fill('input[placeholder="e.g. Salary · Acme Corp"]', "E2ETxDetailIncome");
@@ -178,13 +180,9 @@ try {
   // ═══════════ Transfer ═══════════
   const beforeFrom = await accountBalance("HDFC Savings");
   const beforeTo = await accountBalance("Cash Wallet");
-  // a neutral page with no standalone "Transfer money" button of its own —
-  // both Accounts and Dashboard have one, which the palette's own action
-  // item would collide with via a plain text locator.
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.click('button:has-text("Search")');
-  await page.waitForTimeout(400);
-  await page.locator('text=Transfer money').first().click();
+  await page.click('button[aria-label="Quick add (desktop)"]');
+  await page.getByRole("button", { name: "⇄ Transfer" }).click();
   await page.waitForSelector('input[placeholder="0"]');
   // FROM/TO default to the first two accounts in refData order, which isn't
   // guaranteed to be HDFC Savings -> Cash Wallet — pin both explicitly so the

@@ -58,10 +58,6 @@ export function CommandPalette() {
   };
 
   const actions: PaletteItem[] = [
-    { icon: "−", label: "Add expense", hint: "", run: () => openModal("exp") },
-    { icon: "👥", label: "Add split expense", hint: "", run: () => openModal("exp", { split: true }) },
-    { icon: "＋", label: "Add income", hint: "", run: () => openModal("inc") },
-    { icon: "⇄", label: "Transfer money", hint: "", run: () => openModal("tr") },
     { icon: "◔", label: "Create budget", hint: "", run: () => openModal("budget") },
     {
       icon: "☾",

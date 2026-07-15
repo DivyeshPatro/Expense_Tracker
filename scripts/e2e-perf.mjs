@@ -159,18 +159,21 @@ try {
   // the documented e2e:all sequence) left behind — match any date-group
   // heading rather than hardcoding specific months.
   await page.waitForSelector("text=/Today|Yesterday|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/");
-  const rowsBefore = await page.locator('button[aria-label="Delete transaction"]').count();
+  // Phase 1 replaced the per-row delete button with a plain tappable row
+  // (`.card button.w-full`, opening the transaction detail sheet) — count
+  // those instead of the now-removed `[aria-label="Delete transaction"]`.
+  const rowsBefore = await page.locator(".card button.w-full").count();
   ok("initial page loads a bounded page, not the whole ledger", rowsBefore <= 50, `${rowsBefore} rows on first load`);
 
   const hasLoadMore = await page.locator('button:has-text("Load more")').count();
   if (hasLoadMore > 0) {
     await page.click('button:has-text("Load more")');
     await page.waitForFunction(
-      (before) => document.querySelectorAll('button[aria-label="Delete transaction"]').length > before,
+      (before) => document.querySelectorAll(".card button.w-full").length > before,
       rowsBefore,
       { timeout: 10000 }
     ).catch(() => {});
-    const rowsAfter = await page.locator('button[aria-label="Delete transaction"]').count();
+    const rowsAfter = await page.locator(".card button.w-full").count();
     ok("'Load more' fetches the next page and appends rows", rowsAfter > rowsBefore, `${rowsBefore} -> ${rowsAfter}`);
   } else {
     ok("'Load more' fetches the next page and appends rows", false, "no Load more button found — dataset too small for this check");

@@ -5,7 +5,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
 import { CommandPalette } from "./palette";
@@ -228,22 +228,35 @@ function ThemeToggle() {
   );
 }
 
-const MOBILE_NAV = [
+const MOBILE_NAV_LEFT = [
   { href: "/dashboard", icon: "◧", label: "Home" },
   { href: "/transactions", icon: "⇄", label: "Txns" },
-  { href: "/shared", icon: "◫", label: "Shared" },
-  { href: "/analytics", icon: "◵", label: "Analytics" },
 ];
+const MOBILE_NAV_RIGHT = [{ href: "/analytics", icon: "◵", label: "Analytics" }];
+
+/** Escape-to-close for the sheet-style overlays below — MoreSheet and QuickAddSheet
+ * both own local open/close state (not the global modal/palette in useUI()), so the
+ * shell's global keydown handler can't reach them; each sheet arms its own listener. */
+function useEscapeToClose(close: () => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+}
 
 function BottomNav({ badge }: { badge: number }) {
   const pathname = usePathname();
-  const [sheet, setSheet] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const params = useSearchParams().toString();
-  const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import"].some((h) => pathname.startsWith(h));
+  const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import", "/shared"].some((h) => pathname.startsWith(h));
   return (
     <>
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden">
-        {MOBILE_NAV.map((n) => {
+        {MOBILE_NAV_LEFT.map((n) => {
           const active = pathname.startsWith(n.href);
           return (
             <Link
@@ -254,24 +267,93 @@ function BottomNav({ badge }: { badge: number }) {
             >
               <span className="text-[17px]" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.icon}</span>
               <span className="text-[10px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
-              {n.href === "/shared" && badge > 0 && (
-                <span className="absolute top-1 right-[22%] w-2 h-2 rounded-full bg-red" />
-              )}
             </Link>
           );
         })}
-        <button onClick={() => setSheet(true)} className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border bg-transparent border-none cursor-pointer">
+        <div className="flex-1 flex flex-col items-center justify-end pb-[7px]">
+          <button
+            aria-label="Quick add"
+            onClick={() => setQuickAddOpen(true)}
+            className="w-[52px] h-[52px] -mt-[24px] rounded-full bg-acc text-white text-[26px] grid place-items-center cursor-pointer border-none select-none hover:brightness-108"
+            style={{ boxShadow: "0 6px 16px color-mix(in oklab, var(--acc) 50%, transparent)" }}
+          >
+            ＋
+          </button>
+        </div>
+        {MOBILE_NAV_RIGHT.map((n) => {
+          const active = pathname.startsWith(n.href);
+          return (
+            <Link
+              key={n.href}
+              href={withPeriod(n.href, params)}
+              onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
+              className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border no-underline relative"
+            >
+              <span className="text-[17px]" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.icon}</span>
+              <span className="text-[10px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
+            </Link>
+          );
+        })}
+        <button onClick={() => setMoreOpen(true)} className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border bg-transparent border-none cursor-pointer relative">
           <span className="text-[17px]" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>⋯</span>
           <span className="text-[10px] font-semibold" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>More</span>
+          {badge > 0 && <span className="absolute top-1 right-[26%] w-2 h-2 rounded-full bg-red" />}
         </button>
       </nav>
-      {sheet && <MoreSheet close={() => setSheet(false)} params={params} />}
+      {quickAddOpen && <QuickAddSheet close={() => setQuickAddOpen(false)} />}
+      {moreOpen && <MoreSheet close={() => setMoreOpen(false)} params={params} badge={badge} />}
     </>
   );
 }
 
-function MoreSheet({ close, params }: { close: () => void; params: string }) {
+function QuickAddSheet({ close }: { close: () => void }) {
+  const { openModal } = useUI();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(close);
+  useEffect(() => panelRef.current?.focus(), []);
   const items = [
+    { icon: "🧾", label: "Expense", act: () => openModal("exp") },
+    { icon: "💰", label: "Income", act: () => openModal("inc") },
+    { icon: "⇄", label: "Transfer", act: () => openModal("tr") },
+    { icon: "👥", label: "Split with friends", act: () => openModal("exp", { split: true }) },
+  ];
+  return (
+    <div onClick={close} className="fixed inset-0 z-[55] flex items-end" style={{ background: "var(--ov)" }}>
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Quick add"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full bg-card rounded-t-[18px] px-[18px] pt-[18px] pb-7 box-border flex flex-col gap-1 outline-none"
+        style={{ animation: "rise .22s ease", paddingBottom: "calc(28px + env(safe-area-inset-bottom))" }}
+      >
+        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-2.5" />
+        {items.map((i) => (
+          <button
+            key={i.label}
+            onClick={() => {
+              close();
+              i.act();
+            }}
+            className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold text-left cursor-pointer bg-transparent border-none text-ink hover:bg-accsoft w-full min-h-[44px]"
+          >
+            <span className="w-5 text-center text-[16px]">{i.icon}</span>
+            {i.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MoreSheet({ close, params, badge }: { close: () => void; params: string; badge: number }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(close);
+  useEffect(() => panelRef.current?.focus(), []);
+  const items = [
+    { href: "/shared", icon: "◫", label: "Shared" },
     { href: "/accounts", icon: "▤", label: "Accounts" },
     { href: "/budgets", icon: "◔", label: "Budgets" },
     { href: "/bills", icon: "▦", label: "Bills" },
@@ -280,9 +362,14 @@ function MoreSheet({ close, params }: { close: () => void; params: string }) {
   return (
     <div onClick={close} className="fixed inset-0 z-[55] flex items-end" style={{ background: "var(--ov)" }}>
       <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="More"
         onClick={(e) => e.stopPropagation()}
-        className="w-full bg-card rounded-t-[18px] px-[18px] pt-[18px] pb-7 box-border flex flex-col gap-1"
-        style={{ animation: "rise .22s ease" }}
+        className="w-full bg-card rounded-t-[18px] px-[18px] pt-[18px] pb-7 box-border flex flex-col gap-1 outline-none"
+        style={{ animation: "rise .22s ease", paddingBottom: "calc(28px + env(safe-area-inset-bottom))" }}
       >
         <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-2.5" />
         {items.map((i) => (
@@ -296,7 +383,10 @@ function MoreSheet({ close, params }: { close: () => void; params: string }) {
             className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline text-ink hover:bg-accsoft"
           >
             <span className="w-5 text-center">{i.icon}</span>
-            {i.label}
+            <span className="flex-1">{i.label}</span>
+            {i.href === "/shared" && badge > 0 && (
+              <span className="text-[10.5px] bg-redsoft text-red px-[7px] py-0.5 rounded-full font-bold">{badge}</span>
+            )}
           </Link>
         ))}
         <ThemeRow close={close} />
@@ -324,6 +414,9 @@ function ThemeRow({ close }: { close: () => void }) {
   );
 }
 
+// Desktop-only quick-add chooser. On mobile this is replaced by the center
+// nav button + QuickAddSheet, so the floating corner FAB is hidden there
+// rather than duplicating it — see BottomNav above.
 function Fab() {
   const { openModal } = useUI();
   const [open, setOpen] = useState(false);
@@ -336,7 +429,7 @@ function Fab() {
   return (
     <>
       {open && (
-        <div className="fixed right-5 z-[46] flex flex-col gap-2 items-end bottom-[142px] md:bottom-[90px]" style={{ animation: "pop .18s ease" }}>
+        <div className="hidden md:flex fixed right-5 z-[46] flex-col gap-2 items-end bottom-[90px]" style={{ animation: "pop .18s ease" }}>
           {items.map((i) => (
             <button
               key={i.label}
@@ -353,9 +446,9 @@ function Fab() {
         </div>
       )}
       <button
-        aria-label="Quick add"
+        aria-label="Quick add (desktop)"
         onClick={() => setOpen((o) => !o)}
-        className="fixed right-5 w-[54px] h-[54px] rounded-full bg-acc text-white text-[25px] grid place-items-center cursor-pointer z-[47] select-none border-none bottom-[76px] md:bottom-6 hover:brightness-108 print:hidden"
+        className="hidden md:grid fixed right-5 w-[54px] h-[54px] rounded-full bg-acc text-white text-[25px] place-items-center cursor-pointer z-[47] select-none border-none bottom-6 hover:brightness-108 print:hidden"
         style={{ boxShadow: "0 8px 22px color-mix(in oklab, var(--acc) 45%, transparent)" }}
       >
         {open ? "✕" : "＋"}
