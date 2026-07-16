@@ -99,6 +99,9 @@ export async function addExpense(userId: string, input: ExpenseInput) {
           ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
           : undefined,
       },
+      // splits in the audit after-image — snapshots must be complete because
+      // they can never be backfilled
+      include: { splits: true },
     });
     await applyBalances(db, t, 1);
     await audit(db, userId, "create", "Transaction", t.id, undefined, t);
@@ -263,6 +266,10 @@ export async function updateExpense(userId: string, id: string, input: ExpenseIn
           ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
           : undefined,
       },
+      // splits included so the audit snapshot stays complete — `old` carries
+      // them, and an after-image without them would be permanently blind for
+      // history views (audit rows can't be backfilled)
+      include: { splits: true },
     });
     await applyBalances(db, updated, 1);
     await audit(db, userId, "update", "Transaction", id, old, updated);

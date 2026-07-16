@@ -40,6 +40,9 @@ import {
   updateTransfer,
 } from "@/server/services/transactions";
 import { askLedgerly, searchMerchants } from "@/server/services/search";
+import { activityPage } from "@/server/services/activity";
+import { ACTIVITY_CHIPS, type ActivityChip } from "@/lib/activity";
+import { parsePeriod } from "@/lib/period";
 import type { ColumnMapping } from "@/lib/import/types";
 import {
   accountSchema,
@@ -252,6 +255,22 @@ export async function askLedgerlyAction(query: string) {
 export async function queryTransactionsAction(filter: TxListFilter, page: number) {
   const user = await requireUser();
   return queryTransactions(user.id, filter, page);
+}
+
+export async function activityPageAction(input: {
+  chip?: string;
+  period?: { p?: string; from?: string; to?: string };
+  cursor?: string;
+}) {
+  const user = await requireUser();
+  const chip = ACTIVITY_CHIPS.includes(input.chip as ActivityChip) ? (input.chip as ActivityChip) : "all";
+  const { range } = parsePeriod(input.period ?? {});
+  return activityPage(user.id, {
+    chip,
+    start: range.start,
+    end: range.end,
+    cursor: typeof input.cursor === "string" && input.cursor ? input.cursor : undefined,
+  });
 }
 
 // ─────────── Import wizard ───────────

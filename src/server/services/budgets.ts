@@ -3,6 +3,7 @@
 
 import { currentMonthKey } from "@/lib/dates";
 import { prisma } from "../db";
+import { audit } from "./audit";
 import { loadLedgerAgg, categoryTotals, type AggRow } from "./ledger";
 
 export interface BudgetView {
@@ -65,11 +66,15 @@ export async function listBudgets(
 
 export async function upsertBudget(userId: string, categoryId: string | null, limit: number) {
   const existing = await prisma.budget.findFirst({ where: { userId, categoryId, accountId: null, period: "MONTHLY" } });
-  if (existing) {
-    await prisma.budget.update({ where: { id: existing.id }, data: { limit } });
-  } else {
-    await prisma.budget.create({ data: { userId, categoryId, period: "MONTHLY", limit } });
-  }
+  await prisma.$transaction(async (db) => {
+    if (existing) {
+      const updated = await db.budget.update({ where: { id: existing.id }, data: { limit } });
+      await audit(db, userId, "update", "Budget", existing.id, existing, updated);
+    } else {
+      const b = await db.budget.create({ data: { userId, categoryId, period: "MONTHLY", limit } });
+      await audit(db, userId, "create", "Budget", b.id, undefined, b);
+    }
+  });
 }
 
 /** Called after every expense write for the affected category. */

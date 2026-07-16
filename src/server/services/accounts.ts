@@ -3,6 +3,7 @@ import { ACCOUNT_TYPE_LABELS } from "@/lib/categories";
 import { currentMonthKey, monthRange } from "@/lib/dates";
 import type { AccountType } from "@prisma/client";
 import { prisma } from "../db";
+import { audit } from "./audit";
 import { loadLedgerAggRange } from "./ledger";
 
 export interface AccountView {
@@ -78,17 +79,20 @@ export async function createAccount(
   userId: string,
   input: { name: string; type: AccountType; openingBalance: number; bankName?: string; color?: string }
 ) {
-  await prisma.account.create({
-    data: {
-      userId,
-      name: input.name,
-      type: input.type,
-      bankName: input.bankName || null,
-      openingBalance: input.openingBalance,
-      balance: input.openingBalance,
-      icon: TYPE_ICONS[input.type],
-      color: input.color ?? "#2a63f6",
-    },
+  await prisma.$transaction(async (db) => {
+    const a = await db.account.create({
+      data: {
+        userId,
+        name: input.name,
+        type: input.type,
+        bankName: input.bankName || null,
+        openingBalance: input.openingBalance,
+        balance: input.openingBalance,
+        icon: TYPE_ICONS[input.type],
+        color: input.color ?? "#2a63f6",
+      },
+    });
+    await audit(db, userId, "create", "Account", a.id, undefined, a);
   });
 }
 

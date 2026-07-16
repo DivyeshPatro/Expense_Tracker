@@ -21,6 +21,7 @@ const NAV = [
   { href: "/budgets", icon: "◔", label: "Budgets" },
   { href: "/bills", icon: "▦", label: "Bills" },
   { href: "/shared", icon: "◫", label: "Shared" },
+  { href: "/activity", icon: "◴", label: "Activity" },
   { href: "/analytics", icon: "◵", label: "Analytics" },
   { href: "/settings", icon: "⚙", label: "Settings" },
 ];
@@ -32,7 +33,7 @@ const TX_SUBS = [
   { label: "Transfers", tab: "TRANSFER" },
 ];
 
-const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics"];
+const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics", "/activity"];
 
 /** Carries the selected period (?p/&from/&to) along when navigating between period-aware pages, so switching sections doesn't reset back to "this month". */
 function withPeriod(href: string, currentSearch: string): string {
@@ -252,7 +253,7 @@ function BottomNav({ badge }: { badge: number }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const params = useSearchParams().toString();
-  const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import", "/shared"].some((h) => pathname.startsWith(h));
+  const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity"].some((h) => pathname.startsWith(h));
   return (
     <>
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden">
@@ -354,6 +355,7 @@ function MoreSheet({ close, params, badge }: { close: () => void; params: string
   useEffect(() => panelRef.current?.focus(), []);
   const items = [
     { href: "/shared", icon: "◫", label: "Shared" },
+    { href: "/activity", icon: "◴", label: "Activity" },
     { href: "/accounts", icon: "▤", label: "Accounts" },
     { href: "/budgets", icon: "◔", label: "Budgets" },
     { href: "/bills", icon: "▦", label: "Bills" },

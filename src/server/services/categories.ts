@@ -5,6 +5,7 @@
 import { cache } from "react";
 import type { TxType } from "@prisma/client";
 import { prisma } from "../db";
+import { audit } from "./audit";
 
 // cache()-wrapped: the layout (nav/category chips) and Bills (icon/color lookup)
 // both need the full category list for the same request — dedupes the second
@@ -22,7 +23,11 @@ export async function createCategory(userId: string, name: string, kind: "EXPENS
   if (!trimmed) throw new Error("Category name is required");
   const existing = await prisma.category.findUnique({ where: { userId_name_kind: { userId, name: trimmed, kind } } });
   if (existing) return existing;
-  return prisma.category.create({ data: { userId, name: trimmed, kind, icon: KIND_ICON[kind] } });
+  return prisma.$transaction(async (db) => {
+    const cat = await db.category.create({ data: { userId, name: trimmed, kind, icon: KIND_ICON[kind] } });
+    await audit(db, userId, "create", "Category", cat.id, undefined, cat);
+    return cat;
+  });
 }
 
 export async function renameCategory(userId: string, categoryId: string, name: string) {
@@ -34,7 +39,11 @@ export async function renameCategory(userId: string, categoryId: string, name: s
     where: { userId_name_kind: { userId, name: trimmed, kind: category.kind } },
   });
   if (collision && collision.id !== categoryId) throw new Error(`You already have a category named "${trimmed}"`);
-  return prisma.category.update({ where: { id: categoryId }, data: { name: trimmed } });
+  return prisma.$transaction(async (db) => {
+    const updated = await db.category.update({ where: { id: categoryId }, data: { name: trimmed } });
+    await audit(db, userId, "rename", "Category", categoryId, category, updated);
+    return updated;
+  });
 }
 
 /**
@@ -51,7 +60,11 @@ export async function changeCategoryKind(userId: string, categoryId: string, kin
   const collision = await prisma.category.findUnique({ where: { userId_name_kind: { userId, name: category.name, kind } } });
   if (collision) throw new Error(`You already have a category named "${category.name}" under ${kind === "EXPENSE" ? "Expense" : "Income"}`);
   const icon = category.icon === KIND_ICON[category.kind] ? KIND_ICON[kind] : category.icon;
-  return prisma.category.update({ where: { id: categoryId }, data: { kind, icon } });
+  return prisma.$transaction(async (db) => {
+    const updated = await db.category.update({ where: { id: categoryId }, data: { kind, icon } });
+    await audit(db, userId, "kind-change", "Category", categoryId, category, updated);
+    return updated;
+  });
 }
 
 /** Blocks deletion while the category is still referenced, rather than silently orphaning transactions/budgets. */
@@ -69,5 +82,8 @@ export async function deleteCategory(userId: string, categoryId: string) {
       `"${category.name}" is used by ${txCount} transaction${txCount === 1 ? "" : "s"}${budgetCount ? `, ${budgetCount} budget${budgetCount === 1 ? "" : "s"}` : ""}${ruleCount ? `, ${ruleCount} merchant rule${ruleCount === 1 ? "" : "s"}` : ""} — reassign those first.`
     );
   }
-  await prisma.category.delete({ where: { id: categoryId } });
+  await prisma.$transaction(async (db) => {
+    await db.category.delete({ where: { id: categoryId } });
+    await audit(db, userId, "delete", "Category", categoryId, category, undefined);
+  });
 }

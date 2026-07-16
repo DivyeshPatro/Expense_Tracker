@@ -86,7 +86,15 @@ export async function markBillPaid(userId: string, billId: string, accountId?: s
     } else {
       await db.bill.update({ where: { id: billId }, data: { status: "PAID", paidTxId: t.id } });
     }
-    await audit(db, userId, "bill-paid", "Bill", billId, bill, { paidTxId: t.id });
+    // account + amount recorded so the activity timeline can show which
+    // account was hit without joining live tables (the audit snapshot rule)
+    await audit(db, userId, "bill-paid", "Bill", billId, bill, {
+      paidTxId: t.id,
+      accountId: account.id,
+      accountName: account.name,
+      amount: bill.amount,
+      name: bill.name,
+    });
   });
 }
 
@@ -99,14 +107,17 @@ export interface BillInput {
 }
 
 export async function createBill(userId: string, input: BillInput) {
-  await prisma.bill.create({
-    data: {
-      userId,
-      name: input.name,
-      amount: input.amount,
-      categoryId: input.categoryId,
-      dueDate: istNoon(input.dueDate),
-      cadence: input.cadence,
-    },
+  await prisma.$transaction(async (db) => {
+    const b = await db.bill.create({
+      data: {
+        userId,
+        name: input.name,
+        amount: input.amount,
+        categoryId: input.categoryId,
+        dueDate: istNoon(input.dueDate),
+        cadence: input.cadence,
+      },
+    });
+    await audit(db, userId, "create", "Bill", b.id, undefined, b);
   });
 }
