@@ -67,7 +67,19 @@ function computeShares(amount: number, split: SplitInput): SplitShare[] {
   return splitEqual(amount, ids, split.payerParticipantId);
 }
 
-export async function addExpense(userId: string, input: ExpenseInput) {
+/** Offline-sync intent metadata (offline-sync-spec §4.3). When present, the
+ * mutation becomes exactly-once: an Intent row is inserted inside the same
+ * $transaction; a unique-violation on (userId, intentId) means this intent
+ * already applied, and the recorded outcome is returned without touching the
+ * ledger. `entityId` lets the client pre-assign the transaction id. */
+export interface IntentMeta {
+  intentId: string;
+  deviceId: string;
+  clientTs: string; // ISO — when the human acted
+  entityId?: string;
+}
+
+export async function addExpense(userId: string, input: ExpenseInput, intent?: IntentMeta) {
   // rule-based auto-categorization when no category picked
   let categoryId = input.categoryId;
   if (!categoryId && input.merchant) {
@@ -80,33 +92,73 @@ export async function addExpense(userId: string, input: ExpenseInput) {
   const shares = input.split ? computeShares(input.amount, input.split) : null;
   const paidByParticipantId = input.split?.payerParticipantId ?? null;
 
-  const tx = await prisma.$transaction(async (db) => {
-    const t = await db.transaction.create({
-      data: {
+  let tx: { id: string };
+  try {
+    tx = await prisma.$transaction(async (db) => {
+      const t = await db.transaction.create({
+        data: {
+          // offline clients pre-assign the id so a replayed create is
+          // structurally incapable of double-inserting (spec §5)
+          ...(intent?.entityId ? { id: intent.entityId } : {}),
+          userId,
+          type: "EXPENSE",
+          amount: input.amount,
+          // when a friend paid, no money left the owner's accounts
+          accountId: paidByParticipantId === null ? input.accountId : null,
+          categoryId,
+          merchant: input.merchant,
+          occurredAt: istNoon(input.date),
+          notes: input.notes || null,
+          paymentMethod: input.paymentMethod || null,
+          isRecurring: input.isRecurring ?? false,
+          paidByParticipantId,
+          splits: shares
+            ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
+            : undefined,
+        },
+        // splits in the audit after-image — snapshots must be complete because
+        // they can never be backfilled
+        include: { splits: true },
+      });
+      await applyBalances(db, t, 1);
+      await audit(
+        db,
         userId,
-        type: "EXPENSE",
-        amount: input.amount,
-        // when a friend paid, no money left the owner's accounts
-        accountId: paidByParticipantId === null ? input.accountId : null,
-        categoryId,
-        merchant: input.merchant,
-        occurredAt: istNoon(input.date),
-        notes: input.notes || null,
-        paymentMethod: input.paymentMethod || null,
-        isRecurring: input.isRecurring ?? false,
-        paidByParticipantId,
-        splits: shares
-          ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
-          : undefined,
-      },
-      // splits in the audit after-image — snapshots must be complete because
-      // they can never be backfilled
-      include: { splits: true },
+        "create",
+        "Transaction",
+        t.id,
+        undefined,
+        // bitemporal-lite (spec §4.2): record when the human acted, not just
+        // when the ledger heard about it
+        intent ? { ...t, _sync: { intentId: intent.intentId, deviceId: intent.deviceId, clientTs: intent.clientTs } } : t
+      );
+      if (intent) {
+        // last write inside the tx: a unique violation here rolls everything
+        // back, making (userId, intentId) the exactly-once arbiter
+        await db.intent.create({
+          data: {
+            id: intent.intentId,
+            userId,
+            deviceId: intent.deviceId,
+            kind: "expense.create",
+            entityId: t.id,
+            status: "applied",
+            clientTs: new Date(intent.clientTs),
+          },
+        });
+      }
+      return t;
     });
-    await applyBalances(db, t, 1);
-    await audit(db, userId, "create", "Transaction", t.id, undefined, t);
-    return t;
-  });
+  } catch (e) {
+    // P2002 has two possible sources here; the intent lookup disambiguates:
+    // a recorded prior intent means this is a replay (return its outcome);
+    // no prior intent means a genuine conflict (rethrow).
+    if (intent && typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
+      const prior = await prisma.intent.findUnique({ where: { userId_id: { userId, id: intent.intentId } } });
+      if (prior) return prior.entityId;
+    }
+    throw e;
+  }
 
   // self-improving merchant rule when the user picked the category explicitly
   if (input.categoryId && input.merchant) {
@@ -262,6 +314,7 @@ export async function updateExpense(userId: string, id: string, input: ExpenseIn
         occurredAt: istNoon(input.date),
         notes: input.notes || null,
         paidByParticipantId,
+        version: { increment: 1 }, // offline-sync conflict check (spec §4.2)
         splits: shares
           ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
           : undefined,
@@ -294,6 +347,7 @@ export async function updateIncome(userId: string, id: string, input: IncomeInpu
         merchant: input.merchant,
         occurredAt: istNoon(input.date),
         notes: input.notes || null,
+        version: { increment: 1 }, // offline-sync conflict check (spec §4.2)
       },
     });
     await applyBalances(db, updated, 1);
@@ -324,6 +378,7 @@ export async function updateTransfer(userId: string, id: string, input: Transfer
         merchant: `${from.name} → ${to.name}`,
         occurredAt: istNoon(input.date),
         notes: input.notes || null,
+        version: { increment: 1 }, // offline-sync conflict check (spec §4.2)
       },
     });
     await applyBalances(db, updated, 1);

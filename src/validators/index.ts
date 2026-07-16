@@ -36,6 +36,17 @@ export const expenseSchema = z.object({
   split: splitSchema.optional(),
 });
 
+/** Offline-sync intent metadata (offline-sync-spec §4.3) — optional on
+ * in-scope mutations; presence turns the mutation exactly-once. */
+export const intentMetaSchema = z.object({
+  intentId: z.string().uuid(),
+  deviceId: z.string().min(8).max(64),
+  clientTs: z.string().datetime(),
+  entityId: z.string().min(10).max(40).optional(),
+});
+
+export const expenseWithIntentSchema = expenseSchema.extend({ intent: intentMetaSchema.optional() });
+
 export const incomeSchema = z.object({
   amount: paiseFromRupees,
   accountId: z.string().min(1),

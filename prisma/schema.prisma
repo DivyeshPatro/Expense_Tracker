@@ -145,12 +145,32 @@ model Transaction {
   receipts            Receipt[]
   deletedAt           DateTime? // soft delete → undo
   createdAt           DateTime  @default(now())
+  version             Int       @default(1) // bumped on every update — offline sync's conflict check (offline-sync-spec §4.2)
 
   @@index([userId, occurredAt(sort: Desc)])
   @@index([userId, categoryId])
   @@index([userId, accountId])
   @@index([userId, merchant])
   @@index([importBatchId])
+}
+
+/// Offline-sync idempotency ledger (offline-sync-spec §4.2/§4.3): one row per
+/// applied client intent, inserted inside the same $transaction as the
+/// mutation. Unique (userId, id) makes at-least-once delivery exactly-once.
+/// Not history (audit is history) — pruned after 30 days by a later phase.
+model Intent {
+  id        String // client-generated intentId (uuid v4)
+  userId    String
+  deviceId  String
+  kind      String // "expense.create" | ... (one per action brought into scope)
+  entityId  String
+  status    String // applied | overridden | failed
+  error     String?
+  clientTs  DateTime
+  appliedAt DateTime @default(now())
+
+  @@id([userId, id])
+  @@index([userId, appliedAt])
 }
 
 model Category {

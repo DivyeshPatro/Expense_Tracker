@@ -51,7 +51,7 @@ import {
   categorySchema,
   changeCategoryKindSchema,
   renameCategorySchema,
-  expenseSchema,
+  expenseWithIntentSchema,
   groupMemberSchema,
   groupSchema,
   incomeSchema,
@@ -80,8 +80,8 @@ function refresh() {
 export async function addExpenseAction(input: unknown): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    const data = expenseSchema.parse(input);
-    await addExpense(user.id, data);
+    const { intent, ...data } = expenseWithIntentSchema.parse(input);
+    await addExpense(user.id, data, intent);
     refresh();
     return { ok: true };
   } catch (e) {

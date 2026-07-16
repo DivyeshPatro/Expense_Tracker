@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ledgerly — offline</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #f6f7fb; color: #171b26;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #12141a; color: #eef0f5; } }
+  .wrap { text-align: center; padding: 32px; max-width: 320px; }
+  .logo {
+    width: 56px; height: 56px; border-radius: 16px; background: #2a63f6; color: #fff;
+    display: grid; place-items: center; font-size: 26px; font-weight: 800; margin: 0 auto 18px;
+  }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  p { font-size: 13.5px; line-height: 1.5; opacity: .72; margin: 0 0 22px; }
+  button {
+    padding: 10px 22px; border-radius: 10px; border: 0; background: #2a63f6; color: #fff;
+    font-size: 13.5px; font-weight: 700; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">₹</div>
+    <h1>You’re offline</h1>
+    <p>Your data is safe. Ledgerly will reconnect automatically as soon as you’re back online.</p>
+    <button onclick="location.reload()">Try again</button>
+  </div>
+</body>
+</html>

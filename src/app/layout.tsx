@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Schibsted_Grotesk } from "next/font/google";
 import { cookies } from "next/headers";
+import { SwRegister } from "@/components/shell/sw-register";
 import "./globals.css";
 
 const schibsted = Schibsted_Grotesk({
@@ -12,6 +13,7 @@ const schibsted = Schibsted_Grotesk({
 export const metadata: Metadata = {
   title: "Ledgerly",
   description: "Personal finance & shared expense tracker",
+  manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {
@@ -24,7 +26,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const theme = (await cookies()).get("ledgerly-theme")?.value === "dark" ? "dark" : "light";
   return (
     <html lang="en" data-theme={theme} className={schibsted.variable}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <SwRegister />
+      </body>
     </html>
   );
 }
