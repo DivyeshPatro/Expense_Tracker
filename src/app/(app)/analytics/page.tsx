@@ -4,8 +4,15 @@ import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { listAccounts } from "@/server/services/accounts";
 import { categoryTotals, loadLedgerAgg, loadLedgerAggRange, merchantTotals, monthAgg } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
+import { AnalyticsTabs } from "./analytics-tabs";
 import { CategoryBreakdown } from "./category-breakdown";
 import { PrintButton } from "./print-button";
+
+// how many trailing months the horizontally-scrollable "Monthly spending"
+// chart covers — independent of (and wider than) the 6-month Balance trend
+// window, since the audit's fix for its cramped labels was to scroll through
+// more history instead of compressing more columns into a fixed width.
+const BAR_MONTHS = 12;
 
 export const dynamic = "force-dynamic";
 
@@ -19,16 +26,19 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const periodQS = periodQueryParams(period);
 
   const [rows, periodRows, accounts] = await Promise.all([
-    loadLedgerAgg(user.id, 6, now),
+    loadLedgerAgg(user.id, BAR_MONTHS, now),
     loadLedgerAggRange(user.id, period.range.start, period.range.end),
     listAccounts(user.id, undefined, now),
   ]);
 
-  // the 6-month trend charts below are intentionally independent of the
-  // selected period — they're a fixed recent-history view; the stat cards,
-  // category and merchant breakdowns respect whatever period is selected
+  // the trend charts below are intentionally independent of the selected
+  // period — they're a fixed recent-history view; the stat cards, category
+  // and merchant breakdowns respect whatever period is selected. Balance
+  // trend stays a 6-month window (a line chart reads fine wider or narrower);
+  // Monthly spending covers the full BAR_MONTHS and scrolls horizontally.
   const monthKeys = Array.from({ length: 6 }, (_, i) => shiftMonthKey(key, i - 5));
-  const aggs = monthKeys.map((k) => monthAgg(rows, k));
+  const barMonthKeys = Array.from({ length: BAR_MONTHS }, (_, i) => shiftMonthKey(key, i - (BAR_MONTHS - 1)));
+  const barAggs = barMonthKeys.map((k) => monthAgg(rows, k));
 
   const periodAgg = monthAgg(periodRows, "");
   const periodDays =
@@ -68,7 +78,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
     .map((v, i) => `${((i * 300) / (ends.length - 1)).toFixed(1)},${(105 - (maxB === minB ? 50 : ((v - minB) / (maxB - minB)) * 95)).toFixed(1)}`)
     .join(" ");
 
-  const maxExp = Math.max(...aggs.map((a) => a.expense), 1);
+  const maxExp = Math.max(...barAggs.map((a) => a.expense), 1);
   const expenseCats = categoryTotals(periodRows, "", "EXPENSE");
   const incomeCats = categoryTotals(periodRows, "", "INCOME");
   const merchants = merchantTotals(periodRows, "").slice(0, 5);
@@ -96,59 +106,69 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3.5">
-        <section className="card flex-[1.4_1_320px] p-[var(--pad)]">
-          <div className="flex justify-between items-baseline">
-            <h2 className="text-[13.5px] font-bold m-0">Balance trend</h2>
-            <div className="text-[11.5px] text-mut2">{monthName(monthKeys[0])} – {monthName(key)}</div>
-          </div>
-          <div className="flex gap-4 mt-1.5 text-[11.5px] text-mut">
-            <div>{monthName(monthKeys[0])}: <span className="font-bold text-ink">{formatPaise(ends[0])}</span></div>
-            <div>Now: <span className="font-bold text-green">{formatPaise(ends[ends.length - 1])}</span></div>
-          </div>
-          <svg viewBox="0 0 300 110" preserveAspectRatio="none" className="w-full h-[120px] block mt-2.5">
-            <polyline points={pts} fill="none" stroke="var(--acc)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-          </svg>
-          <div className="flex mt-1.5">
-            {monthKeys.map((k) => (
-              <div key={k} className="flex-1 text-center text-[10.5px] text-mut2">{monthName(k)}</div>
-            ))}
-          </div>
-        </section>
+      <AnalyticsTabs
+        trend={
+          <>
+            <section className="card flex-[1.4_1_320px] p-[var(--pad)]">
+              <div className="flex justify-between items-baseline">
+                <h2 className="text-[13.5px] font-bold m-0">Balance trend</h2>
+                <div className="text-[11.5px] text-mut2">{monthName(monthKeys[0])} – {monthName(key)}</div>
+              </div>
+              <div className="flex gap-4 mt-1.5 text-[11.5px] text-mut">
+                <div>{monthName(monthKeys[0])}: <span className="font-bold text-ink">{formatPaise(ends[0])}</span></div>
+                <div>Now: <span className="font-bold text-green">{formatPaise(ends[ends.length - 1])}</span></div>
+              </div>
+              <svg viewBox="0 0 300 110" preserveAspectRatio="none" className="w-full h-[120px] block mt-2.5">
+                <polyline points={pts} fill="none" stroke="var(--acc)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+              </svg>
+              <div className="flex mt-1.5">
+                {monthKeys.map((k) => (
+                  <div key={k} className="flex-1 text-center text-[10.5px] text-mut2">{monthName(k)}</div>
+                ))}
+              </div>
+            </section>
 
-        <section className="card flex-[1.4_1_320px] p-[var(--pad)]">
-          <h2 className="text-[13.5px] font-bold m-0">Monthly spending</h2>
-          <div className="flex items-end gap-3.5 h-[130px] mt-4">
-            {aggs.map((a, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                <div className="text-[10px] text-mut2 font-semibold">{formatPaise(a.expense)}</div>
-                <div className="w-full bg-acc rounded-[5px] opacity-85" style={{ height: `${Math.max(4, Math.round((a.expense / maxExp) * 100))}%` }} />
+            <section className="card flex-[1.4_1_320px] min-w-0 p-[var(--pad)]">
+              <h2 className="text-[13.5px] font-bold m-0">Monthly spending</h2>
+              {/* Fixed-width columns (not flex-1) so 12 months of history don't
+                  compress into unreadable labels — the card scrolls
+                  horizontally instead, the audit's recommended fix. Both rows
+                  live in the same scroll container so they always stay in sync. */}
+              <div className="overflow-x-auto mt-4">
+                <div className="flex items-end gap-3 h-[130px] w-max">
+                  {barAggs.map((a, i) => (
+                    <div key={barMonthKeys[i]} className="w-[54px] flex-none flex flex-col items-center gap-1.5 h-full justify-end">
+                      <div className="text-[10px] text-mut2 font-semibold whitespace-nowrap">{formatPaise(a.expense)}</div>
+                      <div className="w-full bg-acc rounded-[5px] opacity-85" style={{ height: `${Math.max(4, Math.round((a.expense / maxExp) * 100))}%` }} />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3 mt-2 w-max">
+                  {barMonthKeys.map((k) => (
+                    <div key={k} className="w-[54px] flex-none text-center text-[10.5px] text-mut2">{monthName(k)}</div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </>
+        }
+        categories={<CategoryBreakdown expense={expenseCats} income={incomeCats} periodQuery={periodQS} periodLabel={period.label} />}
+        merchants={
+          <section className="card flex-[1_1_240px] p-[var(--pad)] flex flex-col gap-[11px]">
+            <h2 className="text-[13.5px] font-bold m-0">Top merchants · {period.label}</h2>
+            {merchants.map((m) => (
+              <div key={m.name} className="flex items-center gap-2.5">
+                <div className="flex-1">
+                  <div className="text-[12.5px] font-semibold">{m.name}</div>
+                  <div className="text-[11px] text-mut2">{m.count} transaction{m.count > 1 ? "s" : ""}</div>
+                </div>
+                <div className="text-[12.5px] font-bold">{formatPaise(m.total)}</div>
               </div>
             ))}
-          </div>
-          <div className="flex gap-3.5 mt-2">
-            {monthKeys.map((k) => (
-              <div key={k} className="flex-1 text-center text-[10.5px] text-mut2">{monthName(k)}</div>
-            ))}
-          </div>
-        </section>
-
-        <CategoryBreakdown expense={expenseCats} income={incomeCats} periodQuery={periodQS} periodLabel={period.label} />
-
-        <section className="card flex-[1_1_240px] p-[var(--pad)] flex flex-col gap-[11px]">
-          <h2 className="text-[13.5px] font-bold m-0">Top merchants · {period.label}</h2>
-          {merchants.map((m) => (
-            <div key={m.name} className="flex items-center gap-2.5">
-              <div className="flex-1">
-                <div className="text-[12.5px] font-semibold">{m.name}</div>
-                <div className="text-[11px] text-mut2">{m.count} transaction{m.count > 1 ? "s" : ""}</div>
-              </div>
-              <div className="text-[12.5px] font-bold">{formatPaise(m.total)}</div>
-            </div>
-          ))}
-          {merchants.length === 0 && <div className="text-[12px] text-mut2">No expenses in this period.</div>}
-        </section>
-      </div>
+            {merchants.length === 0 && <div className="text-[12px] text-mut2">No expenses in this period.</div>}
+          </section>
+        }
+      />
     </div>
   );
 }
