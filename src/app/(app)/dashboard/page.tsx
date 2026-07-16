@@ -1,7 +1,11 @@
-// Decision-oriented dashboard (PRD §4.6): attention strip first, then the
+// Decision-oriented dashboard (PRD §4.6). Desktop: attention strip, then the
 // period cards (Current Balance / Carry forward / Income / Expense, scoped to
 // this month by default, filterable to any month / custom range / to-date),
 // cash flow, accounts, donut, bills, settlements, recent transactions, budgets.
+// Mobile home is trimmed to just balance hero + this month's spend + a single
+// most-urgent item (over-budget or due bill, whichever is more urgent) +
+// recent transactions — everything else already has its own page (Analytics/
+// Accounts/Budgets/Bills/Shared), so mobile doesn't repeat it here too.
 
 import Link from "next/link";
 import { CashFlowCard, type CashFlowSeries } from "@/components/dashboard/cashflow";
@@ -89,7 +93,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const pending = shared.members.filter((m) => Math.abs(m.net) > 100);
   const recent = recentRows.map(txDisplay);
 
-  // attention strip
+  // attention strip (desktop: every applicable chip, unchanged)
   const attention: { icon: string; text: string; href: string; bg: string; color: string }[] = [];
   for (const b of bills.filter((x) => x.days <= 7)) {
     attention.push({ icon: "🔴", text: `${b.name} ${formatPaise(b.amount)} · ${b.dueLabel.toLowerCase()}`, href: "/bills", bg: "var(--redSoft)", color: "var(--red)" });
@@ -100,6 +104,24 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (shared.owedToYou > 100) attention.push({ icon: "👥", text: `Friends owe you ${formatPaise(shared.owedToYou)}`, href: "/shared", bg: "var(--greenSoft)", color: "var(--green)" });
   if (shared.youOwe > 100) attention.push({ icon: "💸", text: `You owe ${formatPaise(shared.youOwe)}`, href: "/shared", bg: "var(--accSoft)", color: "var(--acc)" });
 
+  // mobile home shows a single most-urgent item instead of the full strip
+  // (audit: "1 attention item — over-budget or due bill, whichever is more
+  // urgent" — a hard-deadline bill due today/soon outranks an over-budget
+  // category, which outranks a bill merely due within the week; settlements
+  // aren't part of this slot since they're not a deadline and stay reachable
+  // via Shared).
+  const urgentBill = bills.find((b) => b.urgency === "overdue" || b.urgency === "urgent");
+  const worstOverBudget = overBudgets.length ? [...overBudgets].sort((a, b) => b.spent - b.limit - (a.spent - a.limit))[0] : undefined;
+  const soonBill = bills.find((b) => b.urgency === "soon");
+  const billChip = (b: (typeof bills)[number]) => ({ icon: "🔴", text: `${b.name} ${formatPaise(b.amount)} · ${b.dueLabel.toLowerCase()}`, href: "/bills", bg: "var(--redSoft)", color: "var(--red)" });
+  const mobileAttention = urgentBill
+    ? billChip(urgentBill)
+    : worstOverBudget
+      ? { icon: "⚠️", text: `${worstOverBudget.category} budget exceeded · over by ${formatPaise(worstOverBudget.spent - worstOverBudget.limit)}`, href: "/budgets", bg: "var(--amberSoft)", color: "var(--amber)" }
+      : soonBill
+        ? billChip(soonBill)
+        : null;
+
   return (
     <div className="flex flex-col gap-4" style={{ animation: "rise .25s ease" }}>
       <div className="flex items-end justify-between flex-wrap gap-2">
@@ -109,8 +131,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       </div>
 
+      {/* mobile home: a single most-urgent item instead of the full strip */}
+      {mobileAttention && (
+        <Link
+          href={mobileAttention.href}
+          className="md:hidden flex items-center gap-[7px] px-3 py-[7px] rounded-full text-xs font-semibold no-underline hover:brightness-97 self-start"
+          style={{ background: mobileAttention.bg, color: mobileAttention.color }}
+        >
+          <span>{mobileAttention.icon}</span>
+          {mobileAttention.text}
+        </Link>
+      )}
+      {/* desktop: every applicable chip, unchanged */}
       {attention.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="hidden md:flex flex-wrap gap-2">
           {attention.map((a, i) => (
             <Link key={i} href={a.href} className="flex items-center gap-[7px] px-3 py-[7px] rounded-full text-xs font-semibold no-underline hover:brightness-97" style={{ background: a.bg, color: a.color }}>
               <span>{a.icon}</span>
@@ -120,7 +154,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      {/* period stat cards — the period itself is picked from the header, shared across sections */}
+      {/* period stat cards — the period itself is picked from the header, shared across sections.
+          Mobile home keeps only the balance hero + this month's spend; Carry forward and Income
+          stay desktop-only (audit: mobile leads with "balance hero, this month's spend, ..."). */}
       <div className="flex flex-wrap gap-3.5">
         <div className="flex-[1.5_1_250px] rounded-[14px] p-[var(--pad)] text-white" style={{ background: "linear-gradient(135deg,var(--dark1),var(--dark2))", boxShadow: "0 8px 24px rgba(28,39,64,.25)" }}>
           <div className="text-[11px] opacity-65 font-semibold tracking-[.06em]">{mode === "month" && periodKey === key ? "TOTAL BALANCE" : `BALANCE · ${periodLabel}`}</div>
@@ -138,10 +174,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <span>− Expense {formatPaise(period.expense)}</span>
           </div>
         </div>
-        <StatCard label="CARRY FORWARD" value={<span style={carryForward < 0 ? { color: "var(--red)" } : undefined}>{signed(carryForward)}</span>}>
+        <StatCard label="CARRY FORWARD" value={<span style={carryForward < 0 ? { color: "var(--red)" } : undefined}>{signed(carryForward)}</span>} className="hidden md:block">
           <div className="text-[11.5px] mt-[7px] text-mut2">{mode === "all" ? "opening balances before tracking began" : "balance before this period"}</div>
         </StatCard>
-        <StatCard label={`INCOME · ${periodLabel}`} value={<span className="text-green">+{formatPaise(period.income)}</span>}>
+        <StatCard label={`INCOME · ${periodLabel}`} value={<span className="text-green">+{formatPaise(period.income)}</span>} className="hidden md:block">
           <div className="text-[11.5px] mt-[7px] text-mut2">money in</div>
         </StatCard>
         <StatCard label={`EXPENSE · ${periodLabel}`} value={<span>−{formatPaise(period.expense)}</span>}>
@@ -149,8 +185,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </StatCard>
       </div>
 
-      {/* cash flow + accounts */}
-      <div className="flex flex-wrap gap-3.5">
+      {/* cash flow + accounts — already have their own pages (Analytics/Accounts), so mobile home skips them */}
+      <div className="hidden md:flex flex-wrap gap-3.5">
         <CashFlowCard series={series} />
         <section className="card p-[var(--pad)] flex-[1_1_260px] flex flex-col gap-[11px]">
           <div className="flex justify-between items-center">
@@ -171,8 +207,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </section>
       </div>
 
-      {/* categories + bills + settlements */}
-      <div className="flex flex-wrap gap-3.5">
+      {/* categories + bills + settlements — categories duplicates Analytics'
+          Categories tab, bills/settlements are folded into the single mobile
+          attention item above, so mobile home skips this whole row */}
+      <div className="hidden md:flex flex-wrap gap-3.5">
         <section className="card p-[var(--pad)] flex-[1.1_1_280px]">
           <h2 className="text-[13.5px] font-bold m-0">Spending by category</h2>
           <div className="flex items-center gap-[18px] mt-3.5 flex-wrap">
@@ -231,9 +269,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </section>
       </div>
 
-      {/* recent + budgets */}
+      {/* recent + budgets. min-w-0: without it, a flex item won't shrink
+          below its content's intrinsic width, so a long untruncated
+          transaction meta line can force this section (and the page) wider
+          than the viewport before the row's own `truncate` ever gets a
+          chance to clip it — this now matters on mobile since Budgets (the
+          sibling that used to share this row) is hidden there. */}
       <div className="flex flex-wrap gap-3.5">
-        <section className="card p-[var(--pad)] flex-[1.6_1_340px] flex flex-col gap-3">
+        <section className="card p-[var(--pad)] flex-[1.6_1_340px] min-w-0 flex flex-col gap-3">
           <div className="flex justify-between items-center">
             <h2 className="text-[13.5px] font-bold m-0">Recent transactions</h2>
             <Link href={withPeriodQS("/transactions")} className="text-[11.5px] font-semibold no-underline">All →</Link>
@@ -249,7 +292,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </div>
           ))}
         </section>
-        <section className="card p-[var(--pad)] flex-[1_1_280px] flex flex-col gap-[13px]">
+        {/* full budget list already has its own page — mobile home relies on
+            the attention item above for anything urgent instead of repeating it */}
+        <section className="hidden md:flex card p-[var(--pad)] flex-[1_1_280px] flex-col gap-[13px]">
           <div className="flex justify-between items-center">
             <h2 className="text-[13.5px] font-bold m-0">Budgets</h2>
             <Link href="/budgets" className="text-[11.5px] font-semibold no-underline">All →</Link>
@@ -273,9 +318,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   );
 }
 
-function StatCard({ label, value, children }: { label: string; value: React.ReactNode; children?: React.ReactNode }) {
+function StatCard({
+  label,
+  value,
+  children,
+  className = "",
+}: {
+  label: string;
+  value: React.ReactNode;
+  children?: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="card flex-[1_1_150px] p-[var(--pad)]">
+    <div className={`card flex-[1_1_150px] p-[var(--pad)] ${className}`}>
       <div className="text-[11px] text-mut font-semibold tracking-[.06em]">{label}</div>
       <div className="text-[21px] font-extrabold mt-[5px]">{value}</div>
       {children}
