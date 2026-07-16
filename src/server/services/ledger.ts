@@ -231,6 +231,8 @@ export interface TxListFilter {
   /** the shared period picker's raw ?p/?from/?to — resolved with parsePeriod, same as every other period-aware page */
   period?: { p?: string; from?: string; to?: string };
   textQuery?: string;
+  /** activity timeline's import tap-through: only rows from this import batch */
+  importBatchId?: string | null;
 }
 
 export interface TxPage {
@@ -245,6 +247,7 @@ export async function queryTransactions(userId: string, filter: TxListFilter, pa
   const where: Prisma.TransactionWhereInput = { userId, deletedAt: null };
   if (filter.type) where.type = filter.type;
   if (filter.categoryId) where.categoryId = filter.categoryId;
+  if (filter.importBatchId) where.importBatchId = filter.importBatchId;
   if (filter.monthKey) {
     const { start, end } = monthRange(filter.monthKey);
     where.occurredAt = { gte: start, lt: end };

@@ -83,12 +83,16 @@ try {
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
   await page.waitForSelector("text=Expense added");
 
-  await openRow("E2EActivityExp");
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  await page.waitForSelector('input[placeholder="0"]');
-  await page.fill('input[placeholder="0"]', "350");
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await page.waitForSelector("text=Transaction updated");
+  // three rapid edits — a 10-minute chain the timeline must collapse (P2)
+  for (const amount of ["350", "360", "370"]) {
+    await openRow("E2EActivityExp");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.waitForSelector('input[placeholder="0"]');
+    await page.fill('input[placeholder="0"]', amount);
+    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await page.waitForSelector("text=Transaction updated");
+    await page.waitForTimeout(300);
+  }
 
   await openRow("E2EActivityExp");
   await page.getByRole("button", { name: "Delete", exact: true }).click();
@@ -98,6 +102,20 @@ try {
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await page.waitForSelector("text=Restored");
   await page.waitForTimeout(400);
+
+  // ── P2: History section in the detail sheet (create/edit×3/delete/restore, no collapse) ──
+  await openRow("E2EActivityExp");
+  await page.waitForSelector("text=HISTORY", { timeout: 8000 });
+  const modal = page.locator(".fixed.inset-0.z-\\[60\\]").first();
+  const historyText = await modal.innerText();
+  ok("history shows the creation with original values", historyText.includes("Added expense") && historyText.includes("₹250"));
+  ok("history shows every edit individually (no collapse in history)", (historyText.match(/Edited expense/g) ?? []).length === 3);
+  ok("history shows the delete/restore cycle", historyText.includes("Deleted expense") && historyText.includes("Restored expense"));
+  ok("history stays within cap — no Full history link at 6 entries", !historyText.includes("Full history"));
+  const relatedChips = await modal.locator('a[href="/accounts"]').count();
+  ok("history related chips link the account", relatedChips >= 1, `${relatedChips} account chips`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
 
   // income
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
@@ -177,6 +195,20 @@ try {
     await page.waitForTimeout(300);
   }
 
+  // P2: expense over the E2EActCatB budget → BUDGET_EXCEEDED notification event
+  await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
+  await page.click('button:has-text("＋ Add expense")');
+  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
+  await page.fill('input[placeholder="0"]', "7000");
+  await page.fill('input[placeholder="e.g. Swiggy"]', "E2EActBudgetHit");
+  await page.locator("select.field").nth(1).selectOption({ label: "📦 E2EActCatB" }).catch(async () => {
+    // category select position varies with account select — try both
+    await page.locator("select.field").nth(0).selectOption({ label: "📦 E2EActCatB" });
+  });
+  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  await page.waitForSelector("text=Expense added");
+  await page.waitForTimeout(500);
+
   // bill create → pay (one-off retires itself)
   await page.goto("http://localhost:3000/bills", { waitUntil: "load" });
   await page.click('button:has-text("＋ New bill")');
@@ -192,7 +224,7 @@ try {
   await page.waitForSelector("text=paid ·");
   await page.waitForTimeout(400);
 
-  // import → undo
+  // import (undo happens later, after the batch tap-through tests need the rows)
   await page.goto("http://localhost:3000/import", { waitUntil: "load" });
   await page.waitForSelector("text=Choose file");
   await page.setInputFiles('input[type="file"]', CSV_PATH);
@@ -203,10 +235,6 @@ try {
   await page.waitForSelector("text=/\\d+ new/", { timeout: 8000 });
   await page.click("text=/Import \\d+ transaction/");
   await page.waitForURL("**/transactions", { timeout: 20000 });
-  await page.goto("http://localhost:3000/settings", { waitUntil: "load" });
-  await page.waitForSelector("text=IMPORT HISTORY");
-  await page.locator('button:has-text("Undo")').first().click();
-  await page.waitForSelector("text=Import undone", { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(600);
 
   // ═══════════ B. the timeline shows every kind with correct copy ═══════════
@@ -219,9 +247,14 @@ try {
 
   ok("day group header renders", body.includes("TODAY") || body.toLowerCase().includes("today"));
   ok("expense create event", body.includes("Added expense") && body.includes("E2EActivityExp"));
-  ok("expense edit event with paise-exact signed diff", body.includes("Edited expense") && body.includes("₹250 → ₹350 (+₹100)"));
+  ok(
+    "edit chain collapses to one event with the NET paise-exact diff",
+    body.includes("Edited expense · 3 changes") && body.includes("₹250 → ₹370 (+₹120)")
+  );
+  ok("collapsed steps are hidden until expanded", !body.includes("₹350 → ₹360"));
   ok("expense delete event", body.includes("Deleted expense"));
   ok("expense restore event", body.includes("Restored expense"));
+  ok("budget exceeded event (notification-sourced) merges into the stream", body.includes("E2EActCatB budget exceeded") && body.includes("over by ₹1,000"));
   ok("income create event", body.includes("Added income") && body.includes("E2EActivityInc"));
   ok("transfer event", body.includes("Transferred money") && body.includes("HDFC Savings → Cash Wallet"));
   ok("settlement event with direction copy", body.includes("Settled up") && (body.includes("paid you") || body.includes("You paid")));
@@ -234,7 +267,38 @@ try {
   ok("bill create event", body.includes("Added bill") && body.includes("E2EActBill"));
   ok("bill paid event", body.includes("Paid bill"));
   ok("import event", /Imported \d+ transactions?/.test(body));
-  ok("undo-import event", body.includes("Undid import"));
+
+  // ── P2: collapsed-chain step-through ──
+  await page.getByRole("button", { name: "Show each change", exact: true }).first().click();
+  await page.waitForTimeout(300);
+  const stepped = await visibleText();
+  ok("expanding the chain reveals individual steps", stepped.includes("₹350 → ₹360 (+₹10)"));
+  await page.getByRole("button", { name: "Hide steps", exact: true }).first().click();
+
+  // ── P2: import Related expansion (the one bounded query, timed) + batch tap-through ──
+  const tRel = Date.now();
+  await page.getByRole("button", { name: "Related", exact: true }).first().click();
+  await page.waitForSelector('a:has-text("View 4 transactions")');
+  await page.waitForSelector('a:has-text("Swiggy")', { timeout: 8000 });
+  const relMs = Date.now() - tRel;
+  ok("import Related expands with batch link + top merchants", true, `expand→chips ${relMs}ms`);
+  await page.locator('a:has-text("View 4 transactions")').click();
+  await page.waitForURL("**/transactions?batch=**", { timeout: 10000 });
+  await page.waitForSelector("text=Import batch");
+  const batchList = await visibleText();
+  ok(
+    "batch tap-through shows only that import's rows",
+    batchList.includes("Swiggy") && batchList.includes("BigBasket") && !batchList.includes("E2EActivityInc")
+  );
+
+  // undo the import now that tap-through is proven, then confirm the event
+  await page.goto("http://localhost:3000/settings", { waitUntil: "load" });
+  await page.waitForSelector("text=IMPORT HISTORY");
+  await page.locator('button:has-text("Undo")').first().click();
+  await page.waitForTimeout(800);
+  await page.goto("http://localhost:3000/activity", { waitUntil: "load" });
+  await page.waitForSelector("text=Undid import", { timeout: 8000 });
+  ok("undo-import event", true);
 
   // ═══════════ C. chips filter server-side ═══════════
   const chipBody = async (label) => {
@@ -308,6 +372,8 @@ try {
   await openRow("HDFC Savings → Cash Wallet");
   await confirmDelete();
   await openRow("E2EActBill");
+  await confirmDelete();
+  await openRow("E2EActBudgetHit");
   await confirmDelete();
   // account/category/budget have no delete operations in the product, so the
   // rows are removed directly — downstream suites assert exact seeded state

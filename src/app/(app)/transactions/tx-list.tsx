@@ -34,6 +34,7 @@ export function TransactionsList({
   initialTab,
   initialMonth,
   initialCategory,
+  initialBatch,
   period,
 }: {
   initialRows: LedgerRow[];
@@ -42,6 +43,7 @@ export function TransactionsList({
   initialTab: TxType | null;
   initialMonth: string | null;
   initialCategory: CategoryRef | null;
+  initialBatch: string | null;
   period: Period;
 }) {
   const { openModal } = useUI();
@@ -52,6 +54,7 @@ export function TransactionsList({
   const [tab, setTab] = useState<TxType | null>(initialTab);
   const [month, setMonth] = useState<string | null>(initialMonth);
   const [category, setCategory] = useState<CategoryRef | null>(initialCategory);
+  const [batch, setBatch] = useState<string | null>(initialBatch);
   const [loading, setLoading] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   // What filters produced the `rows` currently on screen — compared against
@@ -61,13 +64,20 @@ export function TransactionsList({
   // switching the period picker with no active search, never gets "consumed"
   // by the fetch effect — leaving it armed to silently swallow the *next*
   // real change instead, such as a search typed right after switching period.)
-  const appliedFilter = useRef({ q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null });
+  const appliedFilter = useRef({ q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, batch: initialBatch });
   const periodKey = `${period.p ?? ""}|${period.from ?? ""}|${period.to ?? ""}`;
 
-  async function refetch(filter: { type?: TxType; monthKey?: string | null; categoryId?: string | null; textQuery?: string }) {
+  async function refetch(filter: { type?: TxType; monthKey?: string | null; categoryId?: string | null; textQuery?: string; batch?: string | null }) {
     setLoading(true);
     const result = await queryTransactionsAction(
-      { type: filter.type, monthKey: filter.monthKey ?? undefined, categoryId: filter.categoryId ?? undefined, period, textQuery: filter.textQuery },
+      {
+        type: filter.type,
+        monthKey: filter.monthKey ?? undefined,
+        categoryId: filter.categoryId ?? undefined,
+        period,
+        textQuery: filter.textQuery,
+        importBatchId: filter.batch ?? undefined,
+      },
       0
     );
     setRows(result.rows);
@@ -85,35 +95,36 @@ export function TransactionsList({
     setTab(initialTab);
     setMonth(initialMonth);
     setCategory(initialCategory);
+    setBatch(initialBatch);
     setRows(initialRows);
     setHasMore(initialHasMore);
     setPage(0);
-    appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null };
+    appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, batch: initialBatch };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQ, initialTab, initialMonth, initialCategory?.id, periodKey, initialRows]);
+  }, [initialQ, initialTab, initialMonth, initialCategory?.id, initialBatch, periodKey, initialRows]);
 
   useEffect(() => {
     const categoryId = category?.id ?? null;
     const applied = appliedFilter.current;
-    if (applied.q === q && applied.tab === tab && applied.month === month && applied.categoryId === categoryId) {
+    if (applied.q === q && applied.tab === tab && applied.month === month && applied.categoryId === categoryId && applied.batch === batch) {
       return; // matches what's already loaded — nothing to refetch
     }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
-      appliedFilter.current = { q, tab, month, categoryId };
-      refetch({ type: tab ?? undefined, monthKey: month, categoryId, textQuery: q });
+      appliedFilter.current = { q, tab, month, categoryId, batch };
+      refetch({ type: tab ?? undefined, monthKey: month, categoryId, textQuery: q, batch });
     }, 300);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, tab, month, category?.id]);
+  }, [q, tab, month, category?.id, batch]);
 
   async function loadMore() {
     setLoading(true);
     const next = page + 1;
     const result = await queryTransactionsAction(
-      { type: tab ?? undefined, monthKey: month ?? undefined, categoryId: category?.id, period, textQuery: q },
+      { type: tab ?? undefined, monthKey: month ?? undefined, categoryId: category?.id, period, textQuery: q, importBatchId: batch ?? undefined },
       next
     );
     setRows((r) => [...r, ...result.rows]);
@@ -167,6 +178,12 @@ export function TransactionsList({
           <div className="flex items-center gap-[7px] px-[13px] py-[7px] rounded-full bg-accsoft text-acc text-xs font-bold">
             {category.icon} {category.name}
             <button onClick={() => setCategory(null)} className="cursor-pointer bg-transparent border-none text-acc font-bold p-0">✕</button>
+          </div>
+        )}
+        {batch && (
+          <div className="flex items-center gap-[7px] px-[13px] py-[7px] rounded-full bg-accsoft text-acc text-xs font-bold">
+            📥 Import batch
+            <button onClick={() => setBatch(null)} className="cursor-pointer bg-transparent border-none text-acc font-bold p-0" aria-label="Clear import filter">✕</button>
           </div>
         )}
       </div>

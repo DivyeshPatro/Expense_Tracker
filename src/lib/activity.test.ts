@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatDiffRow, presentAuditRow, type AuditRowInput, type LabelMaps } from "./activity";
+import {
+  formatDiffRow,
+  groupUpdateChains,
+  presentAuditRow,
+  presentChain,
+  presentNotificationRow,
+  type AuditRowInput,
+  type LabelMaps,
+} from "./activity";
 
 const maps: LabelMaps = {
   categories: new Map([
@@ -200,5 +208,113 @@ describe("other entity kinds", () => {
   it("unknown kinds and malformed payloads are skipped, never thrown", () => {
     expect(presentAuditRow(row({ entity: "User", action: "clear-transactions" }), maps)).toBeNull();
     expect(presentAuditRow(row({ entity: "Transaction", action: "update", before: "garbage", after: 42 }), maps)).toBeNull();
+  });
+});
+
+describe("related links (RFC §7 — deterministic, from snapshots only)", () => {
+  it("transaction events link their category and account", () => {
+    const ev = presentAuditRow(
+      row({ after: { type: "EXPENSE", amount: 42000, accountId: "acc-hdfc", categoryId: "cat-food", merchant: "Swiggy" } }),
+      maps
+    )!;
+    expect(ev.related).toContainEqual({ label: "🍔 Food", href: "/transactions?category=cat-food&tab=EXPENSE" });
+    expect(ev.related).toContainEqual({ label: "🏦 HDFC Savings", href: "/accounts" });
+  });
+
+  it("import events link the batch tap-through", () => {
+    const ev = presentAuditRow(row({ entity: "ImportBatch", action: "import", entityId: "batch7", after: { imported: 74, skipped: 0 } }), maps)!;
+    expect(ev.related).toEqual([{ label: "View 74 transactions", href: "/transactions?batch=batch7&p=all" }]);
+  });
+
+  it("deleted references produce no dead links", () => {
+    const ev = presentAuditRow(
+      row({ after: { type: "EXPENSE", amount: 1000, accountId: "acc-gone", categoryId: "cat-gone", merchant: "Ghost" } }),
+      maps
+    )!;
+    expect(ev.related).toEqual([]);
+  });
+});
+
+describe("10-minute edit-chain collapse (RFC §3)", () => {
+  const upd = (id: string, minAgo: number, entityId = "tx1", amount = 42000): AuditRowInput =>
+    row({
+      id,
+      action: "update",
+      entityId,
+      before: { type: "EXPENSE", amount: 42000, accountId: "acc-hdfc", merchant: "Swiggy" },
+      after: { type: "EXPENSE", amount, accountId: "acc-hdfc", merchant: "Swiggy" },
+      at: new Date(Date.UTC(2026, 6, 16, 12, 0) - minAgo * 60_000).toISOString(),
+    });
+
+  it("three edits within the window collapse into one chain at the newest position", () => {
+    const rows = [upd("e3", 0, "tx1", 37000), upd("e2", 5, "tx1", 36000), upd("e1", 9, "tx1", 35000)];
+    const out = groupUpdateChains(rows);
+    expect(out).toHaveLength(1);
+    expect(Array.isArray(out[0])).toBe(true);
+    expect((out[0] as AuditRowInput[]).map((r) => r.id)).toEqual(["e3", "e2", "e1"]);
+  });
+
+  it("a gap over 10 minutes splits the chain", () => {
+    const out = groupUpdateChains([upd("e3", 0), upd("e2", 5), upd("e1", 40)]);
+    expect(out).toHaveLength(2);
+    expect((out[0] as AuditRowInput[]).map((r) => r.id)).toEqual(["e3", "e2"]);
+    expect((out[1] as AuditRowInput).id).toBe("e1");
+  });
+
+  it("a same-entity non-update event breaks the chain", () => {
+    const del = row({ id: "d1", action: "soft-delete", entityId: "tx1", before: { type: "EXPENSE", amount: 1, merchant: "x" }, at: upd("e2", 3).at });
+    const out = groupUpdateChains([upd("e3", 0), del, upd("e1", 6)]);
+    expect(out).toHaveLength(3); // no grouping across the delete
+  });
+
+  it("other entities interleaving do not break the chain", () => {
+    const other = row({ id: "o1", action: "create", entityId: "tx-other", after: { type: "EXPENSE", amount: 1, merchant: "y" }, at: upd("x", 3).at });
+    const out = groupUpdateChains([upd("e3", 0), other, upd("e2", 6)]);
+    expect(out).toHaveLength(2);
+    expect((out[0] as AuditRowInput[]).map((r) => r.id)).toEqual(["e3", "e2"]);
+  });
+
+  it("presentChain emits the NET diff with step-through members", () => {
+    const chain = [
+      row({ id: "e3", action: "update", before: { type: "EXPENSE", amount: 36000, merchant: "Swiggy" }, after: { type: "EXPENSE", amount: 37000, merchant: "Swiggy" } }),
+      row({ id: "e2", action: "update", before: { type: "EXPENSE", amount: 35000, merchant: "Swiggy" }, after: { type: "EXPENSE", amount: 36000, merchant: "Swiggy" } }),
+      row({ id: "e1", action: "update", before: { type: "EXPENSE", amount: 25000, merchant: "Swiggy" }, after: { type: "EXPENSE", amount: 35000, merchant: "Swiggy" } }),
+    ] as AuditRowInput[];
+    const ev = presentChain(chain, maps)!;
+    expect(ev.activityId).toBe("ACT_e3"); // group id = newest member (RFC §5)
+    expect(ev.collapsed).toMatchObject({ count: 3 });
+    expect(ev.collapsed!.members).toHaveLength(3);
+    expect(formatDiffRow(ev.diff.find((d) => d.field === "amount")!)).toBe("₹250 → ₹370 (+₹120)");
+    expect(formatDiffRow(ev.collapsed!.members[1].diff[0])).toBe("₹350 → ₹360 (+₹10)");
+  });
+
+  it("a chain that nets to no change produces no event (A→B→A)", () => {
+    const a = { type: "EXPENSE", amount: 42000, merchant: "Swiggy" };
+    const b = { type: "EXPENSE", amount: 50000, merchant: "Swiggy" };
+    const chain = [
+      row({ id: "e2", action: "update", before: b, after: a }),
+      row({ id: "e1", action: "update", before: a, after: b }),
+    ] as AuditRowInput[];
+    expect(presentChain(chain, maps)).toBeNull();
+  });
+});
+
+describe("budget-exceeded notification events", () => {
+  it("presents the catalog copy with over-by amount", () => {
+    const ev = presentNotificationRow({
+      id: "n1",
+      kind: "BUDGET_EXCEEDED",
+      payload: { budgetId: "b1", category: "Food", spent: 815000, limit: 800000, monthKey: "2026-07" },
+      createdAt: "2026-07-16T10:00:00.000Z",
+    })!;
+    expect(ev.activityId).toBe("ACT_Nn1");
+    expect(ev.summary).toBe("Food budget exceeded");
+    expect(ev.detail).toBe("over by ₹150");
+    expect(ev.effects).toEqual([]);
+  });
+
+  it("other kinds and malformed payloads are skipped", () => {
+    expect(presentNotificationRow({ id: "n2", kind: "BUDGET_WARNING", payload: {}, createdAt: "2026-07-16T10:00:00.000Z" })).toBeNull();
+    expect(presentNotificationRow({ id: "n3", kind: "BUDGET_EXCEEDED", payload: "garbage", createdAt: "2026-07-16T10:00:00.000Z" })).not.toThrow;
   });
 });

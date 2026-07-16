@@ -24,8 +24,13 @@ export interface EffectRow {
   deltaPaise: number;
 }
 
+export interface RelatedLink {
+  label: string;
+  href: string;
+}
+
 export interface TimelineEvent {
-  activityId: string; // "ACT_<auditRowId>" — derived, stable, never stored
+  activityId: string; // "ACT_<auditRowId>" / "ACT_N<notificationId>" — derived, stable, never stored
   ts: string; // ISO-8601, audit row `at`
   verb: string;
   entityType: "transaction" | "transfer" | "account" | "category" | "budget" | "bill" | "import" | "settlement";
@@ -36,6 +41,11 @@ export interface TimelineEvent {
   detail?: string; // optional second line under the label
   diff: DiffRow[];
   effects: EffectRow[];
+  /** deterministic navigation, rendered only in expanded views (RFC §7) */
+  related: RelatedLink[];
+  /** present when a 10-minute edit chain was collapsed (RFC §3): this event
+   * carries the NET diff; members are the individual steps, newest first */
+  collapsed?: { count: number; members: TimelineEvent[] };
 }
 
 /** The audit-row shape the presenter consumes (payloads already JSON-parsed). */
@@ -204,7 +214,10 @@ function diffFields(specs: FieldSpec[], before: Snap, after: Snap, maps: LabelMa
 
 // ─────────── per-kind presenters (the registry) ───────────
 
-type Present = (row: AuditRowInput, maps: LabelMaps) => TimelineEvent | null;
+// registry entries emit everything except `related`, which is attached
+// centrally by presentAuditRow via relatedFor() — one builder, one place
+type PresentedCore = Omit<TimelineEvent, "related">;
+type Present = (row: AuditRowInput, maps: LabelMaps) => PresentedCore | null;
 
 const txWord = (p: Snap): { word: string; entityType: TimelineEvent["entityType"] } => {
   const t = str(p.type);
@@ -228,6 +241,29 @@ const base = (row: AuditRowInput): Pick<TimelineEvent, "activityId" | "ts" | "en
   ts: row.at,
   entityId: row.entityId,
 });
+
+/** Deterministic related links (RFC §7) — built from data already inside the
+ * event's snapshots; never a query. Rendered only in expanded views. */
+function relatedFor(row: AuditRowInput, maps: LabelMaps): RelatedLink[] {
+  if (row.entity === "Transaction") {
+    const p = asSnap(row.after ?? row.before);
+    const links: RelatedLink[] = [];
+    const catId = str(p.categoryId);
+    const type = str(p.type);
+    if (catId && maps.categories.has(catId) && (type === "EXPENSE" || type === "INCOME")) {
+      links.push({ label: categoryLabel(catId, maps), href: `/transactions?category=${catId}&tab=${type}` });
+    }
+    for (const id of [str(p.accountId), str(p.toAccountId)]) {
+      if (id && maps.accounts.has(id)) links.push({ label: `🏦 ${maps.accounts.get(id)}`, href: "/accounts" });
+    }
+    return links;
+  }
+  if (row.entity === "ImportBatch" && row.action === "import") {
+    const imported = num(asSnap(row.after).imported) ?? 0;
+    return [{ label: `View ${imported} transaction${imported === 1 ? "" : "s"}`, href: `/transactions?batch=${row.entityId}&p=all` }];
+  }
+  return [];
+}
 
 const REGISTRY: Record<string, Present> = {
   "Transaction:create": (row, maps) => {
@@ -498,10 +534,94 @@ export function presentAuditRow(row: AuditRowInput, maps: LabelMaps): TimelineEv
   const present = REGISTRY[`${row.entity}:${row.action}`];
   if (!present) return null;
   try {
-    return present(row, maps);
+    const core = present(row, maps);
+    if (!core) return null;
+    return { ...core, related: relatedFor(row, maps) };
   } catch {
     return null; // historical payload shapes must never take the page down
   }
+}
+
+/** Budget-exceeded events come from the Notification table, not the audit log
+ * (the only notification-sourced kind in the catalog). Same defensive rules. */
+export function presentNotificationRow(n: { id: string; kind: string; payload: unknown; createdAt: string }): TimelineEvent | null {
+  if (n.kind !== "BUDGET_EXCEEDED") return null;
+  try {
+    const p = asSnap(n.payload);
+    const category = str(p.category) ?? "Budget";
+    const spent = num(p.spent);
+    const limit = num(p.limit);
+    return {
+      activityId: `ACT_N${n.id}`,
+      ts: n.createdAt,
+      verb: "exceeded",
+      entityType: "budget",
+      entityId: str(p.budgetId) ?? n.id,
+      entityLabel: category,
+      icon: "⚠",
+      summary: `${category} budget exceeded`,
+      detail: spent !== undefined && limit !== undefined && spent > limit ? `over by ${formatPaise(spent - limit)}` : undefined,
+      diff: [],
+      effects: [],
+      related: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ─────────── 10-minute edit-chain collapse (RFC §3) ───────────
+
+/**
+ * Group consecutive Transaction:update rows on the same entity where each
+ * edit is within `windowMs` of the previous (chain rule). Any same-entity
+ * event of another action breaks that entity's chain; other entities'
+ * events interleaving do not. Input and output are newest-first; a chain
+ * occupies its newest member's position. Per-page only by design — a chain
+ * split across a page boundary renders as two groups (accepted in the RFC).
+ */
+export function groupUpdateChains(rows: AuditRowInput[], windowMs = 10 * 60_000): (AuditRowInput | AuditRowInput[])[] {
+  const out: (AuditRowInput | { chain: AuditRowInput[] })[] = [];
+  const open = new Map<string, { chain: AuditRowInput[] }>(); // entity key → growing chain
+  for (const row of rows) {
+    const key = `${row.entity}:${row.entityId}`;
+    if (row.entity === "Transaction" && row.action === "update") {
+      const cur = open.get(key);
+      if (cur) {
+        const prevOldest = cur.chain[cur.chain.length - 1];
+        if (new Date(prevOldest.at).getTime() - new Date(row.at).getTime() <= windowMs) {
+          cur.chain.push(row); // absorbed into the chain at its existing position
+          continue;
+        }
+      }
+      const fresh = { chain: [row] };
+      open.set(key, fresh);
+      out.push(fresh);
+    } else {
+      open.delete(key); // same-entity non-update breaks the chain
+      out.push(row);
+    }
+  }
+  return out.map((item) => ("chain" in item ? (item.chain.length === 1 ? item.chain[0] : item.chain) : item));
+}
+
+/**
+ * Present a collapsed chain as one event carrying the NET diff (oldest
+ * `before` → newest `after`) plus the individual steps for expansion.
+ * Returns null when the chain nets out to no change (A→B→A) — consistent
+ * with the no-op-edit rule: no net change, no event.
+ */
+export function presentChain(chain: AuditRowInput[], maps: LabelMaps): TimelineEvent | null {
+  const newest = chain[0];
+  const oldest = chain[chain.length - 1];
+  const net = presentAuditRow({ ...newest, before: oldest.before, after: newest.after }, maps);
+  if (!net) return null;
+  const members: TimelineEvent[] = [];
+  for (const row of chain) {
+    const ev = presentAuditRow(row, maps);
+    if (ev) members.push(ev);
+  }
+  return { ...net, collapsed: { count: chain.length, members } };
 }
 
 /** Render helper shared by UI + tests: "₹420 → ₹520 (+₹100)". */

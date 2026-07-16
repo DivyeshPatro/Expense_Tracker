@@ -40,7 +40,7 @@ import {
   updateTransfer,
 } from "@/server/services/transactions";
 import { askLedgerly, searchMerchants } from "@/server/services/search";
-import { activityPage } from "@/server/services/activity";
+import { activityPage, entityHistory, importPreview } from "@/server/services/activity";
 import { ACTIVITY_CHIPS, type ActivityChip } from "@/lib/activity";
 import { parsePeriod } from "@/lib/period";
 import type { ColumnMapping } from "@/lib/import/types";
@@ -259,6 +259,7 @@ export async function queryTransactionsAction(filter: TxListFilter, page: number
 
 export async function activityPageAction(input: {
   chip?: string;
+  entity?: string;
   period?: { p?: string; from?: string; to?: string };
   cursor?: string;
 }) {
@@ -267,10 +268,23 @@ export async function activityPageAction(input: {
   const { range } = parsePeriod(input.period ?? {});
   return activityPage(user.id, {
     chip,
+    entityId: typeof input.entity === "string" && input.entity ? input.entity : undefined,
     start: range.start,
     end: range.end,
     cursor: typeof input.cursor === "string" && input.cursor ? input.cursor : undefined,
   });
+}
+
+export async function entityHistoryAction(entityId: string) {
+  const user = await requireUser();
+  if (typeof entityId !== "string" || !entityId) return { events: [], more: false };
+  return entityHistory(user.id, entityId);
+}
+
+export async function importPreviewAction(batchId: string) {
+  const user = await requireUser();
+  if (typeof batchId !== "string" || !batchId) return { merchants: [] };
+  return importPreview(user.id, batchId);
 }
 
 // ─────────── Import wizard ───────────

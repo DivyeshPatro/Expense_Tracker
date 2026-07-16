@@ -11,9 +11,19 @@
 // transaction. Delete lives here now instead of always-visible on the list
 // row, with the same confirm-then-5s-undo pattern the row used to have.
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { deleteTransactionAction, getTransactionDetailAction, undoDeleteAction, updateExpenseAction, updateIncomeAction, updateTransferAction } from "@/app/actions";
+import {
+  deleteTransactionAction,
+  entityHistoryAction,
+  getTransactionDetailAction,
+  undoDeleteAction,
+  updateExpenseAction,
+  updateIncomeAction,
+  updateTransferAction,
+} from "@/app/actions";
+import { formatDiffRow, type TimelineEvent } from "@/lib/activity";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import type { TransactionDetail } from "@/server/services/transactions";
@@ -126,6 +136,8 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
         </div>
       )}
 
+      <HistoryCard transactionId={transactionId} />
+
       {!confirmingDelete ? (
         <div className="flex gap-2.5">
           <button
@@ -170,6 +182,86 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between gap-3">
       <span className="text-[12px] text-mut2">{label}</span>
       <span className="text-[13px] font-semibold text-right">{value}</span>
+    </div>
+  );
+}
+
+// ─────────── History (RFC §4: per-entity slice of the activity projection) ───────────
+
+/** friendlyDay over the event's LOCAL date — slicing the ISO string would use UTC */
+function historyDayLabel(iso: string): string {
+  const d = new Date(iso);
+  return friendlyDay(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+}
+
+function HistoryCard({ transactionId }: { transactionId: string }) {
+  const { closeModal } = useUI();
+  const [history, setHistory] = useState<{ events: TimelineEvent[]; more: boolean } | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    entityHistoryAction(transactionId).then((h) => {
+      if (!cancelled) setHistory(h);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [transactionId]);
+
+  if (!history || history.events.length === 0) return null;
+  const related = history.events[history.events.length - 1]?.related ?? [];
+
+  return (
+    <div className="card p-[var(--pad)] flex flex-col gap-2">
+      <div className="text-[11px] font-bold text-mut2 tracking-[.06em] uppercase">History</div>
+      <div className="flex flex-col">
+        {history.events.map((ev, i) => (
+          <div key={ev.activityId} className="flex gap-2.5">
+            <div className="flex flex-col items-center w-3 flex-none" aria-hidden="true">
+              <span className="w-[7px] h-[7px] rounded-full mt-[5px] flex-none" style={{ background: "var(--acc)" }} />
+              {i < history.events.length - 1 && <span className="w-px flex-1 bg-line2" />}
+            </div>
+            <div className="flex-1 min-w-0 pb-2.5">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[12.5px] font-semibold flex-1">{ev.summary}</span>
+                <time dateTime={ev.ts} className="text-[11px] text-mut2 flex-none">
+                  {historyDayLabel(ev.ts)},{" "}
+                  {new Date(ev.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                </time>
+              </div>
+              {ev.diff.length === 0 && ev.detail && <div className="text-[11.5px] text-mut2">{ev.detail}</div>}
+              {ev.diff.map((d) => (
+                <div key={d.field} className="text-[11.5px] text-mut2">
+                  <span className="font-semibold text-mut">{d.fieldLabel}</span> {formatDiffRow(d)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {history.more && (
+        <Link
+          href={`/activity?entity=${transactionId}`}
+          onClick={closeModal}
+          className="text-[12px] font-semibold text-acc no-underline self-start"
+        >
+          Full history →
+        </Link>
+      )}
+      {related.length > 0 && (
+        <div className="flex gap-1.5 flex-wrap pt-1 border-t border-line">
+          {related.map((r) => (
+            <Link
+              key={r.href}
+              href={r.href}
+              onClick={closeModal}
+              className="px-2.5 py-1 rounded-full bg-accsoft text-acc text-[11.5px] font-semibold no-underline"
+            >
+              {r.label}
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

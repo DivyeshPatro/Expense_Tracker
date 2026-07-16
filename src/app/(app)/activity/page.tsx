@@ -13,14 +13,21 @@ export const dynamic = "force-dynamic";
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const sp = await searchParams;
+  // ?entity=<id> is the "Full history" view of one transaction (RFC §12):
+  // no period bound (history reads back to the beginning), no chips
+  const entityId = sp.entity || undefined;
   const period = parsePeriod(sp);
-  const { events, nextCursor } = await activityPage(user.id, { start: period.range.start, end: period.range.end });
+  const { events, nextCursor } = await activityPage(
+    user.id,
+    entityId ? { entityId } : { start: period.range.start, end: period.range.end }
+  );
 
   return (
     <ActivityList
       initialEvents={events}
       initialCursor={nextCursor}
       period={{ p: sp.p, from: sp.from, to: sp.to }}
+      entityFilter={entityId ?? null}
     />
   );
 }
