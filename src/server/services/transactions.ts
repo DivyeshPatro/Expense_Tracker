@@ -4,9 +4,9 @@
 
 import { splitByWeights, splitEqual, splitExact, type SplitShare } from "@/lib/money";
 import { istNoon } from "@/lib/dates";
-import type { Prisma, TxType } from "@prisma/client";
+import type { GroupRole, Prisma, TxType } from "@prisma/client";
 import { prisma } from "../db";
-import { assertCanCreateInGroup, assertCanRead, assertCanWrite } from "./authorization";
+import { assertCanCreateInGroup, assertCanRead, assertCanWrite, resolveGroupRole, roleAtLeast } from "./authorization";
 import { audit } from "./audit";
 import { checkBudgetThresholds } from "./budgets";
 
@@ -348,13 +348,34 @@ export interface TransactionDetail {
   toAccountId: string | null;
   toAccountName: string | null;
   categoryId: string | null;
+  // resolved server-side, same reasoning as participantName below — a
+  // non-owning viewer has no reason to have this category in their OWN
+  // refData.categories, so the client must never look it up locally
+  categoryName: string | null;
+  categoryIcon: string | null;
   merchant: string;
   ymd: string; // YYYY-MM-DD
   notes: string | null;
   paidByParticipantId: string | null;
   isRecurring: boolean;
-  splits: { participantId: string | null; owedAmount: number; method: string }[];
+  // participantName is resolved server-side, in the SAME namespace the split
+  // itself lives in — never derived by the client matching against its own
+  // (possibly unrelated) contact list, which is wrong the instant a
+  // non-owning group member is the one viewing (collaboration-architecture-rfc §10)
+  splits: { participantId: string | null; owedAmount: number; method: string; participantName: string | null }[];
   version: number; // offline-sync baseVersion for edits/deletes (spec §4.2) — Phase 3
+  // collaboration-architecture-rfc §1/§2 (migration step 4) — precomputed
+  // server-side from the same authorization the write path enforces, so the
+  // UI never has to reimplement (or drift from) the role-rank rules
+  userId: string;
+  isOwner: boolean; // actingUserId === userId — the client's single source of truth for "is this mine"
+  groupId: string | null;
+  groupName: string | null;
+  ownerName: string | null; // who this row is actually filed under — set only when the viewer isn't them
+  viewerRole: GroupRole | null; // the viewer's role in the group, independent of row ownership
+  canEditFields: boolean;
+  canEditAccount: boolean;
+  canDelete: boolean;
 }
 
 /** Full detail for the edit form — a fresh, richer read than the list's lean LedgerRow (which has just enough for display, not for reconstructing per-participant split amounts).
@@ -370,8 +391,10 @@ export async function getTransactionDetail(actingUserId: string, id: string): Pr
     include: {
       account: { select: { name: true } },
       toAccount: { select: { name: true } },
-      splits: { select: { participantId: true, owedAmount: true, method: true } },
+      category: { select: { name: true, icon: true } },
+      splits: { select: { participantId: true, owedAmount: true, method: true, participant: { select: { displayName: true } } } },
       user: { select: { name: true } },
+      group: { select: { name: true } },
     },
   });
   if (!t) return null;
@@ -381,6 +404,11 @@ export async function getTransactionDetail(actingUserId: string, id: string): Pr
     return null;
   }
   const isOwner = t.userId === actingUserId;
+  const viewerRole: GroupRole | null = t.groupId ? await resolveGroupRole(prisma, t.groupId, actingUserId) : null;
+  const canEditFields = isOwner || roleAtLeast(viewerRole, "MEMBER");
+  const canEditAccount = isOwner;
+  const canDelete = isOwner || roleAtLeast(viewerRole, "ADMIN");
+
   const ownerFirstName = t.user.name.split(" ")[0] || t.user.name;
   const accountLabel = (realName: string | undefined | null) =>
     !realName ? null : isOwner ? realName : `${ownerFirstName}'s account`;
@@ -393,13 +421,29 @@ export async function getTransactionDetail(actingUserId: string, id: string): Pr
     toAccountId: t.toAccountId,
     toAccountName: accountLabel(t.toAccount?.name),
     categoryId: t.categoryId,
+    categoryName: t.category?.name ?? null,
+    categoryIcon: t.category?.icon ?? null,
     merchant: t.merchant,
     ymd: t.occurredAt.toISOString().slice(0, 10),
     notes: t.notes,
     paidByParticipantId: t.paidByParticipantId,
     isRecurring: t.isRecurring,
-    splits: t.splits.map((s) => ({ participantId: s.participantId, owedAmount: Number(s.owedAmount), method: s.method })),
+    splits: t.splits.map((s) => ({
+      participantId: s.participantId,
+      owedAmount: Number(s.owedAmount),
+      method: s.method,
+      participantName: s.participant?.displayName ?? null,
+    })),
     version: t.version,
+    userId: t.userId,
+    isOwner,
+    groupId: t.groupId,
+    groupName: t.group?.name ?? null,
+    ownerName: isOwner ? null : t.user.name,
+    viewerRole,
+    canEditFields,
+    canEditAccount,
+    canDelete,
   };
 }
 

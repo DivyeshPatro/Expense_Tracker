@@ -38,6 +38,7 @@ export function TransactionsList({
   initialCategory,
   initialBatch,
   period,
+  initialOpenTransactionId,
 }: {
   initialRows: LedgerRow[];
   initialHasMore: boolean;
@@ -47,8 +48,19 @@ export function TransactionsList({
   initialCategory: CategoryRef | null;
   initialBatch: string | null;
   period: Period;
+  initialOpenTransactionId?: string | null;
 }) {
   const { openModal } = useUI();
+
+  // ?tx=<id> deep link — same idea as "Full history"'s existing
+  // /activity?entity=<id> link, just one hop deeper into the detail sheet
+  // itself. getTransactionDetail already no-ops to "no longer exists" for an
+  // id the viewer isn't authorized to read (rfc §10), so this never leaks
+  // existence of a transaction the visitor can't already read.
+  useEffect(() => {
+    if (initialOpenTransactionId) openModal("txDetail", { transactionId: initialOpenTransactionId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { pending, needsAttention } = useOffline();
   const [rows, setRows] = useState(initialRows);
   const [hasMore, setHasMore] = useState(initialHasMore);

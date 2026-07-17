@@ -1,13 +1,37 @@
 # Collaboration Architecture RFC — Group-Based Shared Editing
 
-**Status:** Foundation implemented (2026-07-17) — migration steps 1–3 (§12) are done: schema
-migration, `assertCanRead`/`assertCanWrite`/`assertGroupRole` wired into every mutating service
-function, group role enforcement (leave/promote/remove), and invitation/role wiring. §15's full
-exit-criteria suite is green (26/26) and the entire pre-existing regression suite is unchanged
-(264/264 total, run twice consecutively). None of this is reachable from the UI yet — migration
-steps 4 (UI cutover) and 5 (offline-sync layer: `checkOverride`'s actor-aware LWW/CONFLICT split,
-the conflict card) remain pending, per §12's own staged rollout. One implementation-time gap
-found and deliberately deferred, not silently dropped: ownership transfer (§3.1) needs a small
+**Status:** Migration step 4 (UI cutover) implemented (2026-07-17). Steps 1–3 (the authorization
+foundation) were completed first: schema migration, `assertCanRead`/`assertCanWrite`/
+`assertGroupRole` wired into every mutating service function, group role enforcement
+(leave/promote/remove), and invitation/role wiring — §15's exit-criteria suite is green (26/26).
+Step 4 makes `TransactionDetailSheet` and the create flow collaboration-aware for non-owner
+members (new `CollaborativeEditForm`, group context banner, honest Edit/Delete gating by
+`canEditFields`/`canDelete`, locked `accountId` display, group-scoped category picker via
+`listGroupCategories`, amount lock + faithful split resubmission when a transaction has an
+existing split) — 24 new browser-driven checks (`e2e-collab-ui.ts`), green twice consecutively,
+alongside the full 264-check pre-existing regression suite (288/288 total, run twice
+consecutively, zero regressions). One §5-specified fix completed as part of this step, not
+deferred: `entityHistory`'s audit-log query was still owner-`userId`-scoped, which would have
+made a non-owner's History card silently empty the moment step 4 made it reachable — now
+OR-extended via `assertCanRead` exactly as §5/§13 already specified.
+
+**Known gap, explicitly deferred by product decision (2026-07-17):** there is currently no UI
+surface (transaction list, dashboard, or notification) that lets a non-owner *discover* another
+member's group transaction — every existing list/ledger query stays strictly scoped to the
+viewer's own `userId`, and `/shared`'s `GroupsPanel` is group membership CRUD only, never a
+transaction feed. `TransactionDetailSheet`/`CollaborativeEditForm` are fully correct once reached,
+but nothing in the product currently links to them for a non-owner. This was flagged rather than
+invented — extending the list/dashboard queries has real implications (would a member's own
+dashboard *totals* start including other members' group spending?) that this RFC never addressed,
+and the product owner chose to defer discoverability rather than have it designed as a side effect
+of Step 4. `e2e-collab-ui.ts` reaches the sheet via a `?tx=<id>` deep link added as test-facing
+plumbing (mirrors the existing `/activity?entity=<id>` pattern; `getTransactionDetail` still
+no-ops to "no longer exists" for anyone unauthorized). Revisit as its own scoped follow-up.
+
+Migration step 5 (offline-sync layer: `checkOverride`'s actor-aware LWW/CONFLICT split, the
+`CONFLICT` taxonomy and response shape, the conflict-card UI, §8's group-removal copy) remains
+pending, per §12's own staged rollout — not started. One implementation-time gap from step
+1–3 found and deliberately deferred, not silently dropped: ownership transfer (§3.1) needs a small
 schema decision (there's currently no way to represent a former OWNER as a plain member of their
 own former group) — `leaveGroup` blocks an OWNER from leaving a non-empty group until that's
 designed, rather than leaving a group ownerless. Open questions #1 and #4 (§14) stand as adopted

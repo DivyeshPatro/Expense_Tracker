@@ -8,7 +8,7 @@ import { requireUser } from "@/server/session";
 import { createAccount } from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
-import { changeCategoryKind, createCategory, deleteCategory, renameCategory } from "@/server/services/categories";
+import { changeCategoryKind, createCategory, deleteCategory, listGroupCategories, renameCategory } from "@/server/services/categories";
 import { queryTransactions, type TxListFilter } from "@/server/services/ledger";
 import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
 import {
@@ -398,6 +398,16 @@ export async function deleteCategoryAction(categoryId: string): Promise<ActionRe
   } catch (e) {
     return fail(e);
   }
+}
+
+// collaboration-architecture-rfc §10/§15 (migration step 4): a group member
+// labeling a shared expense sees only categories already used within that
+// group, never a co-member's full private list. Authorization (MEMBER role+)
+// is enforced inside listGroupCategories itself — an unauthorized caller
+// gets a thrown NotAuthorizedError, same as every other collaborative read.
+export async function listGroupCategoriesAction(groupId: string) {
+  const user = await requireUser();
+  return listGroupCategories(user.id, groupId);
 }
 
 export async function searchMerchantsAction(query: string): Promise<string[]> {

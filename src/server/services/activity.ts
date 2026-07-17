@@ -17,6 +17,7 @@ import {
   type TimelineEvent,
 } from "@/lib/activity";
 import { prisma } from "../db";
+import { assertCanRead } from "./authorization";
 import { listCategories } from "./categories";
 
 const PAGE_SIZE = 50;
@@ -140,15 +141,36 @@ export async function activityPage(
 
 /** Per-entity slice for the detail sheet's History section (RFC §4): the
  * HISTORY_CAP most recent entries, oldest-first for the rail, no collapse —
- * history shows every step. `more` signals the "Full history" link. */
-export async function entityHistory(userId: string, entityId: string): Promise<{ events: TimelineEvent[]; more: boolean }> {
+ * history shows every step. `more` signals the "Full history" link.
+ *
+ * collaboration-architecture-rfc §5: AuditLog.userId is always filed under
+ * the transaction's OWNER, never the acting editor — so a non-owning group
+ * member's own userId never matches these rows as-is. Once assertCanRead
+ * confirms group-membership access to the transaction itself, its full audit
+ * trail (every authorized member's edits, not just the viewer's own) becomes
+ * visible, and labels resolve against the OWNER's namespace (categories/
+ * accounts/participants the diff actually references), never the viewer's
+ * own unrelated ids. A transaction that's gone or not authorized falls back
+ * to the pre-existing owner-only scoping, matching solo behavior byte for byte. */
+export async function entityHistory(actingUserId: string, entityId: string): Promise<{ events: TimelineEvent[]; more: boolean }> {
+  const tx = await prisma.transaction.findFirst({ where: { id: entityId }, select: { userId: true, groupId: true } });
+  let ownerId = actingUserId;
+  if (tx) {
+    try {
+      await assertCanRead(prisma, actingUserId, tx);
+      ownerId = tx.userId;
+    } catch {
+      // not authorized — fall through to the strict self-scoped query below,
+      // which correctly returns nothing for someone with no legitimate access
+    }
+  }
   const [rows, maps] = await Promise.all([
     prisma.auditLog.findMany({
-      where: { userId, entity: "Transaction", entityId },
+      where: { userId: ownerId, entity: "Transaction", entityId },
       orderBy: [{ at: "desc" }, { id: "desc" }],
       take: HISTORY_CAP + 1,
     }),
-    labelMaps(userId),
+    labelMaps(ownerId),
   ]);
   const more = rows.length > HISTORY_CAP;
   const events: TimelineEvent[] = [];

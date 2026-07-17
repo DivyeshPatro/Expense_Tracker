@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; tab?: string; month?: string; category?: string; batch?: string; p?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ q?: string; tab?: string; month?: string; category?: string; batch?: string; p?: string; from?: string; to?: string; tx?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
@@ -31,6 +31,7 @@ export default async function TransactionsPage({
       initialCategory={categoryId ? { id: categoryId, name: category?.name ?? "Category", icon: category?.icon ?? "📦" } : null}
       initialBatch={batchId}
       period={period}
+      initialOpenTransactionId={params.tx || null}
     />
   );
 }

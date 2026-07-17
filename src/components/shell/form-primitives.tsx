@@ -54,7 +54,17 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
-export function AmountInput({ value, onChange, autoFocus }: { value: string; onChange: (v: string) => void; autoFocus?: boolean }) {
+export function AmountInput({
+  value,
+  onChange,
+  autoFocus,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  autoFocus?: boolean;
+  disabled?: boolean;
+}) {
   return (
     <input
       type="number"
@@ -65,7 +75,8 @@ export function AmountInput({ value, onChange, autoFocus }: { value: string; onC
       onChange={(e) => onChange(e.target.value)}
       placeholder="0"
       autoFocus={autoFocus}
-      className="field !py-3 !text-[19px] !font-bold"
+      disabled={disabled}
+      className="field !py-3 !text-[19px] !font-bold disabled:opacity-60 disabled:cursor-not-allowed"
     />
   );
 }

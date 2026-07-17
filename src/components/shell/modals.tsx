@@ -81,6 +81,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const [merchant, setMerchant] = useState("");
   const [date, setDate] = useState(todayYMD());
   const [notes, setNotes] = useState("");
+  const [groupId, setGroupId] = useState(""); // "" = personal — collaboration-architecture-rfc §2/§4 (migration step 4)
   const [split, setSplit] = useState(!!prefill?.split);
   const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">("EQUAL");
   const [parts, setParts] = useState<Record<string, boolean>>(() =>
@@ -125,6 +126,16 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
       <Field label="NOTES">
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
       </Field>
+      {refData.groups.length > 0 && (
+        <Field label="GROUP">
+          <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <option value="">Personal (not in a group)</option>
+            {refData.groups.map((g) => (
+              <option key={g.id} value={g.id}>🏠 {g.name}</option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       <SplitEditor state={splitState} amtPaise={amtPaise} participants={refData.participants} />
 
@@ -142,6 +153,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                 date,
                 notes: notes || undefined,
                 split: buildSplitPayload(splitState, selected.map((p) => p.id)),
+                groupId: groupId || null,
               };
               // Phase 1 queues solo creates only (spec §17); a split touches
               // friends' balances and needs the server's validation
@@ -176,6 +188,7 @@ function IncomeForm() {
   );
   const [merchant, setMerchant] = useState("");
   const [date, setDate] = useState(todayYMD());
+  const [groupId, setGroupId] = useState("");
   return (
     <div className="flex flex-col gap-3">
       <Field label="AMOUNT (₹)">
@@ -205,13 +218,23 @@ function IncomeForm() {
           <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
       </div>
+      {refData.groups.length > 0 && (
+        <Field label="GROUP">
+          <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <option value="">Personal (not in a group)</option>
+            {refData.groups.map((g) => (
+              <option key={g.id} value={g.id}>🏠 {g.name}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
         color="var(--green)"
         onClick={() =>
           run(
-            () => createViaOutbox("income.create", { amount, accountId, categoryId: categoryId || null, merchant, date }),
+            () => createViaOutbox("income.create", { amount, accountId, categoryId: categoryId || null, merchant, date, groupId: groupId || null }),
             "Income added"
           )
         }
@@ -232,6 +255,7 @@ function TransferForm() {
   const [from, setFrom] = useState(refData.accounts[0]?.id ?? "");
   const [to, setTo] = useState(refData.accounts[1]?.id ?? refData.accounts[0]?.id ?? "");
   const [date, setDate] = useState(todayYMD());
+  const [groupId, setGroupId] = useState("");
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2.5 flex-wrap">
@@ -256,12 +280,22 @@ function TransferForm() {
       <Field label="DATE">
         <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       </Field>
+      {refData.groups.length > 0 && (
+        <Field label="GROUP">
+          <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <option value="">Personal (not in a group)</option>
+            {refData.groups.map((g) => (
+              <option key={g.id} value={g.id}>🏠 {g.name}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
         onClick={() =>
           run(
-            () => createViaOutbox("transfer.create", { amount, fromAccountId: from, toAccountId: to, date }),
+            () => createViaOutbox("transfer.create", { amount, fromAccountId: from, toAccountId: to, date, groupId: groupId || null }),
             "Transfer recorded"
           )
         }

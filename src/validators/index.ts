@@ -34,6 +34,10 @@ export const expenseSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   paymentMethod: z.string().trim().max(40).optional(),
   split: splitSchema.optional(),
+  // collaboration-architecture-rfc §2/§4 (migration step 4): create-time
+  // only — tags the row as collaborative, gated server-side by
+  // assertCanCreateInGroup. Never reassigned by an edit (rfc §4).
+  groupId: z.string().min(1).nullable().optional(),
 });
 
 /** Offline-sync intent metadata (offline-sync-spec §4.3) — optional on
@@ -58,6 +62,7 @@ export const incomeSchema = z.object({
   merchant: z.string().trim().max(120).transform((s) => s || "Income"),
   date: ymd,
   notes: z.string().trim().max(500).optional(),
+  groupId: z.string().min(1).nullable().optional(),
 });
 
 export const transferSchema = z.object({
@@ -66,6 +71,7 @@ export const transferSchema = z.object({
   toAccountId: z.string().min(1),
   date: ymd,
   notes: z.string().trim().max(500).optional(),
+  groupId: z.string().min(1).nullable().optional(),
 });
 
 export const incomeWithIntentSchema = incomeSchema.extend({ intent: intentMetaSchema.optional() });

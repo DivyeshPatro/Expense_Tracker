@@ -2,6 +2,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import type { RefData } from "@/components/shell/ui-context";
 import { listAccountRows } from "@/server/services/accounts";
 import { listCategories } from "@/server/services/categories";
+import { listGroups } from "@/server/services/groups";
 import { netBalances, listParticipants } from "@/server/services/shared";
 import { unreadCount } from "@/server/services/notifications";
 import { requireUser } from "@/server/session";
@@ -18,10 +19,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // module: when the page below (e.g. Dashboard) needs the same list, it calls
   // the same function and React dedupes the fetch instead of hitting Postgres
   // twice for one request.
-  const [accounts, categories, participants, nets, notifBadge] = await Promise.all([
+  const [accounts, categories, participants, groups, nets, notifBadge] = await Promise.all([
     listAccountRows(user.id),
     listCategories(user.id),
     listParticipants(user.id),
+    listGroups(user.id),
     netBalances(user.id),
     unreadCount(user.id),
   ]);
@@ -32,6 +34,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     expenseCategories: categories.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "📦" })),
     incomeCategories: categories.filter((c) => c.kind === "INCOME").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "💼" })),
     participants: participants.map((p) => ({ id: p.id, name: p.displayName, initial: p.displayName.charAt(0).toUpperCase(), color: p.color ?? "#6d5ae6" })),
+    // collaboration-architecture-rfc §2/§4 (migration step 4): every group
+    // the user can create INTO — owned or joined, any role (MEMBER is the
+    // floor for creating), populated by the same listGroups() already
+    // extended in the authorization foundation (migration step 3)
+    groups: groups.map((g) => ({ id: g.id, name: g.name, role: g.role })),
   };
   const badge = nets.filter((n) => Math.abs(n.net) > 100).length;
 

@@ -23,10 +23,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { entityHistoryAction, getTransactionDetailAction, undoDeleteAction, updateExpenseAction } from "@/app/actions";
+import {
+  deleteTransactionAction,
+  entityHistoryAction,
+  getTransactionDetailAction,
+  listGroupCategoriesAction,
+  undoDeleteAction,
+  updateExpenseAction,
+  updateIncomeAction,
+  updateTransferAction,
+} from "@/app/actions";
 import { formatDiffRow, type TimelineEvent } from "@/lib/activity";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
+import type { ActionResult } from "@/app/actions";
 import type { TransactionDetail } from "@/server/services/transactions";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { useOffline } from "./offline-context";
@@ -35,6 +45,27 @@ import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-e
 import { useUI } from "./ui-context";
 
 const cleanCopy = (msg: string) => msg.charAt(0).toUpperCase() + msg.slice(1);
+
+const OFFLINE_COLLAB_ERROR = "This needs an internet connection right now — try again when you're back online.";
+
+/** Migration step 4 (collaboration-architecture-rfc.md, "Explicitly Out of
+ * Scope"): a non-owner's write is a genuine cross-person collaborative edit,
+ * which the offline outbox can't yet resolve safely (checkOverride's
+ * actor-aware LWW/CONFLICT split is step 5, deliberately not built here) —
+ * so it goes straight to the server, online-required, exactly like the
+ * existing split-expense-needs-internet path already does. The owner's own
+ * edits (even on a group transaction) stay on the existing outbox — that's
+ * still just one person's own multi-device story, which Phase 3 already
+ * handles correctly. */
+async function ownerQueuedOrCollaborativeDirect(
+  isOwner: boolean,
+  enqueue: () => Promise<ActionResult & { queued?: boolean; intentId?: string }>,
+  direct: () => Promise<ActionResult>
+): Promise<ActionResult & { queued?: boolean; intentId?: string }> {
+  if (isOwner) return enqueue();
+  if (typeof navigator !== "undefined" && !navigator.onLine) return { ok: false, error: OFFLINE_COLLAB_ERROR };
+  return direct();
+}
 
 export function TransactionDetailSheet({ transactionId }: { transactionId: string }) {
   const { refData, closeModal, showToast } = useUI();
@@ -66,11 +97,16 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
   async function handleDelete() {
     if (!detail) return;
     setDeleteBusy(true);
-    const res = await enqueueMutation(
-      "tx.delete",
-      transactionId,
-      { merchant: detail.merchant, amount: String(detail.amount / 100) },
-      detail.version
+    const res = await ownerQueuedOrCollaborativeDirect(
+      detail.isOwner,
+      () =>
+        enqueueMutation(
+          "tx.delete",
+          transactionId,
+          { merchant: detail.merchant, amount: String(detail.amount / 100) },
+          detail.version
+        ),
+      () => deleteTransactionAction({ id: transactionId })
     );
     setDeleteBusy(false);
     if (!res.ok) {
@@ -78,12 +114,14 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
       return;
     }
     closeModal();
+    if (!detail.isOwner) router.refresh(); // a direct delete needs the usual refresh; the outbox path refreshes itself on drain
     const intentId = res.intentId;
     showToast("Transaction deleted", async () => {
       // still sitting in the outbox (the common case — drains take well under
       // a second, but the 5s undo window doesn't require it to have landed)?
       // cancel it locally — nothing was ever sent. Otherwise it already
-      // synced; fall back to a real server-side restore.
+      // synced (or was a direct collaborative delete, which is always
+      // already-synced); fall back to a real server-side restore.
       const restoredLocally = intentId ? await cancelPending(intentId) : null;
       if (restoredLocally) {
         showToast("Restored");
@@ -127,13 +165,15 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
     // second edit builds on the latest local state rather than stale server
     // data — enqueueMutation() coalesces this into the SAME intent (spec §11)
     const prefill = queued && !queuedIsDelete ? (queued.payload as Record<string, unknown>) : undefined;
+    // collaboration-architecture-rfc migration step 4: a non-owner's edit is
+    // a different, deliberately-simpler form — see CollaborativeEditForm's
+    // own comment for exactly which fields and why
+    if (!detail.isOwner) return <CollaborativeEditForm detail={detail} onCancel={() => setEditing(false)} />;
     if (detail.type === "EXPENSE") return <EditExpenseForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
     if (detail.type === "INCOME") return <EditIncomeForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
     return <EditTransferForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
   }
 
-  const categories = [...refData.expenseCategories, ...refData.incomeCategories];
-  const category = categories.find((c) => c.id === detail.categoryId);
   const amtColor = detail.type === "INCOME" ? "var(--green)" : detail.type === "TRANSFER" ? "var(--mut)" : "var(--ink)";
   const amtPrefix = detail.type === "INCOME" ? "+" : detail.type === "TRANSFER" ? "" : "−";
 
@@ -141,7 +181,7 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
     <div className="flex flex-col gap-3.5">
       <div className="flex items-center gap-3">
         <div className="w-11 h-11 rounded-xl grid place-items-center text-lg flex-none bg-accsoft">
-          {detail.type === "TRANSFER" ? "⇄" : (category?.icon ?? "📦")}
+          {detail.type === "TRANSFER" ? "⇄" : (detail.categoryIcon ?? "📦")}
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-[15px] font-bold truncate">{detail.merchant}</div>
@@ -152,6 +192,17 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
           {formatPaise(detail.amount)}
         </div>
       </div>
+
+      {detail.groupId && (
+        <div className="flex items-center gap-2 text-[12px] text-mut2 bg-accsoft rounded-[9px] px-3 py-2">
+          <span aria-hidden="true">🏠</span>
+          <span className="flex-1">
+            {detail.groupName}
+            {!detail.isOwner && detail.ownerName && <> · recorded by {detail.ownerName}</>}
+          </span>
+          {detail.viewerRole && <span className="font-semibold text-acc">{detail.viewerRole}</span>}
+        </div>
+      )}
 
       {queued && (
         <div
@@ -167,7 +218,9 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
       )}
 
       <div className="card p-[var(--pad)] flex flex-col gap-2.5">
-        {detail.type !== "TRANSFER" && <DetailRow label="Category" value={category ? `${category.icon} ${category.name}` : "Uncategorized"} />}
+        {detail.type !== "TRANSFER" && (
+          <DetailRow label="Category" value={detail.categoryName ? `${detail.categoryIcon ?? "📦"} ${detail.categoryName}` : "Uncategorized"} />
+        )}
         {detail.type === "TRANSFER" ? (
           <>
             <DetailRow label="From" value={detail.accountName ?? "—"} />
@@ -185,8 +238,11 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
         <div className="card p-[var(--pad)] flex flex-col gap-2">
           <div className="text-[11px] font-bold text-mut2 tracking-[.06em] uppercase">Split</div>
           {detail.splits.map((s) => {
-            const who = s.participantId ? refData.participants.find((p) => p.id === s.participantId) : null;
-            const name = who ? who.name : "You";
+            // resolved server-side (participantName) — never matched against
+            // the VIEWER's own refData.participants, which is the wrong
+            // namespace the instant a non-owning group member is looking
+            // (collaboration-architecture-rfc §10)
+            const name = s.participantId ? (s.participantName ?? "Removed friend") : detail.isOwner ? "You" : (detail.ownerName ?? "Owner");
             const isPayer = s.participantId === detail.paidByParticipantId;
             return (
               <div key={s.participantId ?? "me"} className="flex items-center justify-between text-[13px]">
@@ -231,20 +287,37 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
           {deleteBusy ? "…" : "Cancel delete"}
         </button>
       ) : !confirmingDelete ? (
+        // collaboration-architecture-rfc migration step 4: never render a
+        // control the viewer can't actually use — canEditFields/canDelete are
+        // re-derived server-side every load, never assumed from viewerRole here
         <div className="flex gap-2.5">
-          <button
-            onClick={() => setEditing(true)}
-            className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => setConfirmingDelete(true)}
-            className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
-            style={{ background: "var(--red)" }}
-          >
-            Delete
-          </button>
+          {detail.canEditFields && (
+            <button
+              onClick={() => setEditing(true)}
+              className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft"
+            >
+              Edit
+            </button>
+          )}
+          {detail.canDelete ? (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
+              style={{ background: "var(--red)" }}
+            >
+              Delete
+            </button>
+          ) : (
+            !detail.isOwner && (
+              <button
+                disabled
+                title="Only the group owner or an admin can delete this"
+                className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center border border-line2 bg-card opacity-50 cursor-not-allowed"
+              >
+                Delete · admins only
+              </button>
+            )
+          )}
         </div>
       ) : (
         <div className="flex items-center gap-2.5 bg-redsoft rounded-[10px] px-3.5 py-3">
@@ -354,6 +427,168 @@ function HistoryCard({ transactionId }: { transactionId: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────── Edit: Collaborative (non-owner) ───────────
+
+/** Migration step 4: a non-owner's edit is deliberately a narrower form than
+ * the owner's. accountId is rendered read-only text, never a live <select> —
+ * refData.accounts is the VIEWER's own accounts, not the row owner's, so a
+ * functional picker here would let someone move a friend's money into an
+ * account of theirs that doesn't exist. Category options come from
+ * listGroupCategoriesAction (shared-group categories already used in this
+ * group), not refData.expenseCategories/incomeCategories, per the RFC §10
+ * narrowed-visibility decision. The amount locks whenever a split exists:
+ * safely recomputing shares needs the interactive split editor plus a
+ * group-scoped participant picker, both explicitly out of scope this phase.
+ * Any existing split is resubmitted byte-for-byte from detail.splits' own
+ * server-resolved participantId/owedAmount — never matched against
+ * refData.participants (the viewer's own contact list), which would silently
+ * corrupt the split onto unrelated ids. */
+function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail; onCancel: () => void }) {
+  const { run, busy, error } = useSubmit();
+  const [amount, setAmount] = useState(String(detail.amount / 100));
+  const [categoryId, setCategoryId] = useState(detail.categoryId ?? "");
+  const [merchant, setMerchant] = useState(detail.merchant);
+  const [date, setDate] = useState(detail.ymd);
+  const [notes, setNotes] = useState(detail.notes ?? "");
+  const [categories, setCategories] = useState<{ id: string; name: string; icon: string | null }[]>([]);
+  const hasSplit = detail.splits.length > 0;
+  const groupId = detail.groupId;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (groupId && detail.type !== "TRANSFER") {
+      listGroupCategoriesAction(groupId).then((cats) => {
+        if (!cancelled) setCategories(cats.filter((c) => c.kind === detail.type));
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, detail.type]);
+
+  function existingSplitPayload() {
+    if (!hasSplit) return undefined;
+    const friends = detail.splits.filter((s) => s.participantId);
+    // PERCENT/RATIO weights can't be losslessly rebuilt from owedAmount alone
+    // — same EXACT fallback EditExpenseForm uses when reopening one of these
+    const mode: "EQUAL" | "EXACT" = detail.splits[0]?.method === "EQUAL" ? "EQUAL" : "EXACT";
+    return {
+      mode,
+      participantIds: friends.map((s) => s.participantId as string),
+      payerParticipantId: detail.paidByParticipantId,
+      exactAmounts:
+        mode === "EXACT" ? Object.fromEntries(friends.map((s) => [s.participantId as string, s.owedAmount])) : undefined,
+    };
+  }
+
+  async function save(): Promise<ActionResult & { queued?: boolean }> {
+    if (typeof navigator !== "undefined" && !navigator.onLine) return { ok: false, error: OFFLINE_COLLAB_ERROR };
+    if (detail.type === "EXPENSE") {
+      return updateExpenseAction({
+        id: detail.id,
+        amount,
+        accountId: detail.accountId, // unchanged — locked (rfc §1)
+        categoryId: categoryId || null,
+        merchant,
+        date,
+        notes: notes || undefined,
+        split: existingSplitPayload(),
+      });
+    }
+    if (detail.type === "INCOME") {
+      return updateIncomeAction({
+        id: detail.id,
+        amount,
+        accountId: detail.accountId ?? "",
+        categoryId: categoryId || null,
+        merchant,
+        date,
+        notes: notes || undefined,
+      });
+    }
+    return updateTransferAction({
+      id: detail.id,
+      amount,
+      fromAccountId: detail.accountId ?? "",
+      toAccountId: detail.toAccountId ?? "",
+      date,
+      notes: notes || undefined,
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="AMOUNT (₹)">
+        <AmountInput value={amount} onChange={setAmount} autoFocus={!hasSplit} disabled={hasSplit} />
+        {hasSplit && <div className="text-[11px] text-mut2 mt-1">🔒 Locked — this transaction is split with friends</div>}
+      </Field>
+      <div className="flex gap-2.5 flex-wrap">
+        {detail.type === "TRANSFER" ? (
+          <>
+            <Field label="FROM">
+              <div className="field flex items-center !bg-accsoft !text-mut2 !cursor-not-allowed">{detail.accountName ?? "—"}</div>
+            </Field>
+            <Field label="TO">
+              <div className="field flex items-center !bg-accsoft !text-mut2 !cursor-not-allowed">{detail.toAccountName ?? "—"}</div>
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="ACCOUNT">
+              <div className="field flex items-center !bg-accsoft !text-mut2 !cursor-not-allowed">
+                {detail.paidByParticipantId ? "Paid by a friend" : (detail.accountName ?? "Unassigned")}
+              </div>
+            </Field>
+            <Field label="CATEGORY">
+              <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                <option value="">Uncategorized</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.icon} {c.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </>
+        )}
+      </div>
+      {detail.type !== "TRANSFER" && (
+        <Field label={detail.type === "INCOME" ? "DESCRIPTION" : "MERCHANT"}>
+          <input
+            className="field"
+            value={merchant}
+            onChange={(e) => setMerchant(e.target.value)}
+            placeholder={detail.type === "INCOME" ? "e.g. Salary · Acme Corp" : "e.g. Swiggy"}
+          />
+        </Field>
+      )}
+      <Field label="DATE">
+        <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </Field>
+      <Field label="NOTES">
+        <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+      </Field>
+      <div className="text-[11.5px] text-mut2 bg-accsoft rounded-lg px-3 py-2">
+        🔒 Account is locked — only {detail.ownerName ?? "the owner"} can change which account this uses.
+      </div>
+      <ErrorNote error={error} />
+      <div className="flex gap-2.5">
+        <button
+          onClick={onCancel}
+          className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft"
+        >
+          Cancel
+        </button>
+        <div className="flex-[2]">
+          <SubmitButton busy={busy} onClick={() => run(save, "Transaction updated")}>
+            Save changes
+          </SubmitButton>
+        </div>
+      </div>
     </div>
   );
 }

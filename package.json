@@ -22,7 +22,7 @@
     "e2e:large-import": "node scripts/e2e-large-import.mjs",
     "e2e:perf": "node scripts/e2e-perf.mjs",
     "e2e:offline": "tsx scripts/offline-p0-replay.ts && node scripts/e2e-offline.mjs && node scripts/e2e-offline-p2.mjs && tsx scripts/e2e-offline-p2-softheal.ts && tsx scripts/e2e-offline-p3.ts",
-    "e2e:collab": "tsx scripts/e2e-collab-foundation.ts",
+    "e2e:collab": "tsx scripts/e2e-collab-foundation.ts && tsx scripts/e2e-collab-ui.ts",
     "e2e:all": "npm run db:seed && npm run e2e && npm run e2e:tx-detail && npm run e2e:mobile-nav && npm run e2e:analytics && npm run e2e:dashboard && npm run e2e:activity && npm run e2e:import && npm run e2e:monito && npm run e2e:large-import && npm run e2e:perf && npm run e2e:offline && npm run e2e:collab"
   },
   "prisma": {
