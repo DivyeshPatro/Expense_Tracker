@@ -233,39 +233,54 @@ export function TransactionsList({
 }
 
 /** Local echo (offline-sync spec §6/§7): creates that haven't reached the
- * server yet, rendered from this device's outbox with the ⏳ badge. They
- * disappear when the drain lands and router.refresh() brings the real rows. */
+ * server yet, rendered from this device's outbox with the ⏳/⚠ badge. Tapping
+ * a row opens the outbox-sourced detail sheet (edit coalesces, remove
+ * cancels — spec §11). Rows disappear when the drain lands and
+ * router.refresh() brings the real row in. Needs-attention pinned first,
+ * matching actual sync order (spec §11 "what happens next"). */
 function PendingRows() {
-  const { pending } = useOffline();
-  const { refData } = useUI();
-  if (pending.length === 0) return null;
+  const { pending, needsAttention } = useOffline();
+  const { refData, openModal } = useUI();
+  const rows = [...needsAttention, ...pending];
+  if (rows.length === 0) return null;
 
   const accountName = (id: unknown) => refData.accounts.find((a) => a.id === id)?.name ?? "account";
   return (
     <div>
       <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mx-0.5 mt-1 mb-2 uppercase">Waiting to sync</div>
       <div className="card px-4 py-1.5">
-        {pending.map((i) => {
+        {rows.map((i) => {
           const p = i.payload as { amount?: string; merchant?: string; fromAccountId?: string; toAccountId?: string };
           const paise = Math.round((Number(p.amount) || 0) * 100);
           const isTransfer = i.kind === "transfer.create";
+          const attention = i.status === "needs-attention";
           const name = isTransfer
             ? `${accountName(p.fromAccountId)} → ${accountName(p.toAccountId)}`
             : p.merchant || (i.kind === "income.create" ? "Income" : "Expense");
           const amtF = `${i.kind === "income.create" ? "+" : i.kind === "expense.create" ? "−" : ""}${formatPaise(paise)}`;
           return (
-            <div key={i.intentId} className="w-full flex items-center gap-3 py-[11px] border-b border-line last:border-b-0 min-h-[44px]">
-              <div className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none bg-accsoft" aria-hidden="true">
-                ⏳
+            <button
+              key={i.intentId}
+              onClick={() => openModal("pendingDetail", { intentId: i.intentId })}
+              aria-label={`${name}, ${attention ? "needs attention" : "waiting to sync"}, ${amtF}`}
+              className="w-full flex items-center gap-3 py-[11px] border-b border-line last:border-b-0 bg-transparent border-x-0 border-t-0 cursor-pointer text-left min-h-[44px]"
+              style={attention ? { borderLeft: "2px solid var(--red)", paddingLeft: 10, marginLeft: -12 } : undefined}
+            >
+              <div
+                className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none"
+                style={{ background: attention ? "var(--redSoft)" : "var(--accSoft)" }}
+                aria-hidden="true"
+              >
+                {attention ? "⚠" : "⏳"}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold truncate">{name}</div>
-                <div className="text-[11.5px] text-mut2 truncate">
-                  {typeof navigator !== "undefined" && !navigator.onLine ? "Waiting for internet" : "Waiting to sync"}
+                <div className="text-[11.5px] truncate" style={{ color: attention ? "var(--red)" : "var(--mut2)" }}>
+                  {attention ? "Needs your attention" : typeof navigator !== "undefined" && !navigator.onLine ? "Waiting for internet" : "Waiting to sync"}
                 </div>
               </div>
               <div className="text-[13px] font-bold flex-none text-mut">{amtF}</div>
-            </div>
+            </button>
           );
         })}
       </div>

@@ -10,7 +10,8 @@ import { authClient } from "@/lib/auth-client";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
 import { CommandPalette } from "./palette";
 import { Modals } from "./modals";
-import { OfflineProvider } from "./offline-context";
+import { OfflineDebug } from "./offline-debug";
+import { OfflineProvider, useOffline } from "./offline-context";
 import { NotificationBell } from "./notifications";
 import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type RefData } from "./ui-context";
@@ -139,6 +140,7 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
       <Modals />
       <CommandPalette />
       <Toast />
+      <OfflineDebug />
     </div>
   );
 }
@@ -258,6 +260,11 @@ function BottomNav({ badge }: { badge: number }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const params = useSearchParams().toString();
+  const { needsAttention } = useOffline();
+  // needs-attention rides the same red-dot convention as the shared-balance
+  // badge (spec §7: bottom nav shows nothing for routine pending, but the
+  // existing More red-dot for needs-attention)
+  const showDot = badge > 0 || needsAttention.length > 0;
   const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity"].some((h) => pathname.startsWith(h));
   return (
     <>
@@ -303,7 +310,7 @@ function BottomNav({ badge }: { badge: number }) {
         <button onClick={() => setMoreOpen(true)} className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border bg-transparent border-none cursor-pointer relative">
           <span className="text-[17px]" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>⋯</span>
           <span className="text-[10px] font-semibold" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>More</span>
-          {badge > 0 && <span className="absolute top-1 right-[26%] w-2 h-2 rounded-full bg-red" />}
+          {showDot && <span className="absolute top-1 right-[26%] w-2 h-2 rounded-full bg-red" />}
         </button>
       </nav>
       {quickAddOpen && <QuickAddSheet close={() => setQuickAddOpen(false)} />}
@@ -356,6 +363,7 @@ function QuickAddSheet({ close }: { close: () => void }) {
 
 function MoreSheet({ close, params, badge }: { close: () => void; params: string; badge: number }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const { pending, needsAttention } = useOffline();
   useEscapeToClose(close);
   useEffect(() => panelRef.current?.focus(), []);
   const items = [
@@ -366,6 +374,13 @@ function MoreSheet({ close, params, badge }: { close: () => void; params: string
     { href: "/bills", icon: "▦", label: "Bills" },
     { href: "/settings", icon: "⚙", label: "Settings" },
   ];
+  // spec §7 "More sheet / Settings row" — same three-state copy as the Sync Center hero
+  const syncLabel =
+    needsAttention.length > 0
+      ? `Sync — ${needsAttention.length} need${needsAttention.length === 1 ? "s" : ""} attention`
+      : pending.length > 0
+        ? `Sync — ${pending.length} waiting`
+        : "Sync — Up to date ✓";
   return (
     <div onClick={close} className="fixed inset-0 z-[55] flex items-end" style={{ background: "var(--ov)" }}>
       <div
@@ -396,6 +411,19 @@ function MoreSheet({ close, params, badge }: { close: () => void; params: string
             )}
           </Link>
         ))}
+        <Link
+          href="/settings/sync"
+          onClick={() => {
+            close();
+            armStuckNavFallback("/settings/sync");
+          }}
+          className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline hover:bg-accsoft"
+          style={{ color: needsAttention.length > 0 ? "var(--red)" : "var(--ink)" }}
+        >
+          <span className="w-5 text-center">⟲</span>
+          <span className="flex-1">{syncLabel}</span>
+          {needsAttention.length > 0 && <span className="w-2 h-2 rounded-full bg-red" />}
+        </Link>
         <ThemeRow close={close} />
       </div>
     </div>

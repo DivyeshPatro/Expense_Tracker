@@ -16,6 +16,7 @@ import {
 import { todayYMD } from "@/lib/dates";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { useOffline } from "./offline-context";
+import { PendingDetailSheet } from "./pending-detail";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
 import { TransactionDetailSheet } from "./transaction-detail";
 import { useUI, type ModalPrefill } from "./ui-context";
@@ -31,6 +32,7 @@ const TITLES: Record<string, string> = {
   friend: "Add friend",
   group: "New group",
   txDetail: "Transaction",
+  pendingDetail: "Transaction",
 };
 
 export function Modals() {
@@ -59,6 +61,7 @@ export function Modals() {
         {modal.type === "friend" && <FriendForm />}
         {modal.type === "group" && <GroupForm />}
         {modal.type === "txDetail" && modal.prefill?.transactionId && <TransactionDetailSheet transactionId={modal.prefill.transactionId} />}
+        {modal.type === "pendingDetail" && modal.prefill?.intentId && <PendingDetailSheet intentId={modal.prefill.intentId} />}
       </div>
     </div>
   );
@@ -150,7 +153,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
               }
               return createViaOutbox("expense.create", payload);
             },
-            (r) => (r.queued ? "Saved — will sync when you're back online" : split ? "Split expense added" : "Expense added")
+            split ? "Split expense added" : "Expense added"
           )
         }
       >
@@ -209,7 +212,7 @@ function IncomeForm() {
         onClick={() =>
           run(
             () => createViaOutbox("income.create", { amount, accountId, categoryId: categoryId || null, merchant, date }),
-            (r) => (r.queued ? "Saved — will sync when you're back online" : "Income added")
+            "Income added"
           )
         }
       >
@@ -259,7 +262,7 @@ function TransferForm() {
         onClick={() =>
           run(
             () => createViaOutbox("transfer.create", { amount, fromAccountId: from, toAccountId: to, date }),
-            (r) => (r.queued ? "Saved — will sync when you're back online" : "Transfer recorded")
+            "Transfer recorded"
           )
         }
       >

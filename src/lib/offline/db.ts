@@ -1,13 +1,16 @@
 // Offline-sync client store (offline-sync-spec §4.1). Hand-rolled promise
 // wrapper over IndexedDB (no dependency, per the spec's budget): an `outbox`
-// store for intents and a `meta` store for device identity. Phase 1 turned
-// the outbox on: solo creates queue when the network is gone and drain
-// automatically (see offline-context.tsx for the ladder).
+// store for intents, a `syncLog` ring buffer for the Sync Center activity
+// feed, and a `meta` store for device identity. Phase 1 turned the outbox
+// on: solo creates queue when the network is gone and drain automatically
+// (see offline-context.tsx for the ladder). Phase 2 made write-behind
+// universal and added the syncLog.
 
 export const OUTBOX_ENABLED = true; // Phase 1 (offline-sync-spec §17)
 
 const DB_NAME = "ledgerly";
-const DB_VERSION = 1; // bump + migrate in onupgradeneeded when stores change (spec §4.1 "schemaVersion")
+const DB_VERSION = 2; // bump + migrate in onupgradeneeded when stores change (spec §4.1 "schemaVersion")
+const SYNC_LOG_CAP = 200; // spec §4.1 "ring buffer, max 200 entries"
 
 export interface OutboxIntent {
   intentId: string; // uuid v4 — server idempotency key
@@ -23,12 +26,24 @@ export interface OutboxIntent {
   attempts: number;
   nextRetryAt?: string;
   lastError?: string;
+  lastErrorCode?: string; // taxonomy code from /api/sync (spec §5) — drives copy + retry-eligibility
 }
 
 interface MetaRecord {
   key: string;
   value: string;
 }
+
+/** One entry in the Sync Center activity feed (spec §4.1, §8). Local-only, never synced. */
+export interface SyncLogEntry {
+  id?: number; // autoincrement
+  ts: number; // epoch ms
+  label: string; // "₹420 · Swiggy"
+  status: "synced" | "healed" | "needs-attention" | "offline" | "cancelled";
+  detail?: string;
+}
+
+type StoreName = "outbox" | "meta" | "syncLog";
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -47,6 +62,10 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "key" });
       }
+      if (!db.objectStoreNames.contains("syncLog")) {
+        const log = db.createObjectStore("syncLog", { keyPath: "id", autoIncrement: true });
+        log.createIndex("byTs", "ts", { unique: false });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -60,7 +79,7 @@ function requestToPromise<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
-async function withStore<T>(store: "outbox" | "meta", mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function withStore<T>(store: StoreName, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await openDb();
   try {
     return await requestToPromise(fn(db.transaction(store, mode).objectStore(store)));
@@ -86,8 +105,17 @@ export async function ensureDeviceId(): Promise<string> {
   const id = crypto.randomUUID();
   await metaSet("deviceId", id);
   await metaSet("deviceName", defaultDeviceName());
+  await metaSet("deviceAddedAt", new Date().toISOString());
   await metaSet("schemaVersion", String(DB_VERSION));
   return id;
+}
+
+export async function getDeviceName(): Promise<string | undefined> {
+  return metaGet("deviceName");
+}
+
+export async function getDeviceAddedAt(): Promise<string | undefined> {
+  return metaGet("deviceAddedAt");
 }
 
 function defaultDeviceName(): string {
@@ -151,4 +179,43 @@ export function pendingDeltaPaise(intent: Pick<OutboxIntent, "kind" | "payload">
 
 export function pendingTotalDelta(intents: Pick<OutboxIntent, "kind" | "payload">[]): number {
   return intents.reduce((sum, i) => sum + pendingDeltaPaise(i), 0);
+}
+
+// ─────────── syncLog: Sync Center activity feed (spec §4.1, §8) ───────────
+
+export async function syncLogAppend(entry: Omit<SyncLogEntry, "id">): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("syncLog", "readwrite");
+      const store = tx.objectStore("syncLog");
+      store.add(entry);
+      // ring buffer: trim oldest once over cap, in the same transaction
+      const countReq = store.count();
+      countReq.onsuccess = () => {
+        const over = countReq.result - SYNC_LOG_CAP;
+        if (over > 0) {
+          const cursorReq = store.index("byTs").openCursor();
+          let deleted = 0;
+          cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result;
+            if (cursor && deleted < over) {
+              cursor.delete();
+              deleted++;
+              cursor.continue();
+            }
+          };
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function syncLogList(limit = SYNC_LOG_CAP): Promise<SyncLogEntry[]> {
+  const all = await withStore<SyncLogEntry[]>("syncLog", "readonly", (s) => s.getAll() as IDBRequest<SyncLogEntry[]>);
+  return all.sort((a, b) => b.ts - a.ts).slice(0, limit);
 }

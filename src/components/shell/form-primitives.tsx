@@ -5,7 +5,7 @@
 // reuse never grows into coupling.
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ActionResult } from "@/app/actions";
 import { useUI } from "./ui-context";
 
@@ -14,13 +14,22 @@ export function useSubmit() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // a ref, not just `busy` state: two clicks landing in the same tick both
+  // fire before React commits the disabled attribute, so the DOM-level
+  // guard alone can't stop a true double-tap from submitting twice — this
+  // check is synchronous and closes that gap (offline-sync spec §17 Phase 2
+  // exit criterion: "double-tap submit produces one intent")
+  const inFlight = useRef(false);
   async function run(
     action: () => Promise<ActionResult & { queued?: boolean }>,
     successMsg: string | ((res: ActionResult & { queued?: boolean }) => string)
   ) {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     const res = await action();
+    inFlight.current = false;
     setBusy(false);
     if (!res.ok) {
       setError(res.error);

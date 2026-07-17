@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 
-export type ModalType = "exp" | "inc" | "tr" | "settle" | "budget" | "account" | "bill" | "friend" | "group" | "txDetail";
+export type ModalType = "exp" | "inc" | "tr" | "settle" | "budget" | "account" | "bill" | "friend" | "group" | "txDetail" | "pendingDetail";
 
 export interface ModalPrefill {
   split?: boolean;
@@ -11,6 +11,7 @@ export interface ModalPrefill {
   direction?: "TO_OWNER" | "FROM_OWNER";
   amountRupees?: string;
   transactionId?: string;
+  intentId?: string;
 }
 
 export interface RefData {

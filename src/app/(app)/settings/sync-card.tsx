@@ -1,9 +1,10 @@
 "use client";
 
-// Offline-sync Phase 1 (spec §17): the minimal sync surface — status, last
-// sync, pending count, manual Sync now. The full Sync Center (activity feed,
-// queue view, device info) is Phase 2; this card grows into its entry point.
+// Offline-sync: status, last sync, pending count, manual Sync now — now the
+// entry point into the full Sync Center (activity feed, queue view, device
+// info) at /settings/sync (spec §17 Phase 2).
 
+import Link from "next/link";
 import { useState } from "react";
 import { useOffline } from "@/components/shell/offline-context";
 
@@ -55,6 +56,7 @@ export function SyncCard() {
       <div className="text-[11.5px] text-mut2">
         Changes you make offline are saved on this device and sync automatically when you’re back online.
       </div>
+      <Link href="/settings/sync" className="text-[12px] font-semibold text-acc no-underline self-start">Sync Center →</Link>
     </section>
   );
 }

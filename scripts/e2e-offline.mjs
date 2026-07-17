@@ -109,7 +109,10 @@ try {
   // offline create on the OPEN dashboard: footnote + inclusive balance, no navigation
   await context.setOffline(true);
   await addExpenseViaModal("P1Offline", 222);
-  await page.waitForSelector("text=Saved — will sync when you're back online");
+  // Phase 2: universal write-behind means every create shows the normal
+  // success toast immediately (online or not) — the ⏳ row badge is the sole
+  // ambient pending signal now (spec §17 Phase 2 toast-copy simplification)
+  await page.waitForSelector("text=Expense added");
   await page.waitForSelector("text=/includes 1 unsynced change/");
   const offlineHero = await heroPaise();
   ok("offline create: hero balance includes the pending amount immediately", offlineHero === afterControl - 22200, `${afterControl} -> ${offlineHero}`);
@@ -137,7 +140,7 @@ try {
   await page.waitForSelector('input[placeholder^="Search"]');
   await context.setOffline(true);
   await addExpenseViaModal("P1EchoRow", 55);
-  await page.waitForSelector("text=Saved — will sync when you're back online");
+  await page.waitForSelector("text=Expense added");
   await page.waitForSelector("text=Waiting to sync");
   const echo = await page.evaluate(() => document.body.innerText);
   ok("offline create shows a ⏳ local-echo row on the open list", echo.includes("P1EchoRow") && echo.includes("Waiting for internet"));
@@ -165,7 +168,7 @@ try {
 
   // killed-app recovery: queue an intent, destroy the page, reopen → drains on mount
   await addExpenseViaModal("P1Killed", 333);
-  await page.waitForSelector("text=Saved — will sync when you're back online");
+  await page.waitForSelector("text=Expense added");
   await page.close(); // app "killed" with the intent still queued in IndexedDB
   await context.setOffline(false);
   const page2 = await context.newPage();
@@ -174,9 +177,19 @@ try {
   await page2.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
   await page2.waitForSelector("text=P1Killed", { timeout: 20000 });
   // the row appears instantly as a local echo (read from IndexedDB on mount);
-  // the drain into a real server row races with that — wait it out
+  // the drain into a real server row races with that. Phase 2's batch drain
+  // calls a Route Handler (fetch), not a Server Action, so it no longer gets
+  // Next's automatic RSC-payload merge — router.refresh() is now a second,
+  // separate round trip after the outbox empties, so the echo can briefly
+  // disappear before the real row paints. Poll rather than assume they land
+  // in the same tick.
   await page2.waitForSelector("text=Waiting to sync", { state: "detached", timeout: 15000 }).catch(() => {});
-  const killedBody = await page2.evaluate(() => document.body.innerText);
+  let killedBody = "";
+  for (let i = 0; i < 10; i++) {
+    killedBody = await page2.evaluate(() => document.body.innerText);
+    if (killedBody.includes("P1Killed") && !killedBody.includes("Waiting to sync")) break;
+    await page2.waitForTimeout(500);
+  }
   ok("a queue left by a killed app survives and drains on reopen", killedBody.includes("P1Killed") && !killedBody.includes("Waiting to sync"));
 
   // Settings sync card: live counts while offline on the open page, Sync now
