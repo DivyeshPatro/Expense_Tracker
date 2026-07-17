@@ -275,6 +275,11 @@ async function main() {
     await bobPage.waitForSelector("text=Delete this transaction?");
     await bobPage.getByRole("button", { name: "Delete", exact: true }).click();
     await bobPage.waitForSelector("text=Transaction deleted", { timeout: 8000 });
+    // migration step 5: this delete now queues through the same outbox as
+    // every other collaborative write — the toast fires on the (near-instant)
+    // local enqueue, not the server drain, so give the background drain a
+    // moment before asserting server state
+    await bobPage.waitForTimeout(1200);
     const afterAdminDelete = await prisma.transaction.findUniqueOrThrow({ where: { id: rentTx.id } });
     ok("an ADMIN can delete a transaction created by a different member, through the real UI", afterAdminDelete.deletedAt !== null);
 
@@ -291,6 +296,7 @@ async function main() {
     await alicePage.waitForSelector("text=Delete this transaction?");
     await alicePage.getByRole("button", { name: "Delete", exact: true }).click();
     await alicePage.waitForSelector("text=Transaction deleted", { timeout: 8000 });
+    await alicePage.waitForTimeout(1200); // migration step 5: queued through the outbox — see the ADMIN check above
     const afterOwnerDelete = await prisma.transaction.findUniqueOrThrow({ where: { id: bobTx.id } });
     ok("the group OWNER can delete a transaction created by a different member, through the real UI", afterOwnerDelete.deletedAt !== null);
     void ownerOnBobsTx;

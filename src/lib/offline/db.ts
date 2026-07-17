@@ -12,6 +12,20 @@ const DB_NAME = "ledgerly";
 const DB_VERSION = 2; // bump + migrate in onupgradeneeded when stores change (spec §4.1 "schemaVersion")
 const SYNC_LOG_CAP = 200; // spec §4.1 "ring buffer, max 200 entries"
 
+/** collaboration-architecture-rfc §7: mirrors the server's ConflictSnapshot —
+ * kept as a plain duplicate type (not imported from server code) since this
+ * file runs in the browser. */
+export interface ConflictSnapshot {
+  serverVersion: number;
+  serverActorName: string;
+  serverUpdatedAt: string;
+  amount: number;
+  merchant: string;
+  categoryName: string | null;
+  ymd: string;
+  notes: string | null;
+}
+
 export interface OutboxIntent {
   intentId: string; // uuid v4 — server idempotency key
   seq?: number; // autoincrement, FIFO order
@@ -29,6 +43,9 @@ export interface OutboxIntent {
   firstFailedAt?: string; // Phase 3: poison-pill parking clock — set on the first RETRYABLE failure, distinct from clientTs (which moves on every coalesced edit)
   lastError?: string;
   lastErrorCode?: string; // taxonomy code from /api/sync (spec §5) — drives copy + retry-eligibility
+  // collaboration-architecture-rfc migration step 5 — collaborative edits only:
+  conflict?: ConflictSnapshot; // set when lastErrorCode === "CONFLICT" (§7) — drives the conflict card
+  groupName?: string; // remembered at enqueue time (§8) — the transaction's server-side groupId may already be null (orphaned/removed) by the time a NOT_AUTHORIZED/GROUP_DELETED failure needs to explain why, so this can't be re-read from the entity at parking time
 }
 
 interface MetaRecord {

@@ -35,6 +35,7 @@ import {
   setLastSyncAt,
   syncLogAppend,
   OUTBOX_ENABLED,
+  type ConflictSnapshot,
   type OutboxIntent,
 } from "@/lib/offline/db";
 import { expenseSchema, incomeSchema, transferSchema } from "@/validators";
@@ -81,6 +82,16 @@ const VALIDATORS: Partial<Record<OutboxKind, (payload: unknown) => string | null
   "transfer.update": transferValidator,
 };
 
+// collaboration-architecture-rfc §7/§8: these three codes carry no server
+// `error` string (their copy is dynamic — built client-side from the
+// intent's own remembered payload/groupName, see FAILURE_COPY's neighbors in
+// transaction-detail.tsx) — this is just the syncLog's one-line fallback.
+const SYNC_LOG_DETAIL: Partial<Record<SyncApiResult["code"], string>> = {
+  CONFLICT: "someone else changed this — needs your review",
+  NOT_AUTHORIZED: "you're no longer part of that group",
+  GROUP_DELETED: "the group was deleted",
+};
+
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 5 * 60_000;
 const POISON_PILL_MS = 24 * 60 * 60 * 1000; // spec §5: RETRYABLE intents park as needs-attention after 24h...
@@ -98,9 +109,19 @@ export function intentLabel(intent: Pick<OutboxIntent, "kind" | "payload">): str
 
 interface SyncApiResult {
   intentId: string;
-  code: "OK" | "OK_OVERRIDE" | "VALIDATION" | "INVALID_REF_SOFT" | "INVALID_REF_HARD" | "STALE_INTENT";
+  code:
+    | "OK"
+    | "OK_OVERRIDE"
+    | "VALIDATION"
+    | "INVALID_REF_SOFT"
+    | "INVALID_REF_HARD"
+    | "STALE_INTENT"
+    | "CONFLICT"
+    | "NOT_AUTHORIZED"
+    | "GROUP_DELETED";
   error?: string;
   overriddenByDevice?: string;
+  conflict?: ConflictSnapshot;
 }
 
 interface OfflineState {
@@ -113,13 +134,17 @@ interface OfflineState {
     kind: MutationKind,
     entityId: string,
     payload: Record<string, unknown>,
-    baseVersion: number
+    baseVersion: number,
+    groupName?: string
   ) => Promise<ActionResult & { queued?: boolean; intentId?: string }>;
   syncNow: () => Promise<void>;
   editPending: (intentId: string, payload: Record<string, unknown>) => Promise<ActionResult>;
   cancelPending: (intentId: string) => Promise<OutboxIntent | null>;
   restorePending: (intent: OutboxIntent) => Promise<void>;
   retryFailed: () => Promise<void>;
+  // collaboration-architecture-rfc §7: conflict card actions
+  resolveConflictKeepMine: (intentId: string) => Promise<void>;
+  resolveConflictKeepTheirs: (intentId: string) => Promise<void>;
 }
 
 const Ctx = createContext<OfflineState>({
@@ -134,6 +159,8 @@ const Ctx = createContext<OfflineState>({
   cancelPending: async () => null,
   restorePending: async () => {},
   retryFailed: async () => {},
+  resolveConflictKeepMine: async () => {},
+  resolveConflictKeepTheirs: async () => {},
 });
 
 export const useOffline = () => useContext(Ctx);
@@ -249,8 +276,15 @@ export function OfflineProvider({ userId, children }: { userId: string; children
               await syncLogAppend({ ts: Date.now(), label: intentLabel(intent), status, detail }).catch(() => {});
               applied++;
             } else {
-              await outboxPut({ ...intent, status: "needs-attention", lastError: result.error, lastErrorCode: result.code });
-              await syncLogAppend({ ts: Date.now(), label: intentLabel(intent), status: "needs-attention", detail: result.error }).catch(() => {});
+              await outboxPut({
+                ...intent,
+                status: "needs-attention",
+                lastError: result.error,
+                lastErrorCode: result.code,
+                conflict: result.conflict,
+              });
+              const detail = result.error ?? SYNC_LOG_DETAIL[result.code];
+              await syncLogAppend({ ts: Date.now(), label: intentLabel(intent), status: "needs-attention", detail }).catch(() => {});
             }
           }
         }
@@ -310,7 +344,8 @@ export function OfflineProvider({ userId, children }: { userId: string; children
       kind: MutationKind,
       entityId: string,
       payload: Record<string, unknown>,
-      baseVersion: number
+      baseVersion: number,
+      groupName?: string
     ): Promise<ActionResult & { queued?: boolean; intentId?: string }> => {
       if (kind !== "tx.delete") {
         const validationError = VALIDATORS[kind]?.(payload);
@@ -329,6 +364,7 @@ export function OfflineProvider({ userId, children }: { userId: string; children
             kind,
             payload,
             baseVersion: existing.baseVersion ?? baseVersion, // keep the ORIGINAL reference version — that's still what this device last actually saw
+            groupName: groupName ?? existing.groupName,
             clientTs: new Date().toISOString(),
             status: "pending",
             attempts: 0,
@@ -336,6 +372,7 @@ export function OfflineProvider({ userId, children }: { userId: string; children
             firstFailedAt: undefined,
             lastError: undefined,
             lastErrorCode: undefined,
+            conflict: undefined,
           }
         : {
             intentId: crypto.randomUUID(),
@@ -343,6 +380,7 @@ export function OfflineProvider({ userId, children }: { userId: string; children
             userId,
             deviceId,
             deviceName,
+            groupName,
             kind,
             payload,
             entityId,
@@ -427,6 +465,50 @@ export function OfflineProvider({ userId, children }: { userId: string; children
     await drain();
   }, [drain]);
 
+  // collaboration-architecture-rfc §7: [Keep mine] requeues the SAME intent
+  // against the server's current version (as of the conflict) — no new
+  // server-side apply logic needed (§7's own framing): if nothing else has
+  // changed by the time this drains, baseVersion now equals the server's
+  // version and it just applies like any other clean update. If a THIRD
+  // edit landed in the interim, the client correctly sees another conflict
+  // rather than silently clobbering it — this is a real, human-confirmed
+  // decision each time, not a blind retry loop.
+  const resolveConflictKeepMine = useCallback(
+    async (intentId: string): Promise<void> => {
+      const list = await outboxList(userId);
+      const existing = list.find((i) => i.intentId === intentId);
+      if (!existing?.conflict) return;
+      await outboxPut({
+        ...existing,
+        baseVersion: existing.conflict.serverVersion,
+        status: "pending",
+        attempts: 0,
+        nextRetryAt: undefined,
+        firstFailedAt: undefined,
+        lastError: undefined,
+        lastErrorCode: undefined,
+        conflict: undefined,
+      });
+      await reload();
+      void drain();
+    },
+    [userId, reload, drain]
+  );
+
+  // [Keep theirs]: discard the pending intent locally — the server's current
+  // state already reflects "theirs," so no server call is needed (§7).
+  const resolveConflictKeepTheirs = useCallback(
+    async (intentId: string): Promise<void> => {
+      const list = await outboxList(userId);
+      const existing = list.find((i) => i.intentId === intentId);
+      if (!existing) return;
+      await outboxRemove(intentId);
+      await syncLogAppend({ ts: Date.now(), label: intentLabel(existing), status: "cancelled", detail: "kept the other person's edit" }).catch(() => {});
+      await reload();
+    },
+    [userId, reload]
+  );
+
   useEffect(() => {
     if (!OUTBOX_ENABLED) return;
     void reload();
@@ -470,6 +552,8 @@ export function OfflineProvider({ userId, children }: { userId: string; children
         cancelPending,
         restorePending,
         retryFailed,
+        resolveConflictKeepMine,
+        resolveConflictKeepTheirs,
       }}
     >
       {children}

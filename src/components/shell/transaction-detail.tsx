@@ -19,56 +19,44 @@
 // actions when this transaction has a queued (not-yet-synced) edit or delete.
 // Split expenses stay online-required (Phase 1/2's exact same restriction —
 // they touch other participants' balances, out of "solo" scope).
+//
+// Migration step 5 (collaboration-architecture-rfc.md §6/§7/§8): a
+// collaborative (cross-person) edit/delete now ALSO flows through this same
+// outbox — the "online-required, direct call" restriction step 4 deliberately
+// used as a stopgap is gone now that checkOverride is actor-aware (server
+// distinguishes "same person, different device" from "different authorized
+// member") and can safely produce CONFLICT instead of blindly overwriting a
+// real second writer. NOT_AUTHORIZED/GROUP_DELETED/CONFLICT are handled
+// BEFORE the loading/"no longer exists" checks below, because a removed
+// member can no longer even READ the row (assertCanRead fails the same way
+// for them) — the only thing left to show them is their own queued intent's
+// remembered data, never a fresh server read.
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import {
-  deleteTransactionAction,
   entityHistoryAction,
   getTransactionDetailAction,
   listGroupCategoriesAction,
   undoDeleteAction,
   updateExpenseAction,
-  updateIncomeAction,
-  updateTransferAction,
 } from "@/app/actions";
 import { formatDiffRow, type TimelineEvent } from "@/lib/activity";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
-import type { ActionResult } from "@/app/actions";
 import type { TransactionDetail } from "@/server/services/transactions";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
-import { useOffline } from "./offline-context";
+import { intentLabel, useOffline, type MutationKind } from "./offline-context";
 import { FAILURE_COPY } from "./pending-detail";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
 import { useUI } from "./ui-context";
+import type { OutboxIntent } from "@/lib/offline/db";
 
 const cleanCopy = (msg: string) => msg.charAt(0).toUpperCase() + msg.slice(1);
 
-const OFFLINE_COLLAB_ERROR = "This needs an internet connection right now — try again when you're back online.";
-
-/** Migration step 4 (collaboration-architecture-rfc.md, "Explicitly Out of
- * Scope"): a non-owner's write is a genuine cross-person collaborative edit,
- * which the offline outbox can't yet resolve safely (checkOverride's
- * actor-aware LWW/CONFLICT split is step 5, deliberately not built here) —
- * so it goes straight to the server, online-required, exactly like the
- * existing split-expense-needs-internet path already does. The owner's own
- * edits (even on a group transaction) stay on the existing outbox — that's
- * still just one person's own multi-device story, which Phase 3 already
- * handles correctly. */
-async function ownerQueuedOrCollaborativeDirect(
-  isOwner: boolean,
-  enqueue: () => Promise<ActionResult & { queued?: boolean; intentId?: string }>,
-  direct: () => Promise<ActionResult>
-): Promise<ActionResult & { queued?: boolean; intentId?: string }> {
-  if (isOwner) return enqueue();
-  if (typeof navigator !== "undefined" && !navigator.onLine) return { ok: false, error: OFFLINE_COLLAB_ERROR };
-  return direct();
-}
-
 export function TransactionDetailSheet({ transactionId }: { transactionId: string }) {
-  const { refData, closeModal, showToast } = useUI();
+  const { closeModal, showToast } = useUI();
   const { pending, needsAttention, enqueueMutation, cancelPending, restorePending } = useOffline();
   const router = useRouter();
   // undefined = still loading, null = fetched but gone (e.g. deleted elsewhere)
@@ -94,19 +82,27 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
   const queuedIsDelete = queued?.kind === "tx.delete";
   const attention = queued?.status === "needs-attention";
 
+  // these three read ONLY from the queued intent's own remembered data —
+  // never from `detail`, which a removed member can no longer fetch at all
+  if (attention && queued.lastErrorCode === "CONFLICT" && queued.conflict) {
+    return <ConflictCard queued={queued} />;
+  }
+  if (attention && queued.lastErrorCode === "NOT_AUTHORIZED") {
+    return <NotAuthorizedCard queued={queued} />;
+  }
+  if (attention && queued.lastErrorCode === "GROUP_DELETED") {
+    return <GroupDeletedCard queued={queued} />;
+  }
+
   async function handleDelete() {
     if (!detail) return;
     setDeleteBusy(true);
-    const res = await ownerQueuedOrCollaborativeDirect(
-      detail.isOwner,
-      () =>
-        enqueueMutation(
-          "tx.delete",
-          transactionId,
-          { merchant: detail.merchant, amount: String(detail.amount / 100) },
-          detail.version
-        ),
-      () => deleteTransactionAction({ id: transactionId })
+    const res = await enqueueMutation(
+      "tx.delete",
+      transactionId,
+      { merchant: detail.merchant, amount: String(detail.amount / 100) },
+      detail.version,
+      detail.groupName ?? undefined
     );
     setDeleteBusy(false);
     if (!res.ok) {
@@ -114,7 +110,6 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
       return;
     }
     closeModal();
-    if (!detail.isOwner) router.refresh(); // a direct delete needs the usual refresh; the outbox path refreshes itself on drain
     const intentId = res.intentId;
     showToast("Transaction deleted", async () => {
       // still sitting in the outbox (the common case — drains take well under
@@ -342,6 +337,175 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
   );
 }
 
+// ─────────── Conflict / removed-member / group-deleted recovery (rfc §7/§8) ───────────
+
+/** All three cards below read ONLY from the queued OutboxIntent's own
+ * remembered payload/groupName — never `detail` (a fresh server read), since
+ * a removed member's assertCanRead fails identically to a non-owner reading
+ * a nonexistent row, and a CONFLICT still shouldn't assume `detail` resolved
+ * before the drain that produced the conflict. */
+
+function recoveryHeader(queued: OutboxIntent) {
+  const isDelete = queued.kind === "tx.delete";
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-11 h-11 rounded-xl grid place-items-center text-lg flex-none bg-redsoft" aria-hidden="true">
+        {isDelete ? "🗑" : "⚠"}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[15px] font-bold truncate">{intentLabel(queued)}</div>
+        {isDelete && <div className="text-[12px] text-mut2">Delete</div>}
+      </div>
+    </div>
+  );
+}
+
+function NotAuthorizedCard({ queued }: { queued: OutboxIntent }) {
+  const { closeModal, showToast } = useUI();
+  const { cancelPending } = useOffline();
+  const [busy, setBusy] = useState(false);
+  const group = queued.groupName ?? "that group";
+
+  async function handleDiscard() {
+    setBusy(true);
+    await cancelPending(queued.intentId);
+    setBusy(false);
+    closeModal();
+    showToast("Discarded");
+  }
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {recoveryHeader(queued)}
+      <div className="text-[13px] font-semibold rounded-[10px] px-3.5 py-3 bg-redsoft text-red">
+        You're no longer part of <strong>{group}</strong>, so <strong>{intentLabel(queued)}</strong> couldn't be saved.
+      </div>
+      {/* rfc §8: "no guided fix exists, since re-gaining access requires being
+          re-invited, which isn't something the failed edit can trigger itself" */}
+      <button
+        onClick={handleDiscard}
+        disabled={busy}
+        className="w-full p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108 disabled:opacity-60"
+        style={{ background: "var(--red)" }}
+      >
+        {busy ? "…" : "Discard"}
+      </button>
+    </div>
+  );
+}
+
+function GroupDeletedCard({ queued }: { queued: OutboxIntent }) {
+  const { closeModal, showToast } = useUI();
+  const { cancelPending } = useOffline();
+  const [busy, setBusy] = useState(false);
+  const group = queued.groupName ?? "The group";
+
+  async function handleDiscard() {
+    setBusy(true);
+    await cancelPending(queued.intentId);
+    setBusy(false);
+    closeModal();
+    showToast("Discarded");
+  }
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {recoveryHeader(queued)}
+      <div className="text-[13px] font-semibold rounded-[10px] px-3.5 py-3 bg-redsoft text-red">
+        <strong>{group}</strong> was deleted, so this couldn't be saved.
+      </div>
+      <button
+        onClick={handleDiscard}
+        disabled={busy}
+        className="w-full p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108 disabled:opacity-60"
+        style={{ background: "var(--red)" }}
+      >
+        {busy ? "…" : "Discard"}
+      </button>
+    </div>
+  );
+}
+
+/** rfc §7: whole-record conflict — two stacked versions, changed fields
+ * implicitly evident from the side-by-side amounts/merchant/notes (no
+ * per-field highlighting machinery; the two cards are compact enough that
+ * a difference is visually obvious without one). [Keep mine] resubmits
+ * against the version that just conflicted; [Keep theirs] discards locally —
+ * the server already reflects "theirs," no call needed. */
+function ConflictCard({ queued }: { queued: OutboxIntent }) {
+  const { closeModal, showToast } = useUI();
+  const { resolveConflictKeepMine, resolveConflictKeepTheirs } = useOffline();
+  const [busy, setBusy] = useState<"mine" | "theirs" | null>(null);
+  const conflict = queued.conflict!;
+  const mine = queued.payload as { amount?: unknown; merchant?: string; notes?: string; fromAccountId?: string; toAccountId?: string };
+  const isDelete = queued.kind === "tx.delete";
+  const myAmount = Math.round((Number(mine.amount) || 0) * 100);
+  const theirActorFirst = conflict.serverActorName.split(" ")[0] || conflict.serverActorName;
+
+  async function keepMine() {
+    setBusy("mine");
+    await resolveConflictKeepMine(queued.intentId);
+    setBusy(null);
+    closeModal();
+    showToast("Keeping your version — syncing…");
+  }
+
+  async function keepTheirs() {
+    setBusy("theirs");
+    await resolveConflictKeepTheirs(queued.intentId);
+    setBusy(null);
+    closeModal();
+    showToast(`Kept ${theirActorFirst}'s version`);
+  }
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {recoveryHeader(queued)}
+      <div className="text-[13px] font-semibold rounded-[10px] px-3.5 py-3 bg-redsoft text-red">This changed while you were away.</div>
+
+      <div className="card p-[var(--pad)] flex flex-col gap-1.5" style={{ border: "1.5px solid var(--acc)" }}>
+        <div className="text-[11px] font-bold text-acc tracking-[.06em] uppercase">Yours · from this device</div>
+        {isDelete ? (
+          <div className="text-[13.5px] font-bold">Delete</div>
+        ) : (
+          <>
+            <div className="text-[15px] font-extrabold">{formatPaise(myAmount)}</div>
+            {mine.merchant && <div className="text-[13px] font-semibold">{mine.merchant}</div>}
+            {mine.notes && <div className="text-[12px] text-mut2">{mine.notes}</div>}
+          </>
+        )}
+      </div>
+
+      <div className="card p-[var(--pad)] flex flex-col gap-1.5">
+        <div className="text-[11px] font-bold text-mut2 tracking-[.06em] uppercase">{conflict.serverActorName}'s</div>
+        <div className="text-[15px] font-extrabold">{formatPaise(conflict.amount)}</div>
+        <div className="text-[13px] font-semibold">{conflict.merchant}</div>
+        {conflict.categoryName && <div className="text-[12px] text-mut2">{conflict.categoryName}</div>}
+        {conflict.notes && <div className="text-[12px] text-mut2">{conflict.notes}</div>}
+        <div className="text-[11px] text-mut2">{friendlyDay(conflict.ymd)}</div>
+      </div>
+
+      <div className="flex gap-2.5">
+        <button
+          onClick={keepMine}
+          disabled={busy !== null}
+          className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108 disabled:opacity-60"
+          style={{ background: "var(--acc)" }}
+        >
+          {busy === "mine" ? "…" : "Keep mine"}
+        </button>
+        <button
+          onClick={keepTheirs}
+          disabled={busy !== null}
+          className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft disabled:opacity-60"
+        >
+          {busy === "theirs" ? "…" : `Keep ${theirActorFirst}'s`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -448,6 +612,7 @@ function HistoryCard({ transactionId }: { transactionId: string }) {
  * refData.participants (the viewer's own contact list), which would silently
  * corrupt the split onto unrelated ids. */
 function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail; onCancel: () => void }) {
+  const { enqueueMutation } = useOffline();
   const { run, busy, error } = useSubmit();
   const [amount, setAmount] = useState(String(detail.amount / 100));
   const [categoryId, setCategoryId] = useState(detail.categoryId ?? "");
@@ -485,39 +650,27 @@ function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail
     };
   }
 
-  async function save(): Promise<ActionResult & { queued?: boolean }> {
-    if (typeof navigator !== "undefined" && !navigator.onLine) return { ok: false, error: OFFLINE_COLLAB_ERROR };
-    if (detail.type === "EXPENSE") {
-      return updateExpenseAction({
-        id: detail.id,
-        amount,
-        accountId: detail.accountId, // unchanged — locked (rfc §1)
-        categoryId: categoryId || null,
-        merchant,
-        date,
-        notes: notes || undefined,
-        split: existingSplitPayload(),
-      });
-    }
-    if (detail.type === "INCOME") {
-      return updateIncomeAction({
-        id: detail.id,
-        amount,
-        accountId: detail.accountId ?? "",
-        categoryId: categoryId || null,
-        merchant,
-        date,
-        notes: notes || undefined,
-      });
-    }
-    return updateTransferAction({
-      id: detail.id,
-      amount,
-      fromAccountId: detail.accountId ?? "",
-      toAccountId: detail.toAccountId ?? "",
-      date,
-      notes: notes || undefined,
-    });
+  // migration step 5: goes through the SAME outbox every solo edit uses now
+  // that checkOverride is actor-aware — online or offline, this device's
+  // edit queues instantly and drains in the background, exactly like the
+  // owner's own edits already do (rfc §6).
+  function save() {
+    const payload =
+      detail.type === "EXPENSE"
+        ? {
+            amount,
+            accountId: detail.accountId, // unchanged — locked (rfc §1)
+            categoryId: categoryId || null,
+            merchant,
+            date,
+            notes: notes || undefined,
+            split: existingSplitPayload(),
+          }
+        : detail.type === "INCOME"
+          ? { amount, accountId: detail.accountId ?? "", categoryId: categoryId || null, merchant, date, notes: notes || undefined }
+          : { amount, fromAccountId: detail.accountId ?? "", toAccountId: detail.toAccountId ?? "", date, notes: notes || undefined };
+    const kind: MutationKind = detail.type === "EXPENSE" ? "expense.update" : detail.type === "INCOME" ? "income.update" : "transfer.update";
+    return enqueueMutation(kind, detail.id, payload, detail.version, detail.groupName ?? undefined);
   }
 
   return (

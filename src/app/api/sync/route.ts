@@ -17,7 +17,9 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
+import { prisma } from "@/server/db";
 import { getSession } from "@/server/session";
+import { NotAuthorizedError } from "@/server/services/authorization";
 import {
   addExpense,
   addIncome,
@@ -26,7 +28,9 @@ import {
   updateIncome,
   updateTransfer,
   softDeleteTransaction,
+  ConflictError,
   MutationTargetGoneError,
+  type ConflictSnapshot,
   type IntentMeta,
   type MutateOutcome,
 } from "@/server/services/transactions";
@@ -73,9 +77,36 @@ interface RawIntent {
 
 interface SyncResult {
   intentId: string;
-  code: "OK" | "OK_OVERRIDE" | "VALIDATION" | "INVALID_REF_SOFT" | "INVALID_REF_HARD" | "STALE_INTENT";
+  code:
+    | "OK"
+    | "OK_OVERRIDE"
+    | "VALIDATION"
+    | "INVALID_REF_SOFT"
+    | "INVALID_REF_HARD"
+    | "STALE_INTENT"
+    | "CONFLICT"
+    | "NOT_AUTHORIZED"
+    | "GROUP_DELETED";
   error?: string;
   overriddenByDevice?: string;
+  conflict?: ConflictSnapshot;
+}
+
+/** collaboration-architecture-rfc §8: a NotAuthorizedError at drain time means
+ * this actor was authorized when the edit was QUEUED but isn't anymore.
+ * Distinguishing "the group still exists, I was removed" from "the group
+ * itself is gone" needs one extra read of the row's CURRENT groupId — the
+ * transaction table itself already carries this for free (Transaction.groupId
+ * has a real onDelete: SetNull FK, so a deleted group orphans the row back to
+ * groupId=null the instant it's deleted, no application code required for
+ * that half). A non-owner can only ever have been authorized in the first
+ * place via a group that (at enqueue time) had a groupId — so seeing
+ * groupId=null now, for an actor who isn't the row's own owner, can only mean
+ * that group was deleted since. */
+async function classifyAuthFailure(entityId: string): Promise<SyncResult["code"]> {
+  const current = await prisma.transaction.findFirst({ where: { id: entityId, deletedAt: null }, select: { groupId: true } });
+  if (!current) return "VALIDATION"; // gone entirely — same "deleted elsewhere" story as MutationTargetGoneError
+  return current.groupId === null ? "GROUP_DELETED" : "NOT_AUTHORIZED";
 }
 
 function isFkViolation(e: unknown): e is Prisma.PrismaClientKnownRequestError {
@@ -110,6 +141,8 @@ async function applyOne(userId: string, raw: RawIntent): Promise<SyncResult> {
       const outcome = await softDeleteTransaction(userId, entityId, intentMeta);
       return outcomeResult(intentId, outcome);
     } catch (e) {
+      if (e instanceof ConflictError) return { intentId, code: "CONFLICT", conflict: e.snapshot };
+      if (e instanceof NotAuthorizedError) return { intentId, code: await classifyAuthFailure(entityId) };
       return { intentId, code: "VALIDATION", error: e instanceof Error ? e.message : "Something went wrong" };
     }
   }
@@ -133,6 +166,8 @@ async function applyOne(userId: string, raw: RawIntent): Promise<SyncResult> {
     }
     return { intentId, code: "VALIDATION", error: "Unknown intent kind" };
   } catch (e) {
+    if (e instanceof ConflictError) return { intentId, code: "CONFLICT", conflict: e.snapshot };
+    if (e instanceof NotAuthorizedError) return { intentId, code: await classifyAuthFailure(entityId) };
     if (e instanceof MutationTargetGoneError) {
       return { intentId, code: "VALIDATION", error: "This transaction was deleted elsewhere before your edit could sync." };
     }

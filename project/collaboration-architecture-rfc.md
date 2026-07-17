@@ -28,14 +28,53 @@ of Step 4. `e2e-collab-ui.ts` reaches the sheet via a `?tx=<id>` deep link added
 plumbing (mirrors the existing `/activity?entity=<id>` pattern; `getTransactionDetail` still
 no-ops to "no longer exists" for anyone unauthorized). Revisit as its own scoped follow-up.
 
-Migration step 5 (offline-sync layer: `checkOverride`'s actor-aware LWW/CONFLICT split, the
-`CONFLICT` taxonomy and response shape, the conflict-card UI, §8's group-removal copy) remains
-pending, per §12's own staged rollout — not started. One implementation-time gap from step
-1–3 found and deliberately deferred, not silently dropped: ownership transfer (§3.1) needs a small
-schema decision (there's currently no way to represent a former OWNER as a plain member of their
-own former group) — `leaveGroup` blocks an OWNER from leaving a non-empty group until that's
-designed, rather than leaving a group ownerless. Open questions #1 and #4 (§14) stand as adopted
-defaults, not yet formally confirmed by the product owner; #2 and #3 are resolved.
+**Migration step 5 (offline sync layer) implemented (2026-07-17).** `checkOverride` (§6.1/§6.2) is
+now actor-aware: the Intent lookup drops the `userId` filter (new `Intent(entityId, appliedAt)`
+index) so it can see a *different* real person's prior edit, not just the current actor's own
+history. A version mismatch from the SAME real person (any device) still applies silently as LWW,
+byte for byte unchanged from Phase 3. A mismatch from a DIFFERENT authorized actor on a group
+transaction now throws a new `ConflictError` instead of applying — the whole `$transaction` rolls
+back, nothing is written, and `/api/sync` returns the new `CONFLICT` code with a server-resolved
+snapshot (amount, merchant, category name, date, notes, the conflicting actor's name — §7). The
+conflict card (`ConflictCard` in `transaction-detail.tsx`) renders both versions with [Keep mine]
+(requeues against the version that just conflicted, reusing the exact same apply path — no new
+server logic) and [Keep theirs] (discards the local intent, no server call). §8's two recovery
+scenarios are both implemented: a removed member's queued edit returns `NOT_AUTHORIZED` (Discard
+only, copy built from the intent's own remembered `groupName` since the removed member can no
+longer read the row at all to look it up fresh); a deleted group's queued edit returns
+`GROUP_DELETED` (the FK's `onDelete: SetNull` already orphans the row to personal at the DB level
+for free — the taxonomy code just names what happened). Non-owner (collaborative) edits/deletes
+now flow through the SAME outbox every solo edit already used — the online-required restriction
+Step 4 used as a stopgap is gone, since checkOverride can now safely tell a real second writer
+apart from the same person's other device. 20 new checks (`e2e-collab-offline.ts`, hybrid
+Prisma+Playwright with two independently-authenticated real users), green twice consecutively,
+alongside the full 288-check pre-existing suite (308/308 total, run twice consecutively, zero
+regressions — including the pre-existing solo two-device race test, now also verified unaffected
+on a group-tagged transaction).
+
+**Known gap, flagged rather than invented (2026-07-17):** §8's "group deleted" recovery specifies
+"[Keep as personal] (sets `groupId = null`, `userId` = the acting member)" for a non-owner's
+orphaned queued edit. This is well-defined in the *original* single-writer context the copy was
+borrowed from (the acting member was always already the row's owner, so "userId = acting member"
+was trivially already true) — but for a genuine non-owner, it would mean reassigning the
+transaction to someone who was never authorized to pick its `accountId` (locked to the original
+owner throughout the whole edit, per §1) into their own account namespace, which the RFC never
+specifies how to resolve. Implemented instead: [Discard] only for `GROUP_DELETED`, matching the
+sibling `NOT_AUTHORIZED` scenario's "no guided fix" shape. [Keep as personal]'s reassignment
+mechanics need their own design pass — likely alongside the deferred ownership-transfer work
+(§3.1) rather than invented here.
+
+One implementation-time gap from steps 1–3 found and deliberately deferred, not silently dropped:
+ownership transfer (§3.1) needs a small schema decision (there's currently no way to represent a
+former OWNER as a plain member of their own former group) — `leaveGroup` blocks an OWNER from
+leaving a non-empty group until that's designed, rather than leaving a group ownerless. Open
+questions #1 and #4 (§14) stand as adopted defaults, not yet formally confirmed by the product
+owner; #2 and #3 are resolved.
+
+Discoverability (a UI surface for a non-owner to find another member's group transaction),
+ownership transfer, and the `GROUP_DELETED` → [Keep as personal] mechanics above are the named
+follow-ups — none started, all deliberately out of scope for step 5 per the migration's own staged
+rollout (§12).
 
 **Product decision this RFC implements (given, not re-litigated here):** *Groups are
 collaborative. Any linked participant with permission to a group can edit transactions in that

@@ -100,6 +100,32 @@ export class MutationTargetGoneError extends Error {
   }
 }
 
+/** collaboration-architecture-rfc §7: the fields needed to render the "yours
+ * vs theirs" comparison — resolved server-side (category name, actor name)
+ * so the client never has to reconcile ids against the wrong namespace,
+ * same reasoning as TransactionDetail's categoryName/participantName. */
+export interface ConflictSnapshot {
+  serverVersion: number;
+  serverActorName: string;
+  serverUpdatedAt: string; // ISO — the conflicting Intent's appliedAt
+  amount: number; // paise
+  merchant: string;
+  categoryName: string | null;
+  ymd: string;
+  notes: string | null;
+}
+
+/** Thrown by checkOverride instead of applying, whenever a version mismatch
+ * is between two DIFFERENT authorized actors on a group transaction (rfc
+ * §6.2/§7) — the write is deliberately NOT applied (the whole $transaction
+ * rolls back), so nothing needs undoing; the client parks the intent and
+ * offers Keep mine / Keep theirs. */
+export class ConflictError extends Error {
+  constructor(public snapshot: ConflictSnapshot) {
+    super("CONFLICT");
+  }
+}
+
 /** Run a create inside one $transaction with the intent row as the last
  * write; on replay (P2002 + a recorded prior intent) return the original
  * outcome without touching the ledger. The single implementation every
@@ -189,20 +215,50 @@ async function exactlyOnceMutate(
   }
 }
 
-/** Solo LWW check (spec §13, locked §19): no baseVersion means the caller
+/** Solo LWW check (spec §13, locked §19) — now actor-aware
+ * (collaboration-architecture-rfc §6.1/§6.2). No baseVersion means the caller
  * isn't intent-tracked (a plain online edit) — skip the check entirely, same
- * as always. A mismatch never blocks — it applies anyway and reports
- * `overridden: true` so the caller can log/notify, never prompt. */
+ * as always. On a mismatch: the SAME real person on a different device still
+ * never blocks — applies anyway, `overridden: true`, silent (spec §13,
+ * unchanged). A DIFFERENT real person on a group transaction is a genuine
+ * conflict — the write is NOT applied; throws ConflictError instead so the
+ * caller's $transaction rolls back cleanly. */
 async function checkOverride(
   db: Db,
-  userId: string,
-  entityId: string,
-  baseVersion: number | undefined,
-  serverVersion: number
+  actingUserId: string,
+  old: { id: string; groupId: string | null; version: number; amount: bigint | number; merchant: string; categoryId: string | null; occurredAt: Date; notes: string | null },
+  baseVersion: number | undefined
 ): Promise<{ overridden: boolean; overriddenByDevice?: string }> {
-  if (baseVersion === undefined || baseVersion === serverVersion) return { overridden: false };
-  const priorIntent = await db.intent.findFirst({ where: { userId, entityId }, orderBy: { appliedAt: "desc" } });
-  return { overridden: true, overriddenByDevice: priorIntent?.deviceName ?? undefined };
+  if (baseVersion === undefined || baseVersion === old.version) return { overridden: false };
+  // §6.1: the most recent Intent for this entity, from ANYONE — not scoped
+  // to the current actor, which could never see a different real person's
+  // prior edit under the old single-writer-scoped query
+  const priorIntent = await db.intent.findFirst({ where: { entityId: old.id }, orderBy: { appliedAt: "desc" } });
+  const sameActor = !priorIntent || priorIntent.userId === actingUserId;
+  if (sameActor) {
+    return { overridden: true, overriddenByDevice: priorIntent?.deviceName ?? undefined };
+  }
+  // §6.2: different real person. A personal (groupId-less) row can only ever
+  // have ONE actor by construction — assertCanWrite requires
+  // tx.userId === actingUserId whenever groupId is null — so reaching here
+  // for one would be a contradiction, not a legitimate multi-writer race.
+  if (!old.groupId) {
+    throw new Error("Unexpected multi-actor edit on a personal transaction");
+  }
+  const [actor, category] = await Promise.all([
+    db.user.findUnique({ where: { id: priorIntent.userId }, select: { name: true } }),
+    old.categoryId ? db.category.findUnique({ where: { id: old.categoryId }, select: { name: true } }) : Promise.resolve(null),
+  ]);
+  throw new ConflictError({
+    serverVersion: old.version,
+    serverActorName: actor?.name ?? "Someone",
+    serverUpdatedAt: priorIntent.appliedAt.toISOString(),
+    amount: Number(old.amount),
+    merchant: old.merchant,
+    categoryName: category?.name ?? null,
+    ymd: old.occurredAt.toISOString().slice(0, 10),
+    notes: old.notes,
+  });
 }
 
 export async function addExpense(userId: string, input: ExpenseInput, intent?: IntentMeta) {
@@ -469,12 +525,7 @@ export async function updateExpense(actingUserId: string, id: string, input: Exp
     // owner regardless of group role — only an actual change to it triggers
     // the stricter check (a resubmitted, unchanged value is not a "write")
     await assertCanWrite(db, actingUserId, old, newAccountId !== old.accountId ? "write-account" : "write");
-    // NOTE: checkOverride is still scoped to a single actor's own Intent
-    // history — intentionally unchanged here. Making it see a DIFFERENT
-    // actor's prior edit (needed for real LWW-vs-CONFLICT resolution across
-    // two people) is collaboration-architecture-rfc §6.1/§6.2, deliberately
-    // deferred to the offline-sync layer step of the rollout (§12 step 5).
-    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, old.version);
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, old, intent?.baseVersion);
 
     await applyBalances(db, old, -1);
     if (old.splits.length) await db.expenseSplit.deleteMany({ where: { txId: id } });
@@ -519,7 +570,7 @@ export async function updateIncome(actingUserId: string, id: string, input: Inco
     if (!old) throw new MutationTargetGoneError();
     if (old.type !== "INCOME") throw new Error("Not income");
     await assertCanWrite(db, actingUserId, old, input.accountId !== old.accountId ? "write-account" : "write");
-    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, old.version);
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, old, intent?.baseVersion);
 
     await applyBalances(db, old, -1);
     const updated = await db.transaction.update({
@@ -557,7 +608,7 @@ export async function updateTransfer(actingUserId: string, id: string, input: Tr
       db.account.findFirst({ where: { id: input.toAccountId, userId: old.userId } }),
     ]);
     if (!from || !to) throw new Error("Account not found");
-    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, old.version);
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, old, intent?.baseVersion);
 
     await applyBalances(db, old, -1);
     const updated = await db.transaction.update({
@@ -591,7 +642,7 @@ export async function softDeleteTransaction(actingUserId: string, id: string, in
     const t = await db.transaction.findFirst({ where: { id, deletedAt: null } });
     if (!t) return { entityId: id, overridden: false };
     await assertCanWrite(db, actingUserId, t, "delete");
-    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, t.version);
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, t, intent?.baseVersion);
     await db.transaction.update({ where: { id }, data: { deletedAt: new Date() } });
     await applyBalances(db, t, -1);
     await audit(db, t.userId, "soft-delete", "Transaction", id, withSyncMeta(t, intent), undefined, actingUserId);

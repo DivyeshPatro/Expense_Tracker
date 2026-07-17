@@ -180,6 +180,11 @@ model Intent {
   @@id([userId, id])
   @@index([userId, appliedAt])
   @@index([userId, entityId, appliedAt]) // Phase 3: "who last touched this entity" for LWW override copy
+  // collaboration-architecture-rfc §6.1: checkOverride's "most recent Intent
+  // for this entity" lookup drops the userId filter once a second writer can
+  // exist — the (userId, entityId, appliedAt) index above can't serve an
+  // entityId-only query efficiently since userId is its leading column
+  @@index([entityId, appliedAt])
 }
 
 model Category {
