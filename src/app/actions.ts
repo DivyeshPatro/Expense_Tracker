@@ -38,6 +38,7 @@ import {
   updateExpense,
   updateIncome,
   updateTransfer,
+  ConflictError,
 } from "@/server/services/transactions";
 import { askLedgerly, searchMerchants } from "@/server/services/search";
 import { activityPage, entityHistory, importPreview } from "@/server/services/activity";
@@ -67,6 +68,18 @@ import {
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 function fail(e: unknown): ActionResult {
+  // production audit §1.2/§PhaseA.2: now that split-expense edits and the
+  // private-browsing fallback carry real intent metadata, they can reach
+  // ConflictError too — its .message is the internal code "CONFLICT", not
+  // human copy, so it needs its own case (every other error type's own
+  // .message is already reasonable user-facing text, including
+  // NotAuthorizedError's).
+  if (e instanceof ConflictError) {
+    return {
+      ok: false,
+      error: `This changed while you were away — ${e.snapshot.serverActorName} made a different edit. Reopen it to see the latest version.`,
+    };
+  }
   if (e && typeof e === "object" && "issues" in e) {
     const issues = (e as { issues: { message: string }[] }).issues;
     return { ok: false, error: issues[0]?.message ?? "Invalid input" };

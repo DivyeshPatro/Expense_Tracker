@@ -46,6 +46,13 @@ export interface TimelineEvent {
   /** present when a 10-minute edit chain was collapsed (RFC §3): this event
    * carries the NET diff; members are the individual steps, newest first */
   collapsed?: { count: number; members: TimelineEvent[] };
+  /** collaboration-architecture-rfc §5: who actually performed the action,
+   * only ever set when that differs from whose ledger it's filed under (a
+   * group co-member editing someone else's transaction) — resolved
+   * server-side into a display name, same reasoning as every other
+   * cross-namespace label in this codebase (never left for the client to
+   * look up against its own, possibly unrelated, id space). */
+  actorName?: string;
 }
 
 /** The audit-row shape the presenter consumes (payloads already JSON-parsed). */
@@ -57,6 +64,7 @@ export interface AuditRowInput {
   before: unknown;
   after: unknown;
   at: string; // ISO
+  actorUserId?: string | null;
 }
 
 /** Lookup maps built once per page by the caller — id → display label. */
@@ -64,6 +72,10 @@ export interface LabelMaps {
   categories: Map<string, { name: string; icon: string }>;
   accounts: Map<string, string>;
   participants: Map<string, string>;
+  /** collaboration-architecture-rfc §5 — userId → display name, populated
+   * only for the (usually empty) set of distinct actorUserIds actually
+   * present in the current page/history slice. */
+  actorNames: Map<string, string>;
 }
 
 // ─────────── allowlist + chip filters (pushed into SQL by the service) ───────────
@@ -536,7 +548,8 @@ export function presentAuditRow(row: AuditRowInput, maps: LabelMaps): TimelineEv
   try {
     const core = present(row, maps);
     if (!core) return null;
-    return { ...core, related: relatedFor(row, maps) };
+    const actorName = row.actorUserId ? maps.actorNames.get(row.actorUserId) : undefined;
+    return { ...core, related: relatedFor(row, maps), ...(actorName ? { actorName } : {}) };
   } catch {
     return null; // historical payload shapes must never take the page down
   }
@@ -574,11 +587,18 @@ export function presentNotificationRow(n: { id: string; kind: string; payload: u
 
 /**
  * Group consecutive Transaction:update rows on the same entity where each
- * edit is within `windowMs` of the previous (chain rule). Any same-entity
- * event of another action breaks that entity's chain; other entities'
- * events interleaving do not. Input and output are newest-first; a chain
- * occupies its newest member's position. Per-page only by design — a chain
- * split across a page boundary renders as two groups (accepted in the RFC).
+ * edit is within `windowMs` of the previous (chain rule) AND was performed
+ * by the same actor. Any same-entity event of another action, or a change
+ * of actor, breaks that entity's chain; other entities' events interleaving
+ * do not. Input and output are newest-first; a chain occupies its newest
+ * member's position. Per-page only by design — a chain split across a page
+ * boundary renders as two groups (accepted in the RFC).
+ *
+ * collaboration-architecture-rfc §5: the actor check is load-bearing, not
+ * cosmetic — collapsing two different people's edits into one "net diff"
+ * event would silently blend their changes under a single (misleading)
+ * attribution. A 10-minute quiet-typing-pause heuristic was only ever
+ * correct as a proxy for "one person editing" in a single-writer world.
  */
 export function groupUpdateChains(rows: AuditRowInput[], windowMs = 10 * 60_000): (AuditRowInput | AuditRowInput[])[] {
   const out: (AuditRowInput | { chain: AuditRowInput[] })[] = [];
@@ -589,7 +609,8 @@ export function groupUpdateChains(rows: AuditRowInput[], windowMs = 10 * 60_000)
       const cur = open.get(key);
       if (cur) {
         const prevOldest = cur.chain[cur.chain.length - 1];
-        if (new Date(prevOldest.at).getTime() - new Date(row.at).getTime() <= windowMs) {
+        const sameActor = (prevOldest.actorUserId ?? null) === (row.actorUserId ?? null);
+        if (sameActor && new Date(prevOldest.at).getTime() - new Date(row.at).getTime() <= windowMs) {
           cur.chain.push(row); // absorbed into the chain at its existing position
           continue;
         }

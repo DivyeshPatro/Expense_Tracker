@@ -19,6 +19,7 @@ const maps: LabelMaps = {
     ["acc-cash", "Cash Wallet"],
   ]),
   participants: new Map([["par-karan", "Karan"]]),
+  actorNames: new Map([["user-bob", "Bob"]]),
 };
 
 const row = (partial: Partial<AuditRowInput>): AuditRowInput => ({
@@ -267,6 +268,22 @@ describe("10-minute edit-chain collapse (RFC §3)", () => {
     expect(out).toHaveLength(3); // no grouping across the delete
   });
 
+  it("a change of actor breaks the chain even within the window (rfc §5 — collapsing two people's edits would misattribute the net diff)", () => {
+    const alice = upd("e2", 0); // actorUserId undefined — filed under the owner's own edit
+    const bob = { ...upd("e1", 4), actorUserId: "user-bob" };
+    const out = groupUpdateChains([alice, bob]);
+    expect(out).toHaveLength(2); // no collapse — different actors, even though well within the 10-minute window
+    expect((out[0] as AuditRowInput).id).toBe("e2");
+    expect((out[1] as AuditRowInput).id).toBe("e1");
+  });
+
+  it("same actor across separate updates still chains as before (regression: the actor check doesn't over-fire)", () => {
+    const rows = [{ ...upd("e2", 0), actorUserId: "user-bob" }, { ...upd("e1", 5), actorUserId: "user-bob" }];
+    const out = groupUpdateChains(rows);
+    expect(out).toHaveLength(1);
+    expect((out[0] as AuditRowInput[]).map((r) => r.id)).toEqual(["e2", "e1"]);
+  });
+
   it("other entities interleaving do not break the chain", () => {
     const other = row({ id: "o1", action: "create", entityId: "tx-other", after: { type: "EXPENSE", amount: 1, merchant: "y" }, at: upd("x", 3).at });
     const out = groupUpdateChains([upd("e3", 0), other, upd("e2", 6)]);
@@ -296,6 +313,42 @@ describe("10-minute edit-chain collapse (RFC §3)", () => {
       row({ id: "e1", action: "update", before: a, after: b }),
     ] as AuditRowInput[];
     expect(presentChain(chain, maps)).toBeNull();
+  });
+});
+
+describe("actor attribution (rfc §5)", () => {
+  it("sets actorName when actorUserId resolves in the caller's actorNames map", () => {
+    const ev = presentAuditRow(
+      row({
+        action: "update",
+        actorUserId: "user-bob",
+        before: { type: "EXPENSE", amount: 42000, merchant: "Swiggy" },
+        after: { type: "EXPENSE", amount: 45000, merchant: "Swiggy" },
+      }),
+      maps
+    )!;
+    expect(ev.actorName).toBe("Bob");
+  });
+
+  it("omits actorName for the row owner's own edit (actorUserId null — the common, non-collaborative case)", () => {
+    const ev = presentAuditRow(
+      row({ action: "update", before: { type: "EXPENSE", amount: 42000, merchant: "Swiggy" }, after: { type: "EXPENSE", amount: 45000, merchant: "Swiggy" } }),
+      maps
+    )!;
+    expect(ev.actorName).toBeUndefined();
+  });
+
+  it("omits actorName when the id doesn't resolve (e.g. the actor's own account was later deleted)", () => {
+    const ev = presentAuditRow(
+      row({
+        action: "update",
+        actorUserId: "user-someone-deleted",
+        before: { type: "EXPENSE", amount: 42000, merchant: "Swiggy" },
+        after: { type: "EXPENSE", amount: 45000, merchant: "Swiggy" },
+      }),
+      maps
+    )!;
+    expect(ev.actorName).toBeUndefined();
   });
 });
 

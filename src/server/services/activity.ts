@@ -53,10 +53,36 @@ async function labelMaps(userId: string): Promise<LabelMaps> {
     categories: new Map(categories.map((c) => [c.id, { name: c.name, icon: c.icon ?? "🏷" }])),
     accounts: new Map(accounts.map((a) => [a.id, a.name])),
     participants: new Map(participants.map((p) => [p.id, p.displayName])),
+    actorNames: new Map(), // filled in by actorNameMap() below, once the actual rows are known
   };
 }
 
-const toRowInput = (r: { id: string; action: string; entity: string; entityId: string; before: unknown; after: unknown; at: Date }): AuditRowInput => ({
+/** collaboration-architecture-rfc §5: resolves whichever real users actually
+ * show up as `actorUserId` in the current page/history slice — not scoped to
+ * a single ledger owner the way categories/accounts/participants are, since
+ * an actor can be any authorized group member. One batched query, skipped
+ * entirely when nobody in this slice ever acted on someone else's row (the
+ * overwhelmingly common case for a non-collaborating user). */
+async function actorNameMap(actorIds: string[]): Promise<Map<string, string>> {
+  if (actorIds.length === 0) return new Map();
+  const users = await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } });
+  return new Map(users.map((u) => [u.id, u.name]));
+}
+
+const distinctActorIds = (rows: { actorUserId: string | null }[]): string[] => [
+  ...new Set(rows.map((r) => r.actorUserId).filter((id): id is string => !!id)),
+];
+
+const toRowInput = (r: {
+  id: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  before: unknown;
+  after: unknown;
+  at: Date;
+  actorUserId: string | null;
+}): AuditRowInput => ({
   id: r.id,
   action: r.action,
   entity: r.entity,
@@ -64,6 +90,7 @@ const toRowInput = (r: { id: string; action: string; entity: string; entityId: s
   before: r.before,
   after: r.after,
   at: r.at.toISOString(),
+  actorUserId: r.actorUserId,
 });
 
 export async function activityPage(
@@ -101,6 +128,7 @@ export async function activityPage(
       : Promise.resolve([]),
     labelMaps(userId),
   ]);
+  maps.actorNames = await actorNameMap(distinctActorIds(auditRows));
 
   const auditHasMore = auditRows.length > PAGE_SIZE;
   const notifHasMore = notifRows.length > PAGE_SIZE;
@@ -172,6 +200,7 @@ export async function entityHistory(actingUserId: string, entityId: string): Pro
     }),
     labelMaps(ownerId),
   ]);
+  maps.actorNames = await actorNameMap(distinctActorIds(rows));
   const more = rows.length > HISTORY_CAP;
   const events: TimelineEvent[] = [];
   for (const r of rows.slice(0, HISTORY_CAP)) {

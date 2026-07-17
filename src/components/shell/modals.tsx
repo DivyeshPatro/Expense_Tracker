@@ -14,6 +14,7 @@ import {
   settleAction,
 } from "@/app/actions";
 import { todayYMD } from "@/lib/dates";
+import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { useOffline } from "./offline-context";
 import { PendingDetailSheet } from "./pending-detail";
@@ -161,7 +162,20 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                 if (typeof navigator !== "undefined" && !navigator.onLine) {
                   return Promise.resolve({ ok: false as const, error: "Split expenses need internet — try again when you're back online." });
                 }
-                return addExpenseAction(payload);
+                // production audit §1.2/§PhaseA.2: this direct call used to
+                // carry no intent at all, so it never created an Intent row —
+                // invisible to any LATER conflict check on this same
+                // transaction. Real device identity when available (same
+                // quality of tracking as an outbox create), an ephemeral one
+                // only if IndexedDB is truly unavailable.
+                return (async () => {
+                  const deviceId = await ensureDeviceId().catch(() => crypto.randomUUID());
+                  const deviceName = await getDeviceName().catch(() => undefined);
+                  return addExpenseAction({
+                    ...payload,
+                    intent: { intentId: crypto.randomUUID(), deviceId, deviceName, clientTs: new Date().toISOString() },
+                  });
+                })();
               }
               return createViaOutbox("expense.create", payload);
             },

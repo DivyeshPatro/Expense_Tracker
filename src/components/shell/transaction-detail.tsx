@@ -51,7 +51,7 @@ import { intentLabel, useOffline, type MutationKind } from "./offline-context";
 import { FAILURE_COPY } from "./pending-detail";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
 import { useUI } from "./ui-context";
-import type { OutboxIntent } from "@/lib/offline/db";
+import { ensureDeviceId, getDeviceName, type OutboxIntent } from "@/lib/offline/db";
 
 const cleanCopy = (msg: string) => msg.charAt(0).toUpperCase() + msg.slice(1);
 
@@ -552,7 +552,14 @@ function HistoryCard({ transactionId }: { transactionId: string }) {
             </div>
             <div className="flex-1 min-w-0 pb-2.5">
               <div className="flex items-baseline gap-2">
-                <span className="text-[12.5px] font-semibold flex-1">{ev.summary}</span>
+                <span className="text-[12.5px] font-semibold flex-1">
+                  {ev.summary}
+                  {/* collaboration-architecture-rfc §5: only ever set when a
+                      different authorized group member acted — the row's own
+                      owner editing their own transaction shows no attribution,
+                      exactly as before collaboration existed */}
+                  {ev.actorName && <span className="text-acc font-semibold"> · {ev.actorName}</span>}
+                </span>
                 <time dateTime={ev.ts} className="text-[11px] text-mut2 flex-none">
                   {historyDayLabel(ev.ts)},{" "}
                   {new Date(ev.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
@@ -864,7 +871,20 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
                   if (typeof navigator !== "undefined" && !navigator.onLine) {
                     return Promise.resolve({ ok: false as const, error: "Split expenses need internet — try again when you're back online." });
                   }
-                  return updateExpenseAction({ id: detail.id, ...payload });
+                  // production audit §1.2/§PhaseA.2: this direct call used to
+                  // carry no intent/baseVersion at all, so checkOverride
+                  // could never see it — it applied blindly regardless of
+                  // what changed underneath it, and left no Intent row for
+                  // any LATER conflict check on this transaction to find.
+                  return (async () => {
+                    const deviceId = await ensureDeviceId().catch(() => crypto.randomUUID());
+                    const deviceName = await getDeviceName().catch(() => undefined);
+                    return updateExpenseAction({
+                      id: detail.id,
+                      ...payload,
+                      intent: { intentId: crypto.randomUUID(), deviceId, deviceName, clientTs: new Date().toISOString(), baseVersion: detail.version },
+                    });
+                  })();
                 }
                 return enqueueMutation("expense.update", detail.id, payload, detail.version);
               }, "Transaction updated")

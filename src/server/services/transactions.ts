@@ -4,7 +4,7 @@
 
 import { splitByWeights, splitEqual, splitExact, type SplitShare } from "@/lib/money";
 import { istNoon } from "@/lib/dates";
-import type { GroupRole, Prisma, TxType } from "@prisma/client";
+import { Prisma, type GroupRole, type TxType } from "@prisma/client";
 import { prisma } from "../db";
 import { assertCanCreateInGroup, assertCanRead, assertCanWrite, resolveGroupRole, roleAtLeast } from "./authorization";
 import { audit } from "./audit";
@@ -171,6 +171,39 @@ async function exactlyOnce(
 const withSyncMeta = <T extends object>(t: T, intent: IntentMeta | undefined) =>
   intent ? { ...t, _sync: { intentId: intent.intentId, deviceId: intent.deviceId, clientTs: intent.clientTs } } : t;
 
+const SERIALIZABLE_RETRY_LIMIT = 3;
+
+function isSerializationFailure(e: unknown): boolean {
+  // Postgres SQLSTATE 40001, surfaced by Prisma as P2034 ("Transaction failed
+  // due to a write conflict or a deadlock. Please retry your transaction")
+  return typeof e === "object" && e !== null && (e as { code?: string }).code === "P2034";
+}
+
+/** Runs `fn` inside a SERIALIZABLE transaction, retrying on a genuine
+ * serialization failure. Closes a real race the version check alone cannot
+ * (production audit §1.1): `checkOverride` reads `old.version`, decides, then
+ * writes — but the write itself was never conditioned on that read (no
+ * `WHERE version = old.version`), so two truly concurrent requests for the
+ * same row could each read the same stale version, each independently
+ * conclude "no mismatch," and both apply — the second one silently
+ * overwriting the first's fields with no OK_OVERRIDE, no CONFLICT, nothing.
+ * SERIALIZABLE makes Postgres itself detect that read-write conflict and
+ * abort one side instead of letting a stale read silently win. Safe to
+ * retry: every write in `fn` goes through the transactional `db` client and
+ * rolls back automatically on abort, so a clean re-run re-reads the
+ * now-committed state and re-evaluates baseVersion/checkOverride against it
+ * — no side effect from a failed attempt survives to taint the retry. */
+async function serializable<T>(fn: (db: Db) => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (e) {
+      if (isSerializationFailure(e) && attempt < SERIALIZABLE_RETRY_LIMIT) continue;
+      throw e;
+    }
+  }
+}
+
 /** Update/delete counterpart to exactlyOnce(): there's no new row whose
  * unique constraint can catch a replay after the fact, so the Intent row is
  * checked BEFORE mutating — a duplicate delivery is a no-op that returns the
@@ -188,7 +221,7 @@ async function exactlyOnceMutate(
     if (prior) return { overridden: prior.status === "overridden" };
   }
   try {
-    return await prisma.$transaction(async (db) => {
+    return await serializable(async (db) => {
       const r = await body(db);
       if (intent) {
         await db.intent.create({
@@ -651,7 +684,11 @@ export async function softDeleteTransaction(actingUserId: string, id: string, in
 }
 
 export async function restoreTransaction(actingUserId: string, id: string) {
-  await prisma.$transaction(async (db) => {
+  // same read-then-write shape as the checkOverride-guarded mutations above
+  // (fetch, decide, write) — SERIALIZABLE closes the same race: two people
+  // undoing the same delete at once would otherwise both read "still
+  // deleted," both proceed, and both re-apply the balance effect
+  await serializable(async (db) => {
     const t = await db.transaction.findFirst({ where: { id, deletedAt: { not: null } } });
     if (!t) throw new Error("Transaction not found");
     // undo-delete sits at the same permission tier as delete itself —

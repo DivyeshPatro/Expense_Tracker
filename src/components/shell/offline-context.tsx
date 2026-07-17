@@ -53,11 +53,30 @@ const ACTIONS: Record<CreateKind, (input: unknown) => Promise<ActionResult>> = {
   "transfer.create": addTransferAction,
 };
 
-async function directMutationFallback(kind: MutationKind, entityId: string, payload: Record<string, unknown>): Promise<ActionResult> {
-  if (kind === "tx.delete") return deleteTransactionAction({ id: entityId });
-  if (kind === "expense.update") return updateExpenseAction({ id: entityId, ...payload });
-  if (kind === "income.update") return updateIncomeAction({ id: entityId, ...payload });
-  return updateTransferAction({ id: entityId, ...payload });
+/** production audit §1.2/§PhaseA.2: a write with no Intent row is invisible
+ * to a LATER conflict check, which then silently defaults to "same actor"
+ * and applies over it — this used to be true of every private-browsing
+ * fallback call, since none of them ever built an `intent` object at all.
+ * No persisted device identity is available here (that's WHY this fallback
+ * exists), but an ephemeral, call-scoped one is still enough for
+ * checkOverride to see the write and for the Intent table to stay complete
+ * — deviceName is intentionally omitted, so OK_OVERRIDE copy just falls back
+ * to its existing generic "replaced a newer edit" wording. */
+function ephemeralIntent(baseVersion?: number) {
+  return { intentId: crypto.randomUUID(), deviceId: crypto.randomUUID(), clientTs: new Date().toISOString(), baseVersion };
+}
+
+async function directMutationFallback(
+  kind: MutationKind,
+  entityId: string,
+  payload: Record<string, unknown>,
+  baseVersion: number
+): Promise<ActionResult> {
+  const intent = ephemeralIntent(baseVersion);
+  if (kind === "tx.delete") return deleteTransactionAction({ id: entityId, intent });
+  if (kind === "expense.update") return updateExpenseAction({ id: entityId, ...payload, intent });
+  if (kind === "income.update") return updateIncomeAction({ id: entityId, ...payload, intent });
+  return updateTransferAction({ id: entityId, ...payload, intent });
 }
 
 const expenseValidator = (p: unknown) => {
@@ -305,7 +324,11 @@ export function OfflineProvider({ userId, children }: { userId: string; children
       if (validationError) return { ok: false, error: validationError };
 
       const deviceId = deviceIdRef.current ?? (await ensureDeviceId().catch(() => null));
-      if (!deviceId) return ACTIONS[kind](payload); // no IndexedDB (private mode) → plain direct call, no offline tolerance possible either way
+      // no IndexedDB (private mode) → plain direct call, no offline tolerance
+      // possible either way — still carries an ephemeral intent (see
+      // ephemeralIntent's comment) so this create isn't invisible to a later
+      // conflict check on the SAME entity
+      if (!deviceId) return ACTIONS[kind]({ ...payload, intent: ephemeralIntent() });
       deviceIdRef.current = deviceId;
 
       const intent: OutboxIntent = {
@@ -353,7 +376,7 @@ export function OfflineProvider({ userId, children }: { userId: string; children
       }
 
       const deviceId = deviceIdRef.current ?? (await ensureDeviceId().catch(() => null));
-      if (!deviceId) return directMutationFallback(kind, entityId, payload); // no IndexedDB → plain direct call
+      if (!deviceId) return directMutationFallback(kind, entityId, payload, baseVersion); // no IndexedDB → plain direct call
       deviceIdRef.current = deviceId;
       const deviceName = await getDeviceName().catch(() => undefined);
 

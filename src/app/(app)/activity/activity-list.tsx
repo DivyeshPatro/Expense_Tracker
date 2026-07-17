@@ -138,6 +138,9 @@ export function ActivityList({
                     <div className="text-[12.5px] text-mut truncate">
                       {ev.entityLabel}
                       {ev.detail ? <span className="text-mut2"> · {ev.detail}</span> : null}
+                      {/* collaboration-architecture-rfc §5: who actually acted,
+                          only ever set when it differs from whose ledger this is */}
+                      {ev.actorName ? <span className="text-acc font-semibold"> · {ev.actorName}</span> : null}
                     </div>
                     {visible.map((d) => (
                       <div key={d.field} className="text-[11.5px] text-mut2 mt-0.5">
