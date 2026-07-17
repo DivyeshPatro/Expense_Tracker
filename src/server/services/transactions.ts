@@ -6,6 +6,7 @@ import { splitByWeights, splitEqual, splitExact, type SplitShare } from "@/lib/m
 import { istNoon } from "@/lib/dates";
 import type { Prisma, TxType } from "@prisma/client";
 import { prisma } from "../db";
+import { assertCanCreateInGroup, assertCanRead, assertCanWrite } from "./authorization";
 import { audit } from "./audit";
 import { checkBudgetThresholds } from "./budgets";
 
@@ -46,6 +47,7 @@ export interface ExpenseInput {
   paymentMethod?: string;
   isRecurring?: boolean;
   split?: SplitInput;
+  groupId?: string | null; // collaboration-architecture-rfc §2/§4: creator becomes the row's own userId regardless
 }
 
 function computeShares(amount: number, split: SplitInput): SplitShare[] {
@@ -204,6 +206,11 @@ async function checkOverride(
 }
 
 export async function addExpense(userId: string, input: ExpenseInput, intent?: IntentMeta) {
+  // collaboration-architecture-rfc §2/§4: creating INTO a group needs MEMBER
+  // role+; the creator becomes this row's own userId either way, so no
+  // further per-field authorization applies to their own create
+  if (input.groupId) await assertCanCreateInGroup(prisma, userId, input.groupId);
+
   // rule-based auto-categorization when no category picked
   let categoryId = input.categoryId;
   if (!categoryId && input.merchant) {
@@ -234,6 +241,7 @@ export async function addExpense(userId: string, input: ExpenseInput, intent?: I
         paymentMethod: input.paymentMethod || null,
         isRecurring: input.isRecurring ?? false,
         paidByParticipantId,
+        groupId: input.groupId || null,
         splits: shares
           ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
           : undefined,
@@ -267,9 +275,11 @@ export interface IncomeInput {
   merchant: string; // description, e.g. "Salary · Acme Corp"
   date: string;
   notes?: string;
+  groupId?: string | null;
 }
 
 export async function addIncome(userId: string, input: IncomeInput, intent?: IntentMeta) {
+  if (input.groupId) await assertCanCreateInGroup(prisma, userId, input.groupId);
   return exactlyOnce(userId, intent, "income.create", async (db) => {
     const t = await db.transaction.create({
       data: {
@@ -282,6 +292,7 @@ export async function addIncome(userId: string, input: IncomeInput, intent?: Int
         merchant: input.merchant,
         occurredAt: istNoon(input.date),
         notes: input.notes || null,
+        groupId: input.groupId || null,
       },
     });
     await applyBalances(db, t, 1);
@@ -296,10 +307,12 @@ export interface TransferInput {
   toAccountId: string;
   date: string;
   notes?: string;
+  groupId?: string | null;
 }
 
 export async function addTransfer(userId: string, input: TransferInput, intent?: IntentMeta) {
   if (input.fromAccountId === input.toAccountId) throw new Error("Pick two different accounts");
+  if (input.groupId) await assertCanCreateInGroup(prisma, userId, input.groupId);
   const [from, to] = await Promise.all([
     prisma.account.findFirst({ where: { id: input.fromAccountId, userId } }),
     prisma.account.findFirst({ where: { id: input.toAccountId, userId } }),
@@ -317,6 +330,7 @@ export async function addTransfer(userId: string, input: TransferInput, intent?:
         merchant: `${from.name} → ${to.name}`,
         occurredAt: istNoon(input.date),
         notes: input.notes || null,
+        groupId: input.groupId || null,
       },
     });
     await applyBalances(db, t, 1);
@@ -343,25 +357,41 @@ export interface TransactionDetail {
   version: number; // offline-sync baseVersion for edits/deletes (spec §4.2) — Phase 3
 }
 
-/** Full detail for the edit form — a fresh, richer read than the list's lean LedgerRow (which has just enough for display, not for reconstructing per-participant split amounts). */
-export async function getTransactionDetail(userId: string, id: string): Promise<TransactionDetail | null> {
+/** Full detail for the edit form — a fresh, richer read than the list's lean LedgerRow (which has just enough for display, not for reconstructing per-participant split amounts).
+ *
+ * collaboration-architecture-rfc §2/§10: an authorized group member who
+ * doesn't own this row can read it, but never sees the owner's real account
+ * name/type/balance-adjacent metadata — only a generic "{name}'s account"
+ * form. An unauthorized reader gets exactly the same `null` a nonexistent
+ * row would produce (never confirm existence to someone with no rights). */
+export async function getTransactionDetail(actingUserId: string, id: string): Promise<TransactionDetail | null> {
   const t = await prisma.transaction.findFirst({
-    where: { id, userId, deletedAt: null },
+    where: { id, deletedAt: null },
     include: {
       account: { select: { name: true } },
       toAccount: { select: { name: true } },
       splits: { select: { participantId: true, owedAmount: true, method: true } },
+      user: { select: { name: true } },
     },
   });
   if (!t) return null;
+  try {
+    await assertCanRead(prisma, actingUserId, t);
+  } catch {
+    return null;
+  }
+  const isOwner = t.userId === actingUserId;
+  const ownerFirstName = t.user.name.split(" ")[0] || t.user.name;
+  const accountLabel = (realName: string | undefined | null) =>
+    !realName ? null : isOwner ? realName : `${ownerFirstName}'s account`;
   return {
     id: t.id,
     type: t.type,
     amount: Number(t.amount),
     accountId: t.accountId,
-    accountName: t.account?.name ?? null,
+    accountName: accountLabel(t.account?.name),
     toAccountId: t.toAccountId,
-    toAccountName: t.toAccount?.name ?? null,
+    toAccountName: accountLabel(t.toAccount?.name),
     categoryId: t.categoryId,
     merchant: t.merchant,
     ymd: t.occurredAt.toISOString().slice(0, 10),
@@ -380,16 +410,27 @@ export async function getTransactionDetail(userId: string, id: string): Promise<
  * ledger holds at every commit, exactly like softDeleteTransaction/
  * restoreTransaction below already do for delete/undo.
  */
-export async function updateExpense(userId: string, id: string, input: ExpenseInput, intent?: IntentMeta) {
+export async function updateExpense(actingUserId: string, id: string, input: ExpenseInput, intent?: IntentMeta) {
   const shares = input.split ? computeShares(input.amount, input.split) : null;
   const paidByParticipantId = input.split?.payerParticipantId ?? null;
   const newAccountId = paidByParticipantId === null ? input.accountId : null;
+  let ownerUserId: string | undefined;
 
-  const outcome = await exactlyOnceMutate(userId, intent, "expense.update", async (db) => {
-    const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null }, include: { splits: true } });
+  const outcome = await exactlyOnceMutate(actingUserId, intent, "expense.update", async (db) => {
+    const old = await db.transaction.findFirst({ where: { id, deletedAt: null }, include: { splits: true } });
     if (!old) throw new MutationTargetGoneError();
     if (old.type !== "EXPENSE") throw new Error("Not an expense");
-    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, old.version);
+    ownerUserId = old.userId;
+    // collaboration-architecture-rfc §1: accountId is locked to the row's own
+    // owner regardless of group role — only an actual change to it triggers
+    // the stricter check (a resubmitted, unchanged value is not a "write")
+    await assertCanWrite(db, actingUserId, old, newAccountId !== old.accountId ? "write-account" : "write");
+    // NOTE: checkOverride is still scoped to a single actor's own Intent
+    // history — intentionally unchanged here. Making it see a DIFFERENT
+    // actor's prior edit (needed for real LWW-vs-CONFLICT resolution across
+    // two people) is collaboration-architecture-rfc §6.1/§6.2, deliberately
+    // deferred to the offline-sync layer step of the rollout (§12 step 5).
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, old.version);
 
     await applyBalances(db, old, -1);
     if (old.splits.length) await db.expenseSplit.deleteMany({ where: { txId: id } });
@@ -416,21 +457,25 @@ export async function updateExpense(userId: string, id: string, input: ExpenseIn
     });
     await applyBalances(db, updated, 1);
     // solo LWW (spec §13): the override is never hidden — `old` is still the
-    // clobbered version, so both land in this one audit row's before/after
-    await audit(db, userId, "update", "Transaction", id, old, withSyncMeta(updated, intent));
+    // clobbered version, so both land in this one audit row's before/after.
+    // `old.userId` files the row under the ledger it belongs to; actingUserId
+    // is recorded separately only when a group co-member did the editing
+    // (collaboration-architecture-rfc §5).
+    await audit(db, old.userId, "update", "Transaction", id, old, withSyncMeta(updated, intent), actingUserId);
     return { entityId: id, overridden, overriddenByDevice };
   });
 
-  if (input.categoryId) await checkBudgetThresholds(userId, input.categoryId);
+  if (input.categoryId && ownerUserId) await checkBudgetThresholds(ownerUserId, input.categoryId);
   return outcome;
 }
 
-export async function updateIncome(userId: string, id: string, input: IncomeInput, intent?: IntentMeta) {
-  return exactlyOnceMutate(userId, intent, "income.update", async (db) => {
-    const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
+export async function updateIncome(actingUserId: string, id: string, input: IncomeInput, intent?: IntentMeta) {
+  return exactlyOnceMutate(actingUserId, intent, "income.update", async (db) => {
+    const old = await db.transaction.findFirst({ where: { id, deletedAt: null } });
     if (!old) throw new MutationTargetGoneError();
     if (old.type !== "INCOME") throw new Error("Not income");
-    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, old.version);
+    await assertCanWrite(db, actingUserId, old, input.accountId !== old.accountId ? "write-account" : "write");
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, old.version);
 
     await applyBalances(db, old, -1);
     const updated = await db.transaction.update({
@@ -446,24 +491,29 @@ export async function updateIncome(userId: string, id: string, input: IncomeInpu
       },
     });
     await applyBalances(db, updated, 1);
-    await audit(db, userId, "update", "Transaction", id, old, withSyncMeta(updated, intent));
+    await audit(db, old.userId, "update", "Transaction", id, old, withSyncMeta(updated, intent), actingUserId);
     return { entityId: id, overridden, overriddenByDevice };
   });
 }
 
-export async function updateTransfer(userId: string, id: string, input: TransferInput, intent?: IntentMeta) {
+export async function updateTransfer(actingUserId: string, id: string, input: TransferInput, intent?: IntentMeta) {
   if (input.fromAccountId === input.toAccountId) throw new Error("Pick two different accounts");
-  const [from, to] = await Promise.all([
-    prisma.account.findFirst({ where: { id: input.fromAccountId, userId } }),
-    prisma.account.findFirst({ where: { id: input.toAccountId, userId } }),
-  ]);
-  if (!from || !to) throw new Error("Account not found");
 
-  return exactlyOnceMutate(userId, intent, "transfer.update", async (db) => {
-    const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
+  return exactlyOnceMutate(actingUserId, intent, "transfer.update", async (db) => {
+    const old = await db.transaction.findFirst({ where: { id, deletedAt: null } });
     if (!old) throw new MutationTargetGoneError();
     if (old.type !== "TRANSFER") throw new Error("Not a transfer");
-    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, old.version);
+    const accountChanged = input.fromAccountId !== old.accountId || input.toAccountId !== old.toAccountId;
+    await assertCanWrite(db, actingUserId, old, accountChanged ? "write-account" : "write");
+    // resolved AFTER authorization, and against the transaction's own owner's
+    // namespace (not the acting user's) — transfers move money between two
+    // of the OWNER's own accounts regardless of who's editing (§1)
+    const [from, to] = await Promise.all([
+      db.account.findFirst({ where: { id: input.fromAccountId, userId: old.userId } }),
+      db.account.findFirst({ where: { id: input.toAccountId, userId: old.userId } }),
+    ]);
+    if (!from || !to) throw new Error("Account not found");
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, old.version);
 
     await applyBalances(db, old, -1);
     const updated = await db.transaction.update({
@@ -479,7 +529,7 @@ export async function updateTransfer(userId: string, id: string, input: Transfer
       },
     });
     await applyBalances(db, updated, 1);
-    await audit(db, userId, "update", "Transaction", id, old, withSyncMeta(updated, intent));
+    await audit(db, old.userId, "update", "Transaction", id, old, withSyncMeta(updated, intent), actingUserId);
     return { entityId: id, overridden, overriddenByDevice };
   });
 }
@@ -488,24 +538,33 @@ export async function updateTransfer(userId: string, id: string, input: Transfer
  * Deleting an already-deleted (or already-gone) row is idempotent-OK (spec §5
  * DUPLICATE philosophy applied to delete: the user's goal — "this shouldn't
  * exist" — is already satisfied), not a needs-attention failure. */
-export async function softDeleteTransaction(userId: string, id: string, intent?: IntentMeta) {
-  return exactlyOnceMutate(userId, intent, "tx.delete", async (db) => {
-    const t = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
+export async function softDeleteTransaction(actingUserId: string, id: string, intent?: IntentMeta) {
+  return exactlyOnceMutate(actingUserId, intent, "tx.delete", async (db) => {
+    // deleting an already-gone row is idempotent-OK (see the doc comment
+    // above) — that check has to come before authorization, since there's no
+    // row left to resolve a group role against, and "already achieved the
+    // user's goal" is correct regardless of who's asking
+    const t = await db.transaction.findFirst({ where: { id, deletedAt: null } });
     if (!t) return { entityId: id, overridden: false };
-    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, t.version);
+    await assertCanWrite(db, actingUserId, t, "delete");
+    const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, id, intent?.baseVersion, t.version);
     await db.transaction.update({ where: { id }, data: { deletedAt: new Date() } });
     await applyBalances(db, t, -1);
-    await audit(db, userId, "soft-delete", "Transaction", id, withSyncMeta(t, intent), undefined);
+    await audit(db, t.userId, "soft-delete", "Transaction", id, withSyncMeta(t, intent), undefined, actingUserId);
     return { entityId: id, overridden, overriddenByDevice };
   });
 }
 
-export async function restoreTransaction(userId: string, id: string) {
+export async function restoreTransaction(actingUserId: string, id: string) {
   await prisma.$transaction(async (db) => {
-    const t = await db.transaction.findFirst({ where: { id, userId, deletedAt: { not: null } } });
+    const t = await db.transaction.findFirst({ where: { id, deletedAt: { not: null } } });
     if (!t) throw new Error("Transaction not found");
+    // undo-delete sits at the same permission tier as delete itself —
+    // whoever could delete it can also undo their own (or another
+    // authorized member's) delete
+    await assertCanWrite(db, actingUserId, t, "delete");
     await db.transaction.update({ where: { id }, data: { deletedAt: null } });
     await applyBalances(db, t, 1);
-    await audit(db, userId, "restore", "Transaction", id, undefined, t);
+    await audit(db, t.userId, "restore", "Transaction", id, undefined, t, actingUserId);
   });
 }

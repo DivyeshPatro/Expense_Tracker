@@ -13,29 +13,29 @@ datasource db {
 // ───────────────────────── Auth (Better Auth) ─────────────────────────
 
 model User {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  email         String   @unique
+  emailVerified Boolean  @default(false)
   image         String?
-  currency      String    @default("INR")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  currency      String   @default("INR")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  sessions      Session[]
-  authAccounts  AuthAccount[]
-  accounts      Account[]
-  transactions  Transaction[]
-  categories    Category[]
-  budgets       Budget[]
-  bills         Bill[]
+  sessions       Session[]
+  authAccounts   AuthAccount[]
+  accounts       Account[]
+  transactions   Transaction[]
+  categories     Category[]
+  budgets        Budget[]
+  bills          Bill[]
   recurringRules RecurringRule[]
-  tags          Tag[]
-  participants  Participant[]
-  settlements   Settlement[]
-  notifications Notification[]
-  merchantRules MerchantRule[]
-  importBatches ImportBatch[]
+  tags           Tag[]
+  participants   Participant[]
+  settlements    Settlement[]
+  notifications  Notification[]
+  merchantRules  MerchantRule[]
+  importBatches  ImportBatch[]
 }
 
 model Session {
@@ -118,40 +118,47 @@ enum TxType {
 }
 
 model Transaction {
-  id                  String    @id @default(cuid())
+  id                  String           @id @default(cuid())
   userId              String // who recorded it
-  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   type                TxType
   amount              BigInt // paise, always positive
   accountId           String? // source account (null: paid by someone else)
-  account             Account?  @relation("txAccount", fields: [accountId], references: [id])
+  account             Account?         @relation("txAccount", fields: [accountId], references: [id])
   toAccountId         String? // TRANSFER only
-  toAccount           Account?  @relation("txToAccount", fields: [toAccountId], references: [id])
+  toAccount           Account?         @relation("txToAccount", fields: [toAccountId], references: [id])
   categoryId          String?
-  category            Category? @relation(fields: [categoryId], references: [id])
+  category            Category?        @relation(fields: [categoryId], references: [id])
   merchant            String
   occurredAt          DateTime
   notes               String?
   location            String?
   paymentMethod       String?
-  isRecurring         Boolean   @default(false)
+  isRecurring         Boolean          @default(false)
   recurringRuleId     String?
   importBatchId       String?
-  groupId             String? // shared context, optional
+  // collaboration-architecture-rfc §1/§8: when set, this transaction is
+  // editable by any authorized member of the group, not just `userId` — a
+  // group deletion orphans the transaction back to a personal record rather
+  // than destroying real financial history (SetNull, same pattern as
+  // categoryId's existing soft-heal precedent)
+  groupId             String?
+  group               Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
   paidByParticipantId String? // null ⇒ paid by owner
-  paidBy              Participant? @relation("paidBy", fields: [paidByParticipantId], references: [id])
+  paidBy              Participant?     @relation("paidBy", fields: [paidByParticipantId], references: [id])
   splits              ExpenseSplit[]
   tags                TransactionTag[]
   receipts            Receipt[]
   deletedAt           DateTime? // soft delete → undo
-  createdAt           DateTime  @default(now())
-  version             Int       @default(1) // bumped on every update — offline sync's conflict check (offline-sync-spec §4.2)
+  createdAt           DateTime         @default(now())
+  version             Int              @default(1) // bumped on every update — offline sync's conflict check (offline-sync-spec §4.2)
 
   @@index([userId, occurredAt(sort: Desc)])
   @@index([userId, categoryId])
   @@index([userId, accountId])
   @@index([userId, merchant])
   @@index([importBatchId])
+  @@index([groupId])
 }
 
 /// Offline-sync idempotency ledger (offline-sync-spec §4.2/§4.3): one row per
@@ -299,14 +306,14 @@ model TransactionTag {
 }
 
 model Receipt {
-  id          String   @id @default(cuid())
+  id          String      @id @default(cuid())
   txId        String
   tx          Transaction @relation(fields: [txId], references: [id], onDelete: Cascade)
   userId      String
   storagePath String
   mimeType    String
   sizeBytes   Int
-  uploadedAt  DateTime @default(now())
+  uploadedAt  DateTime    @default(now())
 }
 
 // ───────────────────────── Phase 2 — Shared ─────────────────────────
@@ -327,6 +334,10 @@ model Participant {
   settlements  Settlement[]
 
   @@index([ownerId])
+  // collaboration-architecture-rfc §9: hot path for "which groups is this
+  // real user authorized in" — resolveGroupRole() joins through this on
+  // every group-transaction request
+  @@index([linkedUserId])
 }
 
 enum GroupRole {
@@ -336,10 +347,12 @@ enum GroupRole {
 }
 
 model Group {
-  id          String        @id @default(cuid())
-  name        String
-  createdById String
-  members     GroupMember[]
+  id           String        @id @default(cuid())
+  name         String
+  createdById  String // implicit OWNER — no GroupMember row for the creator (collaboration-architecture-rfc §3.1)
+  members      GroupMember[]
+  transactions Transaction[]
+  invitations  Invitation[]
 
   @@index([createdById])
 }
@@ -368,6 +381,15 @@ model Invitation {
   token         String       @unique
   status        InviteStatus @default(PENDING)
   expiresAt     DateTime
+  // collaboration-architecture-rfc §9: when set, accepting this invitation
+  // atomically grants group membership at `role` alongside the existing
+  // linkedUserId link — plain 1:1 friend invitations leave both null,
+  // unchanged from today
+  groupId       String?
+  group         Group?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  role          GroupRole?
+
+  @@index([groupId])
 }
 
 enum SplitMethod {
@@ -479,14 +501,21 @@ model ImportMapping {
 }
 
 model AuditLog {
-  id       String   @id @default(cuid())
-  userId   String
-  action   String
-  entity   String
-  entityId String
-  before   Json?
-  after    Json?
-  at       DateTime @default(now())
+  id          String   @id @default(cuid())
+  userId      String // whose ledger this is filed under — unchanged meaning
+  action      String
+  entity      String
+  entityId    String
+  before      Json?
+  after       Json?
+  at          DateTime @default(now())
+  // collaboration-architecture-rfc §5: who actually performed the action,
+  // when it differs from whose ledger it's filed under (a group co-member
+  // editing someone else's transaction). Null means "acted by userId
+  // themself" — true for every row written before this column existed and
+  // for all personal-transaction writes going forward.
+  actorUserId String?
 
   @@index([userId, at(sort: Desc)])
+  @@index([entityId])
 }

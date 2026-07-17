@@ -5,6 +5,7 @@
 import { cache } from "react";
 import type { TxType } from "@prisma/client";
 import { prisma } from "../db";
+import { assertGroupRole } from "./authorization";
 import { audit } from "./audit";
 
 // cache()-wrapped: the layout (nav/category chips) and Bills (icon/color lookup)
@@ -15,6 +16,26 @@ import { audit } from "./audit";
 export const listCategories = cache(async (userId: string) => {
   return prisma.category.findMany({ where: { userId }, orderBy: { name: "asc" } });
 });
+
+/** Collaboration-architecture-rfc §10 (resolved 2026-07-17): a group member
+ * who doesn't own a transaction's namespace may still need to label it, but
+ * only sees categories already used within that shared group — never a
+ * co-member's full private list, which may hold categories that have
+ * nothing to do with the group (a personal "Gym membership," say). Any role
+ * may read; the set is empty until the group's first categorized expense
+ * exists, in which case the caller falls back to leaving the field
+ * uncategorized rather than exposing anything broader. */
+export async function listGroupCategories(actingUserId: string, groupId: string) {
+  await assertGroupRole(prisma, actingUserId, groupId, "MEMBER");
+  const rows = await prisma.transaction.findMany({
+    where: { groupId, categoryId: { not: null }, deletedAt: null },
+    select: { categoryId: true },
+    distinct: ["categoryId"],
+  });
+  const categoryIds = rows.map((r) => r.categoryId).filter((id): id is string => id !== null);
+  if (categoryIds.length === 0) return [];
+  return prisma.category.findMany({ where: { id: { in: categoryIds } }, orderBy: { name: "asc" } });
+}
 
 const KIND_ICON: Record<TxType, string> = { EXPENSE: "📦", INCOME: "💼", TRANSFER: "⇄" };
 
