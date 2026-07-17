@@ -45,6 +45,10 @@ try {
   // row and into the detail sheet, behind a confirm step) ──
   await page.goto("http://localhost:3000/transactions");
   await page.waitForSelector("text=Today");
+  // the add-expense submit just above triggers its own async router.refresh();
+  // landing this hard navigation right on top of it can catch a transitional
+  // paint where the count briefly reads high — let it settle before counting
+  await page.waitForTimeout(500);
   const before = await page.locator(".card button.w-full").count();
   await page.locator(".card button.w-full").first().click();
   await page.getByRole("button", { name: "Delete", exact: true }).waitFor({ timeout: 8000 });

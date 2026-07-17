@@ -10,6 +10,7 @@ import { authClient } from "@/lib/auth-client";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
 import { CommandPalette } from "./palette";
 import { Modals } from "./modals";
+import { OfflineProvider } from "./offline-context";
 import { NotificationBell } from "./notifications";
 import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type RefData } from "./ui-context";
@@ -53,18 +54,22 @@ export function AppShell({
   refData,
   badge,
   notifBadge,
+  userId,
   children,
 }: {
   refData: RefData;
   badge: number;
   notifBadge: number;
+  userId: string;
   children: React.ReactNode;
 }) {
   return (
     <UIProvider refData={refData}>
-      <ShellInner badge={badge} notifBadge={notifBadge}>
-        {children}
-      </ShellInner>
+      <OfflineProvider userId={userId}>
+        <ShellInner badge={badge} notifBadge={notifBadge}>
+          {children}
+        </ShellInner>
+      </OfflineProvider>
     </UIProvider>
   );
 }

@@ -11,8 +11,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { queryTransactionsAction } from "@/app/actions";
+import { useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
+import { formatPaise } from "@/lib/money";
 import type { LedgerRow } from "@/server/services/ledger";
 import { txDisplay } from "@/lib/tx-display";
 
@@ -188,6 +190,8 @@ export function TransactionsList({
         )}
       </div>
 
+      <PendingRows />
+
       {!loading && rows.length === 0 && (
         <div className="text-center py-[60px] px-5 text-mut2 text-[13px]">Nothing matches — try a different search or filter.</div>
       )}
@@ -224,6 +228,47 @@ export function TransactionsList({
           {loading ? "Loading…" : "Load more"}
         </button>
       )}
+    </div>
+  );
+}
+
+/** Local echo (offline-sync spec §6/§7): creates that haven't reached the
+ * server yet, rendered from this device's outbox with the ⏳ badge. They
+ * disappear when the drain lands and router.refresh() brings the real rows. */
+function PendingRows() {
+  const { pending } = useOffline();
+  const { refData } = useUI();
+  if (pending.length === 0) return null;
+
+  const accountName = (id: unknown) => refData.accounts.find((a) => a.id === id)?.name ?? "account";
+  return (
+    <div>
+      <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mx-0.5 mt-1 mb-2 uppercase">Waiting to sync</div>
+      <div className="card px-4 py-1.5">
+        {pending.map((i) => {
+          const p = i.payload as { amount?: string; merchant?: string; fromAccountId?: string; toAccountId?: string };
+          const paise = Math.round((Number(p.amount) || 0) * 100);
+          const isTransfer = i.kind === "transfer.create";
+          const name = isTransfer
+            ? `${accountName(p.fromAccountId)} → ${accountName(p.toAccountId)}`
+            : p.merchant || (i.kind === "income.create" ? "Income" : "Expense");
+          const amtF = `${i.kind === "income.create" ? "+" : i.kind === "expense.create" ? "−" : ""}${formatPaise(paise)}`;
+          return (
+            <div key={i.intentId} className="w-full flex items-center gap-3 py-[11px] border-b border-line last:border-b-0 min-h-[44px]">
+              <div className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none bg-accsoft" aria-hidden="true">
+                ⏳
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-semibold truncate">{name}</div>
+                <div className="text-[11.5px] text-mut2 truncate">
+                  {typeof navigator !== "undefined" && !navigator.onLine ? "Waiting for internet" : "Waiting to sync"}
+                </div>
+              </div>
+              <div className="text-[13px] font-bold flex-none text-mut">{amtF}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

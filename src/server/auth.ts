@@ -9,6 +9,9 @@ export const auth = betterAuth({
     enabled: true,
   },
   session: {
+    // 30 days (offline-sync-spec §19.1, locked): a week-offline phone must
+    // not come back to a stranded queue behind an expired session.
+    expiresIn: 60 * 60 * 24 * 30,
     // every RSC navigation calls getSession(); without this each one is a
     // Postgres round trip before any page work can start. The signed cookie
     // cache answers those from the request itself for 5 minutes (sign-out

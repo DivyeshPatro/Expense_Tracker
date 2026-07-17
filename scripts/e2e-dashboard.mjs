@@ -96,11 +96,18 @@ try {
 
   await mobile.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
   await mobile.waitForSelector("text=TOTAL BALANCE");
+  await mobile.waitForTimeout(400); // let the RSC stream settle under chain load before reading
   // both the mobile single-item chip (md:hidden) and the desktop full strip
   // (hidden md:flex) render server-side and share this bill's text — CSS
-  // decides which is actually visible at runtime, so scope to the mobile one
-  const attentionLink = mobile.locator("a.md\\:hidden", { hasText: "E2EDashboardBill" });
-  ok("a bill due today surfaces as the mobile attention item", await attentionLink.isVisible());
+  // decides which is actually visible at runtime, so scope to the mobile one.
+  // Use count() rather than isVisible() on the bare locator: a strict-mode
+  // throw here would abort the script before the cleanup step below runs,
+  // leaving this bill behind to poison every later run — assert the count
+  // explicitly instead so a real regression is diagnosed, not just crashed on.
+  const attentionLocator = mobile.locator("a.md\\:hidden", { hasText: "E2EDashboardBill" });
+  const attentionMatches = await attentionLocator.count();
+  ok("a bill due today surfaces as exactly one mobile attention item", attentionMatches === 1, `found ${attentionMatches}`);
+  const attentionLink = attentionLocator.first();
   const attentionHref = await attentionLink.getAttribute("href");
   ok("the attention item links to Bills", attentionHref === "/bills");
 

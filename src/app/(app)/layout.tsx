@@ -36,7 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const badge = nets.filter((n) => Math.abs(n.net) > 100).length;
 
   return (
-    <AppShell refData={refData} badge={badge} notifBadge={notifBadge}>
+    <AppShell refData={refData} badge={badge} notifBadge={notifBadge} userId={user.id}>
       {children}
     </AppShell>
   );

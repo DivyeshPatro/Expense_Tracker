@@ -6,9 +6,7 @@
 import { useState } from "react";
 import {
   addExpenseAction,
-  addIncomeAction,
   addParticipantAction,
-  addTransferAction,
   createAccountAction,
   createBillAction,
   createGroupAction,
@@ -17,6 +15,7 @@ import {
 } from "@/app/actions";
 import { todayYMD } from "@/lib/dates";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
+import { useOffline } from "./offline-context";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
 import { TransactionDetailSheet } from "./transaction-detail";
 import { useUI, type ModalPrefill } from "./ui-context";
@@ -69,6 +68,7 @@ export function Modals() {
 
 function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
+  const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(refData.accounts[0]?.id ?? "");
@@ -130,8 +130,8 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
         busy={busy}
         onClick={() =>
           run(
-            () =>
-              addExpenseAction({
+            () => {
+              const payload = {
                 amount,
                 accountId: accountId || null,
                 categoryId: categoryId || null,
@@ -139,8 +139,18 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                 date,
                 notes: notes || undefined,
                 split: buildSplitPayload(splitState, selected.map((p) => p.id)),
-              }),
-            split ? "Split expense added" : "Expense added"
+              };
+              // Phase 1 queues solo creates only (spec §17); a split touches
+              // friends' balances and needs the server's validation
+              if (split) {
+                if (typeof navigator !== "undefined" && !navigator.onLine) {
+                  return Promise.resolve({ ok: false as const, error: "Split expenses need internet — try again when you're back online." });
+                }
+                return addExpenseAction(payload);
+              }
+              return createViaOutbox("expense.create", payload);
+            },
+            (r) => (r.queued ? "Saved — will sync when you're back online" : split ? "Split expense added" : "Expense added")
           )
         }
       >
@@ -154,6 +164,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
 
 function IncomeForm() {
   const { refData } = useUI();
+  const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(refData.accounts[0]?.id ?? "");
@@ -195,7 +206,12 @@ function IncomeForm() {
       <SubmitButton
         busy={busy}
         color="var(--green)"
-        onClick={() => run(() => addIncomeAction({ amount, accountId, categoryId: categoryId || null, merchant, date }), "Income added")}
+        onClick={() =>
+          run(
+            () => createViaOutbox("income.create", { amount, accountId, categoryId: categoryId || null, merchant, date }),
+            (r) => (r.queued ? "Saved — will sync when you're back online" : "Income added")
+          )
+        }
       >
         Add income
       </SubmitButton>
@@ -207,6 +223,7 @@ function IncomeForm() {
 
 function TransferForm() {
   const { refData } = useUI();
+  const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
   const [amount, setAmount] = useState("");
   const [from, setFrom] = useState(refData.accounts[0]?.id ?? "");
@@ -237,7 +254,15 @@ function TransferForm() {
         <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       </Field>
       <ErrorNote error={error} />
-      <SubmitButton busy={busy} onClick={() => run(() => addTransferAction({ amount, fromAccountId: from, toAccountId: to, date }), "Transfer recorded")}>
+      <SubmitButton
+        busy={busy}
+        onClick={() =>
+          run(
+            () => createViaOutbox("transfer.create", { amount, fromAccountId: from, toAccountId: to, date }),
+            (r) => (r.queued ? "Saved — will sync when you're back online" : "Transfer recorded")
+          )
+        }
+      >
         Transfer
       </SubmitButton>
     </div>

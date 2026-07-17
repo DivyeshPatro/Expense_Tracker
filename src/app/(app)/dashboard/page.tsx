@@ -9,6 +9,7 @@
 
 import Link from "next/link";
 import { CashFlowCard, type CashFlowSeries } from "@/components/dashboard/cashflow";
+import { LiveBalance } from "@/components/dashboard/live-balance";
 import { OpenModalButton } from "@/components/shell/buttons";
 import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonthKey, todayYMD, MONTH_NAMES } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
@@ -160,7 +161,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="flex flex-wrap gap-3.5">
         <div className="flex-[1.5_1_250px] rounded-[14px] p-[var(--pad)] text-white" style={{ background: "linear-gradient(135deg,var(--dark1),var(--dark2))", boxShadow: "0 8px 24px rgba(28,39,64,.25)" }}>
           <div className="text-[11px] opacity-65 font-semibold tracking-[.06em]">{mode === "month" && periodKey === key ? "TOTAL BALANCE" : `BALANCE · ${periodLabel}`}</div>
-          <div className="text-[28px] font-extrabold tracking-tight mt-[5px]">{signed(balanceAtEnd)}</div>
+          <LiveBalance basePaise={balanceAtEnd} live={mode === "all" || (mode === "month" && periodKey === key)} />
           <div className="text-[11.5px] mt-[7px] opacity-75">
             {mode === "month" && periodKey === key
               ? `${signed(accountsTotal)} across ${accounts.length} accounts${balanceNow !== accountsTotal ? ` · ${signed(balanceNow - accountsTotal)} net from unassigned history` : ""}`

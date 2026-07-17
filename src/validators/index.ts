@@ -64,6 +64,9 @@ export const transferSchema = z.object({
   notes: z.string().trim().max(500).optional(),
 });
 
+export const incomeWithIntentSchema = incomeSchema.extend({ intent: intentMetaSchema.optional() });
+export const transferWithIntentSchema = transferSchema.extend({ intent: intentMetaSchema.optional() });
+
 export const updateExpenseSchema = z.object({ id: z.string().min(1) }).merge(expenseSchema);
 export const updateIncomeSchema = z.object({ id: z.string().min(1) }).merge(incomeSchema);
 export const updateTransferSchema = z.object({ id: z.string().min(1) }).merge(transferSchema);

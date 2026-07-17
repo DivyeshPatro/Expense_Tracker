@@ -1,10 +1,10 @@
-// Offline-sync client store (offline-sync-spec §4.1) — Phase 0 skeleton.
-// Hand-rolled promise wrapper over IndexedDB (no dependency, per the spec's
-// budget): an `outbox` store for intents and a `meta` store for device
-// identity. Phase 0 ships the plumbing only — nothing enqueues yet, and the
-// flag below stays off until Phase 1 lands the drain loop and sync UI.
+// Offline-sync client store (offline-sync-spec §4.1). Hand-rolled promise
+// wrapper over IndexedDB (no dependency, per the spec's budget): an `outbox`
+// store for intents and a `meta` store for device identity. Phase 1 turned
+// the outbox on: solo creates queue when the network is gone and drain
+// automatically (see offline-context.tsx for the ladder).
 
-export const OUTBOX_ENABLED = false; // flipped by offline-sync Phase 1
+export const OUTBOX_ENABLED = true; // Phase 1 (offline-sync-spec §17)
 
 const DB_NAME = "ledgerly";
 const DB_VERSION = 1; // bump + migrate in onupgradeneeded when stores change (spec §4.1 "schemaVersion")
@@ -99,4 +99,56 @@ function defaultDeviceName(): string {
 
 export async function outboxCount(): Promise<number> {
   return withStore("outbox", "readonly", (s) => s.count());
+}
+
+// ─────────── outbox operations (Phase 1) ───────────
+
+let seqTiebreak = 0;
+
+/** Monotonic-enough FIFO key: wall clock + in-session tiebreak. */
+export function nextSeq(): number {
+  return Date.now() * 100 + (seqTiebreak = (seqTiebreak + 1) % 100);
+}
+
+export async function outboxPut(intent: OutboxIntent): Promise<void> {
+  await withStore("outbox", "readwrite", (s) => s.put(intent));
+}
+
+export async function outboxRemove(intentId: string): Promise<void> {
+  await withStore("outbox", "readwrite", (s) => s.delete(intentId));
+}
+
+export async function outboxList(userId: string): Promise<OutboxIntent[]> {
+  const all = await withStore<OutboxIntent[]>("outbox", "readonly", (s) => s.getAll() as IDBRequest<OutboxIntent[]>);
+  // outbox is never adopted by a different user (spec §15)
+  return all.filter((i) => i.userId === userId).sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+}
+
+export async function getLastSyncAt(): Promise<string | undefined> {
+  return metaGet("lastSyncAt");
+}
+
+export async function setLastSyncAt(iso: string): Promise<void> {
+  await metaSet("lastSyncAt", iso);
+}
+
+// ─────────── provisional display math (spec §8: bounded paise addition ONLY,
+// display-only, recomputed per render, never persisted) ───────────
+
+/** Effect of one pending create on the TOTAL balance, in paise. Transfers
+ * net to zero at the total level; friend-paid split expenses are out of
+ * Phase-1 scope (solo creates only). Payload amounts are the raw form
+ * values — rupee strings — exactly as the server action will parse them. */
+export function pendingDeltaPaise(intent: Pick<OutboxIntent, "kind" | "payload">): number {
+  const p = (intent.payload ?? {}) as { amount?: unknown };
+  const rupees = Number(typeof p.amount === "string" || typeof p.amount === "number" ? p.amount : NaN);
+  if (!Number.isFinite(rupees)) return 0;
+  const paise = Math.round(rupees * 100);
+  if (intent.kind === "expense.create") return -paise;
+  if (intent.kind === "income.create") return paise;
+  return 0; // transfer.create: −from +to nets to zero on the total
+}
+
+export function pendingTotalDelta(intents: Pick<OutboxIntent, "kind" | "payload">[]): number {
+  return intents.reduce((sum, i) => sum + pendingDeltaPaise(i), 0);
 }

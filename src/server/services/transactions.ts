@@ -79,6 +79,51 @@ export interface IntentMeta {
   entityId?: string;
 }
 
+/** Run a create inside one $transaction with the intent row as the last
+ * write; on replay (P2002 + a recorded prior intent) return the original
+ * outcome without touching the ledger. The single implementation every
+ * intent-capable create shares. */
+async function exactlyOnce(
+  userId: string,
+  intent: IntentMeta | undefined,
+  kind: string,
+  body: (db: Db) => Promise<{ id: string }>
+): Promise<string> {
+  try {
+    const created = await prisma.$transaction(async (db) => {
+      const t = await body(db);
+      if (intent) {
+        await db.intent.create({
+          data: {
+            id: intent.intentId,
+            userId,
+            deviceId: intent.deviceId,
+            kind,
+            entityId: t.id,
+            status: "applied",
+            clientTs: new Date(intent.clientTs),
+          },
+        });
+      }
+      return t;
+    });
+    return created.id;
+  } catch (e) {
+    // P2002 has two possible sources; the intent lookup disambiguates: a
+    // recorded prior intent means replay (return its outcome), none means a
+    // genuine conflict (rethrow).
+    if (intent && typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
+      const prior = await prisma.intent.findUnique({ where: { userId_id: { userId, id: intent.intentId } } });
+      if (prior) return prior.entityId;
+    }
+    throw e;
+  }
+}
+
+/** bitemporal-lite (spec §4.2): audit records when the human acted too */
+const withSyncMeta = <T extends object>(t: T, intent: IntentMeta | undefined) =>
+  intent ? { ...t, _sync: { intentId: intent.intentId, deviceId: intent.deviceId, clientTs: intent.clientTs } } : t;
+
 export async function addExpense(userId: string, input: ExpenseInput, intent?: IntentMeta) {
   // rule-based auto-categorization when no category picked
   let categoryId = input.categoryId;
@@ -92,73 +137,36 @@ export async function addExpense(userId: string, input: ExpenseInput, intent?: I
   const shares = input.split ? computeShares(input.amount, input.split) : null;
   const paidByParticipantId = input.split?.payerParticipantId ?? null;
 
-  let tx: { id: string };
-  try {
-    tx = await prisma.$transaction(async (db) => {
-      const t = await db.transaction.create({
-        data: {
-          // offline clients pre-assign the id so a replayed create is
-          // structurally incapable of double-inserting (spec §5)
-          ...(intent?.entityId ? { id: intent.entityId } : {}),
-          userId,
-          type: "EXPENSE",
-          amount: input.amount,
-          // when a friend paid, no money left the owner's accounts
-          accountId: paidByParticipantId === null ? input.accountId : null,
-          categoryId,
-          merchant: input.merchant,
-          occurredAt: istNoon(input.date),
-          notes: input.notes || null,
-          paymentMethod: input.paymentMethod || null,
-          isRecurring: input.isRecurring ?? false,
-          paidByParticipantId,
-          splits: shares
-            ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
-            : undefined,
-        },
-        // splits in the audit after-image — snapshots must be complete because
-        // they can never be backfilled
-        include: { splits: true },
-      });
-      await applyBalances(db, t, 1);
-      await audit(
-        db,
+  const txId = await exactlyOnce(userId, intent, "expense.create", async (db) => {
+    const t = await db.transaction.create({
+      data: {
+        // offline clients pre-assign the id so a replayed create is
+        // structurally incapable of double-inserting (spec §5)
+        ...(intent?.entityId ? { id: intent.entityId } : {}),
         userId,
-        "create",
-        "Transaction",
-        t.id,
-        undefined,
-        // bitemporal-lite (spec §4.2): record when the human acted, not just
-        // when the ledger heard about it
-        intent ? { ...t, _sync: { intentId: intent.intentId, deviceId: intent.deviceId, clientTs: intent.clientTs } } : t
-      );
-      if (intent) {
-        // last write inside the tx: a unique violation here rolls everything
-        // back, making (userId, intentId) the exactly-once arbiter
-        await db.intent.create({
-          data: {
-            id: intent.intentId,
-            userId,
-            deviceId: intent.deviceId,
-            kind: "expense.create",
-            entityId: t.id,
-            status: "applied",
-            clientTs: new Date(intent.clientTs),
-          },
-        });
-      }
-      return t;
+        type: "EXPENSE",
+        amount: input.amount,
+        // when a friend paid, no money left the owner's accounts
+        accountId: paidByParticipantId === null ? input.accountId : null,
+        categoryId,
+        merchant: input.merchant,
+        occurredAt: istNoon(input.date),
+        notes: input.notes || null,
+        paymentMethod: input.paymentMethod || null,
+        isRecurring: input.isRecurring ?? false,
+        paidByParticipantId,
+        splits: shares
+          ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }
+          : undefined,
+      },
+      // splits in the audit after-image — snapshots must be complete because
+      // they can never be backfilled
+      include: { splits: true },
     });
-  } catch (e) {
-    // P2002 has two possible sources here; the intent lookup disambiguates:
-    // a recorded prior intent means this is a replay (return its outcome);
-    // no prior intent means a genuine conflict (rethrow).
-    if (intent && typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
-      const prior = await prisma.intent.findUnique({ where: { userId_id: { userId, id: intent.intentId } } });
-      if (prior) return prior.entityId;
-    }
-    throw e;
-  }
+    await applyBalances(db, t, 1);
+    await audit(db, userId, "create", "Transaction", t.id, undefined, withSyncMeta(t, intent));
+    return t;
+  });
 
   // self-improving merchant rule when the user picked the category explicitly
   if (input.categoryId && input.merchant) {
@@ -170,7 +178,7 @@ export async function addExpense(userId: string, input: ExpenseInput, intent?: I
   }
 
   if (categoryId) await checkBudgetThresholds(userId, categoryId);
-  return tx.id;
+  return txId;
 }
 
 export interface IncomeInput {
@@ -182,10 +190,11 @@ export interface IncomeInput {
   notes?: string;
 }
 
-export async function addIncome(userId: string, input: IncomeInput) {
-  const tx = await prisma.$transaction(async (db) => {
+export async function addIncome(userId: string, input: IncomeInput, intent?: IntentMeta) {
+  return exactlyOnce(userId, intent, "income.create", async (db) => {
     const t = await db.transaction.create({
       data: {
+        ...(intent?.entityId ? { id: intent.entityId } : {}),
         userId,
         type: "INCOME",
         amount: input.amount,
@@ -197,10 +206,9 @@ export async function addIncome(userId: string, input: IncomeInput) {
       },
     });
     await applyBalances(db, t, 1);
-    await audit(db, userId, "create", "Transaction", t.id, undefined, t);
+    await audit(db, userId, "create", "Transaction", t.id, undefined, withSyncMeta(t, intent));
     return t;
   });
-  return tx.id;
 }
 
 export interface TransferInput {
@@ -211,16 +219,17 @@ export interface TransferInput {
   notes?: string;
 }
 
-export async function addTransfer(userId: string, input: TransferInput) {
+export async function addTransfer(userId: string, input: TransferInput, intent?: IntentMeta) {
   if (input.fromAccountId === input.toAccountId) throw new Error("Pick two different accounts");
   const [from, to] = await Promise.all([
     prisma.account.findFirst({ where: { id: input.fromAccountId, userId } }),
     prisma.account.findFirst({ where: { id: input.toAccountId, userId } }),
   ]);
   if (!from || !to) throw new Error("Account not found");
-  const tx = await prisma.$transaction(async (db) => {
+  return exactlyOnce(userId, intent, "transfer.create", async (db) => {
     const t = await db.transaction.create({
       data: {
+        ...(intent?.entityId ? { id: intent.entityId } : {}),
         userId,
         type: "TRANSFER",
         amount: input.amount,
@@ -232,10 +241,9 @@ export async function addTransfer(userId: string, input: TransferInput) {
       },
     });
     await applyBalances(db, t, 1);
-    await audit(db, userId, "create", "Transaction", t.id, undefined, t);
+    await audit(db, userId, "create", "Transaction", t.id, undefined, withSyncMeta(t, intent));
     return t;
   });
-  return tx.id;
 }
 
 export interface TransactionDetail {

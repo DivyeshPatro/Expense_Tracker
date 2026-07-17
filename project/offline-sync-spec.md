@@ -417,14 +417,38 @@ What does **not** fail: the financial core. Every intent still lands in the same
 `$transaction` reverse→apply path that 137 e2e checks guard today — scale changes arrival
 patterns, not semantics.
 
-## 19. Open questions for product owner
+## 19. Decisions — LOCKED (2026-07-16, before Phase 1, per product owner direction)
 
-1. **Session lifetime** → 30 days to protect long-offline queues. Approve?
-2. **Bulk "Clear pending"** — spec deliberately omits it (§10). Confirm, or require it with
-   the heavy confirmation flow described.
-3. **Category soft-heal** (`INVALID_REF_SOFT`: sync succeeds, category cleared, notice shown)
-   vs. hard needs-attention. Spec recommends soft-heal. Confirm.
-4. **Solo LWW** (`OK_OVERRIDE`: server applies your offline edit over your own newer edit
-   from another device, audited, no prompt). Spec recommends this. Confirm.
-5. **Push notifications** scope in Phase 5 — needs-attention only, opt-in. Confirm.
-6. **Device naming** — auto-derived names editable in V1, or fixed until requested?
+1. **Session lifetime: 30 days** (Better Auth `session.expiresIn`), so a long-offline queue
+   is never stranded behind an expired session. Implemented at the start of Phase 1.
+2. **Bulk "Clear pending": permanently omitted.** Per-item discard with named confirmation
+   is the only destructive path for unsynced intents.
+3. **Category soft-heal: adopted.** `INVALID_REF_SOFT` applies the mutation with
+   `categoryId = null` plus a notice and one-tap re-categorize; never a hard failure.
+4. **Solo last-writer-wins: adopted.** `OK_OVERRIDE` applies without prompting, both
+   versions audited; conflict cards are reserved for shared records only.
+5. **Push notifications: Phase 5, needs-attention only, opt-in.**
+6. **Device identity:** per-install uuid in IndexedDB `meta` (created at first visit —
+   shipped in Phase 0), friendly UA-derived name ("Chrome on Windows"); user-editable
+   naming deferred until requested. Names appear only in conflict copy and the Sync Center.
+
+## 20. Pre-Phase-1 baselines (measured 2026-07-16, production build, local Postgres)
+
+Captured before any outbox write ships, so Phase 1+ regressions are detectable:
+
+| Metric | avg | P95 | P99 |
+|---|---|---|---|
+| IndexedDB outbox write (realistic intent record, one tx/write, n=300) | 0.85 ms | 1.20 ms | 2.70 ms |
+| Intent row insert, Postgres (standalone, n=200) | 5.87 ms | 7.94 ms | 11.21 ms |
+
+Interpretation: enqueue is effectively free (≥99 ms of headroom inside the 100 ms
+perceived-write budget); the idempotency row adds ~6 ms to each mutation — negligible
+against the ~50–100 ms action round trip.
+
+## 21. Phase 2 addendum (approved 2026-07-16): developer Offline Debug readout
+
+Developer-only (never end-users; behind a dev flag): a compact diagnostic surface showing
+offline state, pending count, queue health, intent health, SW registration state, and
+whether sync is enabled — e.g. `Offline · Pending 3 · Queue Healthy · Intent Healthy ·
+SW Registered · Sync Disabled`. No UI in Phases 0–1; lands with Phase 2's Sync Center
+work where its data sources already exist.

@@ -54,10 +54,10 @@ import {
   expenseWithIntentSchema,
   groupMemberSchema,
   groupSchema,
-  incomeSchema,
+  incomeWithIntentSchema,
   participantSchema,
   settlementSchema,
-  transferSchema,
+  transferWithIntentSchema,
   updateExpenseSchema,
   updateIncomeSchema,
   updateTransferSchema,
@@ -92,8 +92,8 @@ export async function addExpenseAction(input: unknown): Promise<ActionResult> {
 export async function addIncomeAction(input: unknown): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    const data = incomeSchema.parse(input);
-    await addIncome(user.id, data);
+    const { intent, ...data } = incomeWithIntentSchema.parse(input);
+    await addIncome(user.id, data, intent);
     refresh();
     return { ok: true };
   } catch (e) {
@@ -104,8 +104,8 @@ export async function addIncomeAction(input: unknown): Promise<ActionResult> {
 export async function addTransferAction(input: unknown): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    const data = transferSchema.parse(input);
-    await addTransfer(user.id, data);
+    const { intent, ...data } = transferWithIntentSchema.parse(input);
+    await addTransfer(user.id, data, intent);
     refresh();
     return { ok: true };
   } catch (e) {

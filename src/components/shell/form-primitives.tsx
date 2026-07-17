@@ -14,7 +14,10 @@ export function useSubmit() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function run(action: () => Promise<ActionResult>, successMsg: string) {
+  async function run(
+    action: () => Promise<ActionResult & { queued?: boolean }>,
+    successMsg: string | ((res: ActionResult & { queued?: boolean }) => string)
+  ) {
     setBusy(true);
     setError(null);
     const res = await action();
@@ -24,8 +27,11 @@ export function useSubmit() {
       return;
     }
     closeModal();
-    showToast(successMsg);
-    router.refresh();
+    showToast(typeof successMsg === "function" ? successMsg(res) : successMsg);
+    // a queued (offline) create changed nothing server-side — refreshing would
+    // fire a doomed RSC fetch; the local echo renders from the outbox instead,
+    // and the drain refreshes when the change actually lands
+    if (!res.queued) router.refresh();
   }
   return { run, busy, error };
 }
