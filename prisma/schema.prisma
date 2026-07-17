@@ -159,18 +159,20 @@ model Transaction {
 /// mutation. Unique (userId, id) makes at-least-once delivery exactly-once.
 /// Not history (audit is history) — pruned after 30 days by a later phase.
 model Intent {
-  id        String // client-generated intentId (uuid v4)
-  userId    String
-  deviceId  String
-  kind      String // "expense.create" | ... (one per action brought into scope)
-  entityId  String
-  status    String // applied | overridden | failed
-  error     String?
-  clientTs  DateTime
-  appliedAt DateTime @default(now())
+  id         String // client-generated intentId (uuid v4)
+  userId     String
+  deviceId   String
+  deviceName String? // UA-derived friendly name (offline-sync-spec §13 OK_OVERRIDE copy: "replaced an edit from {device}") — Phase 3
+  kind       String // "expense.create" | ... (one per action brought into scope)
+  entityId   String
+  status     String // applied | overridden | failed
+  error      String?
+  clientTs   DateTime
+  appliedAt  DateTime @default(now())
 
   @@id([userId, id])
   @@index([userId, appliedAt])
+  @@index([userId, entityId, appliedAt]) // Phase 3: "who last touched this entity" for LWW override copy
 }
 
 model Category {

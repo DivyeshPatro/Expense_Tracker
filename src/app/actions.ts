@@ -51,6 +51,7 @@ import {
   categorySchema,
   changeCategoryKindSchema,
   renameCategorySchema,
+  deleteTransactionSchema,
   expenseWithIntentSchema,
   groupMemberSchema,
   groupSchema,
@@ -58,9 +59,9 @@ import {
   participantSchema,
   settlementSchema,
   transferWithIntentSchema,
-  updateExpenseSchema,
-  updateIncomeSchema,
-  updateTransferSchema,
+  updateExpenseWithIntentSchema,
+  updateIncomeWithIntentSchema,
+  updateTransferWithIntentSchema,
 } from "@/validators";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -113,10 +114,11 @@ export async function addTransferAction(input: unknown): Promise<ActionResult> {
   }
 }
 
-export async function deleteTransactionAction(id: string): Promise<ActionResult> {
+export async function deleteTransactionAction(input: unknown): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    await softDeleteTransaction(user.id, id);
+    const { id, intent } = deleteTransactionSchema.parse(input);
+    await softDeleteTransaction(user.id, id, intent);
     refresh();
     return { ok: true };
   } catch (e) {
@@ -140,37 +142,39 @@ export async function getTransactionDetailAction(id: string) {
   return getTransactionDetail(user.id, id);
 }
 
-export async function updateExpenseAction(input: unknown): Promise<ActionResult> {
+export type MutateActionResult = ActionResult & { overridden?: boolean; overriddenByDevice?: string };
+
+export async function updateExpenseAction(input: unknown): Promise<MutateActionResult> {
   try {
     const user = await requireUser();
-    const { id, ...data } = updateExpenseSchema.parse(input);
-    await updateExpense(user.id, id, data);
+    const { id, intent, ...data } = updateExpenseWithIntentSchema.parse(input);
+    const outcome = await updateExpense(user.id, id, data, intent);
     refresh();
-    return { ok: true };
+    return { ok: true, overridden: outcome.overridden, overriddenByDevice: outcome.overriddenByDevice };
   } catch (e) {
     return fail(e);
   }
 }
 
-export async function updateIncomeAction(input: unknown): Promise<ActionResult> {
+export async function updateIncomeAction(input: unknown): Promise<MutateActionResult> {
   try {
     const user = await requireUser();
-    const { id, ...data } = updateIncomeSchema.parse(input);
-    await updateIncome(user.id, id, data);
+    const { id, intent, ...data } = updateIncomeWithIntentSchema.parse(input);
+    const outcome = await updateIncome(user.id, id, data, intent);
     refresh();
-    return { ok: true };
+    return { ok: true, overridden: outcome.overridden, overriddenByDevice: outcome.overriddenByDevice };
   } catch (e) {
     return fail(e);
   }
 }
 
-export async function updateTransferAction(input: unknown): Promise<ActionResult> {
+export async function updateTransferAction(input: unknown): Promise<MutateActionResult> {
   try {
     const user = await requireUser();
-    const { id, ...data } = updateTransferSchema.parse(input);
-    await updateTransfer(user.id, id, data);
+    const { id, intent, ...data } = updateTransferWithIntentSchema.parse(input);
+    const outcome = await updateTransfer(user.id, id, data, intent);
     refresh();
-    return { ok: true };
+    return { ok: true, overridden: outcome.overridden, overriddenByDevice: outcome.overriddenByDevice };
   } catch (e) {
     return fail(e);
   }

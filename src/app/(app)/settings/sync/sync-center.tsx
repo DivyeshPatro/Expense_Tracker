@@ -11,8 +11,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getDeviceAddedAt, getDeviceName, syncLogList, type OutboxIntent, type SyncLogEntry } from "@/lib/offline/db";
-import { formatPaise } from "@/lib/money";
-import { useOffline } from "@/components/shell/offline-context";
+import { intentLabel, useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 
 function relative(iso: string | null): string {
@@ -32,6 +31,7 @@ function shortDate(iso: string | undefined): string {
 const LOG_ICON: Record<SyncLogEntry["status"], { icon: string; color: string }> = {
   synced: { icon: "✓", color: "var(--green)" },
   healed: { icon: "✓", color: "var(--green)" },
+  overridden: { icon: "✓", color: "var(--green)" },
   "needs-attention": { icon: "⚠", color: "var(--red)" },
   offline: { icon: "⏳", color: "var(--mut)" },
   cancelled: { icon: "—", color: "var(--mut2)" },
@@ -40,6 +40,7 @@ const LOG_ICON: Record<SyncLogEntry["status"], { icon: string; color: string }> 
 const LOG_STATUS_LABEL: Record<SyncLogEntry["status"], string> = {
   synced: "Synced",
   healed: "Synced (uncategorized)",
+  overridden: "Synced",
   "needs-attention": "Needs attention",
   offline: "Waiting for internet",
   cancelled: "Removed",
@@ -127,7 +128,19 @@ export function SyncCenter() {
           <h2 className="text-[13.5px] font-bold m-0">Queue</h2>
           <div className="flex flex-col">
             {queue.map((i) => (
-              <QueueRow key={i.intentId} intent={i} onClick={() => openModal("pendingDetail", { intentId: i.intentId })} />
+              <QueueRow
+                key={i.intentId}
+                intent={i}
+                onClick={() =>
+                  // create-kind intents have no server-side entity yet (pendingDetail,
+                  // sourced from the outbox); mutation-kind intents are edits/deletes of
+                  // an entity that already exists (the ordinary transaction detail
+                  // sheet, which is itself outbox-aware — spec §17 Phase 3)
+                  i.kind.endsWith(".create")
+                    ? openModal("pendingDetail", { intentId: i.intentId })
+                    : openModal("txDetail", { transactionId: i.entityId })
+                }
+              />
             ))}
           </div>
         </section>
@@ -147,6 +160,7 @@ export function SyncCenter() {
                   <div className="flex-1 min-w-0 text-[12.5px]">
                     <span className="font-semibold" style={{ color: meta.color }}>{LOG_STATUS_LABEL[entry.status]}</span>{" "}
                     <span className="text-mut">{entry.label}</span>
+                    {entry.status === "overridden" && entry.detail && <span className="text-mut2"> — {entry.detail}</span>}
                   </div>
                   <time className="text-[11px] text-mut2 flex-none">{relative(new Date(entry.ts).toISOString())}</time>
                 </div>
@@ -215,10 +229,9 @@ export function SyncCenter() {
 }
 
 function QueueRow({ intent, onClick }: { intent: OutboxIntent; onClick: () => void }) {
-  const p = intent.payload as { amount?: unknown; merchant?: string };
-  const paise = Math.round((Number(p.amount) || 0) * 100);
   const attention = intent.status === "needs-attention";
-  const name = intent.kind === "transfer.create" ? "Transfer" : p.merchant || (intent.kind === "income.create" ? "Income" : "Expense");
+  const label = intentLabel(intent);
+  const suffix = intent.kind === "tx.delete" ? " · removing" : "";
   return (
     <button
       onClick={onClick}
@@ -227,7 +240,7 @@ function QueueRow({ intent, onClick }: { intent: OutboxIntent; onClick: () => vo
       <span className="text-[14px] flex-none" style={{ color: attention ? "var(--red)" : "var(--mut)" }} aria-hidden="true">
         {attention ? "⚠" : "⏳"}
       </span>
-      <div className="flex-1 min-w-0 text-[12.5px] font-semibold truncate">{formatPaise(paise)} · {name}</div>
+      <div className="flex-1 min-w-0 text-[12.5px] font-semibold truncate">{label}{suffix}</div>
       <span className="text-mut2 flex-none">›</span>
     </button>
   );

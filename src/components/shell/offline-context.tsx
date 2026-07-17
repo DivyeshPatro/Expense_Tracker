@@ -13,10 +13,20 @@
 
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { addExpenseAction, addIncomeAction, addTransferAction, type ActionResult } from "@/app/actions";
+import {
+  addExpenseAction,
+  addIncomeAction,
+  addTransferAction,
+  deleteTransactionAction,
+  updateExpenseAction,
+  updateIncomeAction,
+  updateTransferAction,
+  type ActionResult,
+} from "@/app/actions";
 import { formatPaise } from "@/lib/money";
 import {
   ensureDeviceId,
+  getDeviceName,
   getLastSyncAt,
   nextSeq,
   outboxList,
@@ -30,6 +40,9 @@ import {
 import { expenseSchema, incomeSchema, transferSchema } from "@/validators";
 
 export type CreateKind = "expense.create" | "income.create" | "transfer.create";
+// Phase 3 (offline-sync-spec §17): edit/delete of already-synced solo records
+export type MutationKind = "expense.update" | "income.update" | "transfer.update" | "tx.delete";
+export type OutboxKind = CreateKind | MutationKind;
 
 // online-branch fallback only (no IndexedDB — private browsing); the outbox
 // path below calls the batched /api/sync endpoint instead of these directly
@@ -39,44 +52,69 @@ const ACTIONS: Record<CreateKind, (input: unknown) => Promise<ActionResult>> = {
   "transfer.create": addTransferAction,
 };
 
-const VALIDATORS: Record<CreateKind, (payload: unknown) => string | null> = {
-  "expense.create": (p) => {
-    const r = expenseSchema.safeParse(p);
-    return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
-  },
-  "income.create": (p) => {
-    const r = incomeSchema.safeParse(p);
-    return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
-  },
-  "transfer.create": (p) => {
-    const r = transferSchema.safeParse(p);
-    return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
-  },
+async function directMutationFallback(kind: MutationKind, entityId: string, payload: Record<string, unknown>): Promise<ActionResult> {
+  if (kind === "tx.delete") return deleteTransactionAction({ id: entityId });
+  if (kind === "expense.update") return updateExpenseAction({ id: entityId, ...payload });
+  if (kind === "income.update") return updateIncomeAction({ id: entityId, ...payload });
+  return updateTransferAction({ id: entityId, ...payload });
+}
+
+const expenseValidator = (p: unknown) => {
+  const r = expenseSchema.safeParse(p);
+  return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
+};
+const incomeValidator = (p: unknown) => {
+  const r = incomeSchema.safeParse(p);
+  return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
+};
+const transferValidator = (p: unknown) => {
+  const r = transferSchema.safeParse(p);
+  return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
+};
+// "tx.delete" has no payload to validate — omitted
+const VALIDATORS: Partial<Record<OutboxKind, (payload: unknown) => string | null>> = {
+  "expense.create": expenseValidator,
+  "expense.update": expenseValidator,
+  "income.create": incomeValidator,
+  "income.update": incomeValidator,
+  "transfer.create": transferValidator,
+  "transfer.update": transferValidator,
 };
 
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 5 * 60_000;
+const POISON_PILL_MS = 24 * 60 * 60 * 1000; // spec §5: RETRYABLE intents park as needs-attention after 24h...
+const POISON_PILL_ATTEMPTS = 20; // ...or 20 attempts, whichever first — a permanently-erroring intent can't block the queue forever
 const TICK_MS = 30_000;
 
-function intentLabel(intent: Pick<OutboxIntent, "kind" | "payload">): string {
+export function intentLabel(intent: Pick<OutboxIntent, "kind" | "payload">): string {
+  // delete intents carry a {amount, merchant} display snapshot only — softDeleteTransaction needs no payload at all (spec §4.1's "exactly the zod input" is a create/update-only description)
   const p = (intent.payload ?? {}) as { amount?: unknown; merchant?: string };
   const paise = Math.round((Number(p.amount) || 0) * 100);
-  if (intent.kind === "transfer.create") return `${formatPaise(paise)} · Transfer`;
-  const name = p.merchant || (intent.kind === "income.create" ? "Income" : "Expense");
+  if (intent.kind === "transfer.create" || intent.kind === "transfer.update") return `${formatPaise(paise)} · Transfer`;
+  const name = p.merchant || (intent.kind === "income.create" || intent.kind === "income.update" ? "Income" : "Expense");
   return `${formatPaise(paise)} · ${name}`;
 }
 
 interface SyncApiResult {
   intentId: string;
-  code: "OK" | "VALIDATION" | "INVALID_REF_SOFT" | "INVALID_REF_HARD" | "STALE_INTENT";
+  code: "OK" | "OK_OVERRIDE" | "VALIDATION" | "INVALID_REF_SOFT" | "INVALID_REF_HARD" | "STALE_INTENT";
   error?: string;
+  overriddenByDevice?: string;
 }
 
 interface OfflineState {
   pending: OutboxIntent[];
   needsAttention: OutboxIntent[];
   lastSyncAt: string | null;
+  authExpired: boolean; // spec §12 "Session expired at sync time" — banner, not per-item; queue holds, nothing lost
   createViaOutbox: (kind: CreateKind, payload: Record<string, unknown>) => Promise<ActionResult & { queued?: boolean }>;
+  enqueueMutation: (
+    kind: MutationKind,
+    entityId: string,
+    payload: Record<string, unknown>,
+    baseVersion: number
+  ) => Promise<ActionResult & { queued?: boolean; intentId?: string }>;
   syncNow: () => Promise<void>;
   editPending: (intentId: string, payload: Record<string, unknown>) => Promise<ActionResult>;
   cancelPending: (intentId: string) => Promise<OutboxIntent | null>;
@@ -88,7 +126,9 @@ const Ctx = createContext<OfflineState>({
   pending: [],
   needsAttention: [],
   lastSyncAt: null,
+  authExpired: false,
   createViaOutbox: async () => ({ ok: false, error: "Offline support not ready" }),
+  enqueueMutation: async () => ({ ok: false, error: "Offline support not ready" }),
   syncNow: async () => {},
   editPending: async () => ({ ok: false, error: "Offline support not ready" }),
   cancelPending: async () => null,
@@ -104,6 +144,7 @@ export function OfflineProvider({ userId, children }: { userId: string; children
   const router = useRouter();
   const [intents, setIntents] = useState<OutboxIntent[]>([]);
   const [lastSyncAt, setLast] = useState<string | null>(null);
+  const [authExpired, setAuthExpired] = useState(false);
   const draining = useRef(false);
   const deviceIdRef = useRef<string | null>(null);
 
@@ -138,24 +179,57 @@ export function OfflineProvider({ userId, children }: { userId: string; children
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              intents: batch.map((i) => ({ intentId: i.intentId, deviceId: i.deviceId, clientTs: i.clientTs, entityId: i.entityId, kind: i.kind, payload: i.payload })),
+              intents: batch.map((i) => ({
+                intentId: i.intentId,
+                deviceId: i.deviceId,
+                deviceName: i.deviceName,
+                clientTs: i.clientTs,
+                entityId: i.entityId,
+                baseVersion: i.baseVersion,
+                kind: i.kind,
+                payload: i.payload,
+              })),
             }),
           });
-          if (res.status === 401) return; // AUTH_EXPIRED: hold the whole queue untouched, retry next tick
+          if (res.status === 401) {
+            // AUTH_EXPIRED (spec §12): hold the whole queue untouched — nothing
+            // is lost — and surface the banner instead of retrying silently
+            setAuthExpired(true);
+            return;
+          }
           if (!res.ok) throw new Error(`sync failed: ${res.status}`);
           const body = await res.json();
           results = Array.isArray(body?.results) ? body.results : [];
+          setAuthExpired(false); // a real response landed — the session is good again
         } catch {
           // whole-batch transport failure: back off the head only — it's the
           // idempotent retry unit, and strict FIFO means nothing behind it
-          // should be attempted either (spec §5)
+          // should be attempted either (spec §5). Poison-pill: after 24h or
+          // 20 attempts of the SAME intent failing this way, stop retrying
+          // silently and park it — a permanently-erroring intent must not
+          // block the queue forever (spec §5, §18).
           const head = batch[0];
           const attempts = (head.attempts ?? 0) + 1;
-          await outboxPut({
-            ...head,
-            attempts,
-            nextRetryAt: new Date(Date.now() + Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempts)).toISOString(),
-          });
+          const firstFailedAt = head.firstFailedAt ?? new Date().toISOString();
+          const poisoned = attempts >= POISON_PILL_ATTEMPTS || Date.now() - new Date(firstFailedAt).getTime() > POISON_PILL_MS;
+          if (poisoned) {
+            await outboxPut({
+              ...head,
+              attempts,
+              firstFailedAt,
+              status: "needs-attention",
+              lastError: "Couldn't sync after repeated attempts — check your connection and try again.",
+              lastErrorCode: "RETRYABLE",
+            });
+            await syncLogAppend({ ts: Date.now(), label: intentLabel(head), status: "needs-attention", detail: "parked after repeated retries" }).catch(() => {});
+          } else {
+            await outboxPut({
+              ...head,
+              attempts,
+              firstFailedAt,
+              nextRetryAt: new Date(Date.now() + Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempts)).toISOString(),
+            });
+          }
         }
 
         if (results) {
@@ -163,9 +237,16 @@ export function OfflineProvider({ userId, children }: { userId: string; children
             const intent = batch[i];
             const result = results[i];
             if (!result) break; // fewer results than sent — stop rather than misattribute
-            if (result.code === "OK" || result.code === "INVALID_REF_SOFT") {
+            if (result.code === "OK" || result.code === "OK_OVERRIDE" || result.code === "INVALID_REF_SOFT") {
               await outboxRemove(intent.intentId);
-              await syncLogAppend({ ts: Date.now(), label: intentLabel(intent), status: result.code === "OK" ? "synced" : "healed", detail: result.error }).catch(() => {});
+              const status = result.code === "INVALID_REF_SOFT" ? "healed" : result.code === "OK_OVERRIDE" ? "overridden" : "synced";
+              const detail =
+                result.code === "OK_OVERRIDE"
+                  ? result.overriddenByDevice
+                    ? `replaced an edit from ${result.overriddenByDevice}`
+                    : "replaced a newer edit"
+                  : result.error;
+              await syncLogAppend({ ts: Date.now(), label: intentLabel(intent), status, detail }).catch(() => {});
               applied++;
             } else {
               await outboxPut({ ...intent, status: "needs-attention", lastError: result.error, lastErrorCode: result.code });
@@ -186,7 +267,7 @@ export function OfflineProvider({ userId, children }: { userId: string; children
 
   const createViaOutbox = useCallback(
     async (kind: CreateKind, payload: Record<string, unknown>): Promise<ActionResult & { queued?: boolean }> => {
-      const validationError = VALIDATORS[kind](payload);
+      const validationError = VALIDATORS[kind]?.(payload);
       if (validationError) return { ok: false, error: validationError };
 
       const deviceId = deviceIdRef.current ?? (await ensureDeviceId().catch(() => null));
@@ -219,12 +300,75 @@ export function OfflineProvider({ userId, children }: { userId: string; children
     [userId, reload, drain]
   );
 
+  // Phase 3 (spec §17): edit/delete of an already-synced entity. At most one
+  // outstanding intent per entityId — a second mutation before the first has
+  // drained coalesces into it (same intentId, kind can change: e.g. a delete
+  // arriving while an edit is still queued supersedes it), never stacking a
+  // second intent, exactly like editPending() already does for pending creates.
+  const enqueueMutation = useCallback(
+    async (
+      kind: MutationKind,
+      entityId: string,
+      payload: Record<string, unknown>,
+      baseVersion: number
+    ): Promise<ActionResult & { queued?: boolean; intentId?: string }> => {
+      if (kind !== "tx.delete") {
+        const validationError = VALIDATORS[kind]?.(payload);
+        if (validationError) return { ok: false, error: validationError };
+      }
+
+      const deviceId = deviceIdRef.current ?? (await ensureDeviceId().catch(() => null));
+      if (!deviceId) return directMutationFallback(kind, entityId, payload); // no IndexedDB → plain direct call
+      deviceIdRef.current = deviceId;
+      const deviceName = await getDeviceName().catch(() => undefined);
+
+      const existing = (await outboxList(userId)).find((i) => i.entityId === entityId);
+      const intent: OutboxIntent = existing
+        ? {
+            ...existing,
+            kind,
+            payload,
+            baseVersion: existing.baseVersion ?? baseVersion, // keep the ORIGINAL reference version — that's still what this device last actually saw
+            clientTs: new Date().toISOString(),
+            status: "pending",
+            attempts: 0,
+            nextRetryAt: undefined,
+            firstFailedAt: undefined,
+            lastError: undefined,
+            lastErrorCode: undefined,
+          }
+        : {
+            intentId: crypto.randomUUID(),
+            seq: nextSeq(),
+            userId,
+            deviceId,
+            deviceName,
+            kind,
+            payload,
+            entityId,
+            baseVersion,
+            clientTs: new Date().toISOString(),
+            status: "pending",
+            attempts: 0,
+          };
+
+      await outboxPut(intent);
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await syncLogAppend({ ts: Date.now(), label: intentLabel(intent), status: "offline" }).catch(() => {});
+      }
+      await reload();
+      setTimeout(() => void drain(), 0);
+      return { ok: true, queued: true, intentId: intent.intentId };
+    },
+    [userId, reload, drain]
+  );
+
   const editPending = useCallback(
     async (intentId: string, payload: Record<string, unknown>): Promise<ActionResult> => {
       const list = await outboxList(userId);
       const existing = list.find((i) => i.intentId === intentId);
       if (!existing) return { ok: false, error: "This item already synced or was removed." };
-      const validationError = VALIDATORS[existing.kind as CreateKind]?.(payload);
+      const validationError = VALIDATORS[existing.kind as OutboxKind]?.(payload);
       if (validationError) return { ok: false, error: validationError };
       // coalesce in place: same intentId, same seq (FIFO position unchanged) —
       // never a second intent (spec §11)
@@ -273,7 +417,7 @@ export function OfflineProvider({ userId, children }: { userId: string; children
     const retryable = list.filter((i) => i.status === "needs-attention" && i.lastErrorCode === "RETRYABLE");
     if (retryable.length === 0) return;
     for (const intent of retryable) {
-      await outboxPut({ ...intent, status: "pending", attempts: 0, nextRetryAt: undefined, lastError: undefined, lastErrorCode: undefined });
+      await outboxPut({ ...intent, status: "pending", attempts: 0, nextRetryAt: undefined, firstFailedAt: undefined, lastError: undefined, lastErrorCode: undefined });
     }
     await reload();
     void drain();
@@ -313,7 +457,21 @@ export function OfflineProvider({ userId, children }: { userId: string; children
   const needsAttention = intents.filter((i) => i.status === "needs-attention");
 
   return (
-    <Ctx.Provider value={{ pending, needsAttention, lastSyncAt, createViaOutbox, syncNow, editPending, cancelPending, restorePending, retryFailed }}>
+    <Ctx.Provider
+      value={{
+        pending,
+        needsAttention,
+        lastSyncAt,
+        authExpired,
+        createViaOutbox,
+        enqueueMutation,
+        syncNow,
+        editPending,
+        cancelPending,
+        restorePending,
+        retryFailed,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );

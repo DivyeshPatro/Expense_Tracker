@@ -10,35 +10,42 @@
 // blocks the Add Expense/Income/Transfer forms use) pre-filled from the
 // transaction. Delete lives here now instead of always-visible on the list
 // row, with the same confirm-then-5s-undo pattern the row used to have.
+//
+// Offline-sync Phase 3 (spec §17): edit/delete of an already-synced solo
+// record now flows through the SAME outbox as creates (universal write-behind,
+// preserved from Phase 2) — enqueueMutation() enqueues instantly and drains in
+// the background instead of awaiting the network. This sheet cross-references
+// the outbox by entityId to show the spec §6/§7 status line and Fix/Discard
+// actions when this transaction has a queued (not-yet-synced) edit or delete.
+// Split expenses stay online-required (Phase 1/2's exact same restriction —
+// they touch other participants' balances, out of "solo" scope).
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import {
-  deleteTransactionAction,
-  entityHistoryAction,
-  getTransactionDetailAction,
-  undoDeleteAction,
-  updateExpenseAction,
-  updateIncomeAction,
-  updateTransferAction,
-} from "@/app/actions";
+import { entityHistoryAction, getTransactionDetailAction, undoDeleteAction, updateExpenseAction } from "@/app/actions";
 import { formatDiffRow, type TimelineEvent } from "@/lib/activity";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import type { TransactionDetail } from "@/server/services/transactions";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
+import { useOffline } from "./offline-context";
+import { FAILURE_COPY } from "./pending-detail";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
 import { useUI } from "./ui-context";
 
+const cleanCopy = (msg: string) => msg.charAt(0).toUpperCase() + msg.slice(1);
+
 export function TransactionDetailSheet({ transactionId }: { transactionId: string }) {
   const { refData, closeModal, showToast } = useUI();
+  const { pending, needsAttention, enqueueMutation, cancelPending, restorePending } = useOffline();
   const router = useRouter();
   // undefined = still loading, null = fetched but gone (e.g. deleted elsewhere)
   const [detail, setDetail] = useState<TransactionDetail | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [discardBusy, setDiscardBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,21 +57,62 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
     };
   }, [transactionId]);
 
+  // at most one outstanding intent per entity (spec §11) — this is either a
+  // still-queued edit or a still-queued delete of THIS transaction
+  const queued = [...pending, ...needsAttention].find((i) => i.entityId === transactionId);
+  const queuedIsDelete = queued?.kind === "tx.delete";
+  const attention = queued?.status === "needs-attention";
+
   async function handleDelete() {
+    if (!detail) return;
     setDeleteBusy(true);
-    const res = await deleteTransactionAction(transactionId);
+    const res = await enqueueMutation(
+      "tx.delete",
+      transactionId,
+      { merchant: detail.merchant, amount: String(detail.amount / 100) },
+      detail.version
+    );
     setDeleteBusy(false);
     if (!res.ok) {
       showToast(res.error);
       return;
     }
     closeModal();
-    router.refresh();
+    const intentId = res.intentId;
     showToast("Transaction deleted", async () => {
+      // still sitting in the outbox (the common case — drains take well under
+      // a second, but the 5s undo window doesn't require it to have landed)?
+      // cancel it locally — nothing was ever sent. Otherwise it already
+      // synced; fall back to a real server-side restore.
+      const restoredLocally = intentId ? await cancelPending(intentId) : null;
+      if (restoredLocally) {
+        showToast("Restored");
+        router.refresh();
+        return;
+      }
       const undo = await undoDeleteAction(transactionId);
       showToast(undo.ok ? "Restored" : "Could not restore");
       router.refresh();
     });
+  }
+
+  async function handleCancelQueuedDelete() {
+    if (!queued) return;
+    setDeleteBusy(true);
+    await cancelPending(queued.intentId);
+    setDeleteBusy(false);
+    closeModal();
+    showToast("Delete cancelled");
+  }
+
+  async function handleDiscard() {
+    if (!queued) return;
+    setDiscardBusy(true);
+    const removed = await cancelPending(queued.intentId);
+    setDiscardBusy(false);
+    if (!removed) return;
+    closeModal();
+    showToast(queuedIsDelete ? "Delete discarded" : "Edit discarded", () => void restorePending(removed));
   }
 
   if (detail === undefined) {
@@ -75,9 +123,13 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
   }
 
   if (editing) {
-    if (detail.type === "EXPENSE") return <EditExpenseForm detail={detail} onCancel={() => setEditing(false)} />;
-    if (detail.type === "INCOME") return <EditIncomeForm detail={detail} onCancel={() => setEditing(false)} />;
-    return <EditTransferForm detail={detail} onCancel={() => setEditing(false)} />;
+    // prefill from the queued (not-yet-synced) edit if one exists, so a
+    // second edit builds on the latest local state rather than stale server
+    // data — enqueueMutation() coalesces this into the SAME intent (spec §11)
+    const prefill = queued && !queuedIsDelete ? (queued.payload as Record<string, unknown>) : undefined;
+    if (detail.type === "EXPENSE") return <EditExpenseForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
+    if (detail.type === "INCOME") return <EditIncomeForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
+    return <EditTransferForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
   }
 
   const categories = [...refData.expenseCategories, ...refData.incomeCategories];
@@ -100,6 +152,19 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
           {formatPaise(detail.amount)}
         </div>
       </div>
+
+      {queued && (
+        <div
+          className="text-[13px] font-semibold rounded-[10px] px-3.5 py-3"
+          style={{ background: attention ? "var(--redSoft)" : "var(--accSoft)", color: attention ? "var(--red)" : "var(--mut)" }}
+        >
+          {attention
+            ? `⚠ ${(queued.lastErrorCode && FAILURE_COPY[queued.lastErrorCode]) || (queued.lastError ? cleanCopy(queued.lastError) : "This couldn't be synced.")}`
+            : queuedIsDelete
+              ? "⏳ Removing · will happen automatically"
+              : "⏳ Waiting to sync · will happen automatically"}
+        </div>
+      )}
 
       <div className="card p-[var(--pad)] flex flex-col gap-2.5">
         {detail.type !== "TRANSFER" && <DetailRow label="Category" value={category ? `${category.icon} ${category.name}` : "Uncategorized"} />}
@@ -138,7 +203,34 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
 
       <HistoryCard transactionId={transactionId} />
 
-      {!confirmingDelete ? (
+      {attention ? (
+        <div className="flex gap-2.5">
+          {!queuedIsDelete && (
+            <button
+              onClick={() => setEditing(true)}
+              className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft"
+            >
+              Fix
+            </button>
+          )}
+          <button
+            onClick={handleDiscard}
+            disabled={discardBusy}
+            className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108 disabled:opacity-60"
+            style={{ background: "var(--red)" }}
+          >
+            {discardBusy ? "…" : "Discard"}
+          </button>
+        </div>
+      ) : queuedIsDelete ? (
+        <button
+          onClick={handleCancelQueuedDelete}
+          disabled={deleteBusy}
+          className="w-full p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft disabled:opacity-60"
+        >
+          {deleteBusy ? "…" : "Cancel delete"}
+        </button>
+      ) : !confirmingDelete ? (
         <div className="flex gap-2.5">
           <button
             onClick={() => setEditing(true)}
@@ -268,15 +360,17 @@ function HistoryCard({ transactionId }: { transactionId: string }) {
 
 // ─────────── Edit: Expense ───────────
 
-function EditExpenseForm({ detail, onCancel }: { detail: TransactionDetail; onCancel: () => void }) {
+function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDetail; prefill?: Record<string, unknown>; onCancel: () => void }) {
   const { refData } = useUI();
+  const { enqueueMutation } = useOffline();
   const { run, busy, error } = useSubmit();
-  const [amount, setAmount] = useState(String(detail.amount / 100));
-  const [accountId, setAccountId] = useState(detail.accountId ?? refData.accounts[0]?.id ?? "");
-  const [categoryId, setCategoryId] = useState(detail.categoryId ?? refData.expenseCategories[0]?.id ?? "");
-  const [merchant, setMerchant] = useState(detail.merchant);
-  const [date, setDate] = useState(detail.ymd);
-  const [notes, setNotes] = useState(detail.notes ?? "");
+  const pre = prefill as { amount?: string; accountId?: string | null; categoryId?: string | null; merchant?: string; date?: string; notes?: string } | undefined;
+  const [amount, setAmount] = useState(pre?.amount ?? String(detail.amount / 100));
+  const [accountId, setAccountId] = useState(pre?.accountId ?? detail.accountId ?? refData.accounts[0]?.id ?? "");
+  const [categoryId, setCategoryId] = useState(pre?.categoryId ?? detail.categoryId ?? refData.expenseCategories[0]?.id ?? "");
+  const [merchant, setMerchant] = useState(pre?.merchant ?? detail.merchant);
+  const [date, setDate] = useState(pre?.date ?? detail.ymd);
+  const [notes, setNotes] = useState(pre?.notes ?? detail.notes ?? "");
 
   const hadSplit = detail.splits.length > 0;
   // PERCENT/RATIO store only the resulting paise amount, not the original
@@ -366,20 +460,26 @@ function EditExpenseForm({ detail, onCancel }: { detail: TransactionDetail; onCa
           <SubmitButton
             busy={busy}
             onClick={() =>
-              run(
-                () =>
-                  updateExpenseAction({
-                    id: detail.id,
-                    amount,
-                    accountId: accountId || null,
-                    categoryId: categoryId || null,
-                    merchant,
-                    date,
-                    notes: notes || undefined,
-                    split: buildSplitPayload(splitState, selected.map((p) => p.id), effectivePayerId),
-                  }),
-                "Transaction updated"
-              )
+              run(() => {
+                const payload = {
+                  amount,
+                  accountId: accountId || null,
+                  categoryId: categoryId || null,
+                  merchant,
+                  date,
+                  notes: notes || undefined,
+                  split: buildSplitPayload(splitState, selected.map((p) => p.id), effectivePayerId),
+                };
+                // a split touches other participants' balances — needs the
+                // server's validation, same restriction as creating one (Phase 1/2)
+                if (split) {
+                  if (typeof navigator !== "undefined" && !navigator.onLine) {
+                    return Promise.resolve({ ok: false as const, error: "Split expenses need internet — try again when you're back online." });
+                  }
+                  return updateExpenseAction({ id: detail.id, ...payload });
+                }
+                return enqueueMutation("expense.update", detail.id, payload, detail.version);
+              }, "Transaction updated")
             }
           >
             Save changes
@@ -392,15 +492,17 @@ function EditExpenseForm({ detail, onCancel }: { detail: TransactionDetail; onCa
 
 // ─────────── Edit: Income ───────────
 
-function EditIncomeForm({ detail, onCancel }: { detail: TransactionDetail; onCancel: () => void }) {
+function EditIncomeForm({ detail, prefill, onCancel }: { detail: TransactionDetail; prefill?: Record<string, unknown>; onCancel: () => void }) {
   const { refData } = useUI();
+  const { enqueueMutation } = useOffline();
   const { run, busy, error } = useSubmit();
-  const [amount, setAmount] = useState(String(detail.amount / 100));
-  const [accountId, setAccountId] = useState(detail.accountId ?? refData.accounts[0]?.id ?? "");
-  const [categoryId, setCategoryId] = useState(detail.categoryId ?? refData.incomeCategories[0]?.id ?? "");
-  const [merchant, setMerchant] = useState(detail.merchant);
-  const [date, setDate] = useState(detail.ymd);
-  const [notes, setNotes] = useState(detail.notes ?? "");
+  const pre = prefill as { amount?: string; accountId?: string; categoryId?: string | null; merchant?: string; date?: string; notes?: string } | undefined;
+  const [amount, setAmount] = useState(pre?.amount ?? String(detail.amount / 100));
+  const [accountId, setAccountId] = useState(pre?.accountId ?? detail.accountId ?? refData.accounts[0]?.id ?? "");
+  const [categoryId, setCategoryId] = useState(pre?.categoryId ?? detail.categoryId ?? refData.incomeCategories[0]?.id ?? "");
+  const [merchant, setMerchant] = useState(pre?.merchant ?? detail.merchant);
+  const [date, setDate] = useState(pre?.date ?? detail.ymd);
+  const [notes, setNotes] = useState(pre?.notes ?? detail.notes ?? "");
 
   return (
     <div className="flex flex-col gap-3">
@@ -445,7 +547,7 @@ function EditIncomeForm({ detail, onCancel }: { detail: TransactionDetail; onCan
             color="var(--green)"
             onClick={() =>
               run(
-                () => updateIncomeAction({ id: detail.id, amount, accountId, categoryId: categoryId || null, merchant, date, notes: notes || undefined }),
+                () => enqueueMutation("income.update", detail.id, { amount, accountId, categoryId: categoryId || null, merchant, date, notes: notes || undefined }, detail.version),
                 "Transaction updated"
               )
             }
@@ -460,14 +562,16 @@ function EditIncomeForm({ detail, onCancel }: { detail: TransactionDetail; onCan
 
 // ─────────── Edit: Transfer ───────────
 
-function EditTransferForm({ detail, onCancel }: { detail: TransactionDetail; onCancel: () => void }) {
+function EditTransferForm({ detail, prefill, onCancel }: { detail: TransactionDetail; prefill?: Record<string, unknown>; onCancel: () => void }) {
   const { refData } = useUI();
+  const { enqueueMutation } = useOffline();
   const { run, busy, error } = useSubmit();
-  const [amount, setAmount] = useState(String(detail.amount / 100));
-  const [from, setFrom] = useState(detail.accountId ?? refData.accounts[0]?.id ?? "");
-  const [to, setTo] = useState(detail.toAccountId ?? refData.accounts[1]?.id ?? refData.accounts[0]?.id ?? "");
-  const [date, setDate] = useState(detail.ymd);
-  const [notes, setNotes] = useState(detail.notes ?? "");
+  const pre = prefill as { amount?: string; fromAccountId?: string; toAccountId?: string; date?: string; notes?: string } | undefined;
+  const [amount, setAmount] = useState(pre?.amount ?? String(detail.amount / 100));
+  const [from, setFrom] = useState(pre?.fromAccountId ?? detail.accountId ?? refData.accounts[0]?.id ?? "");
+  const [to, setTo] = useState(pre?.toAccountId ?? detail.toAccountId ?? refData.accounts[1]?.id ?? refData.accounts[0]?.id ?? "");
+  const [date, setDate] = useState(pre?.date ?? detail.ymd);
+  const [notes, setNotes] = useState(pre?.notes ?? detail.notes ?? "");
 
   return (
     <div className="flex flex-col gap-3">
@@ -506,7 +610,7 @@ function EditTransferForm({ detail, onCancel }: { detail: TransactionDetail; onC
             busy={busy}
             onClick={() =>
               run(
-                () => updateTransferAction({ id: detail.id, amount, fromAccountId: from, toAccountId: to, date, notes: notes || undefined }),
+                () => enqueueMutation("transfer.update", detail.id, { amount, fromAccountId: from, toAccountId: to, date, notes: notes || undefined }, detail.version),
                 "Transaction updated"
               )
             }

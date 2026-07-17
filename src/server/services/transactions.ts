@@ -75,8 +75,27 @@ function computeShares(amount: number, split: SplitInput): SplitShare[] {
 export interface IntentMeta {
   intentId: string;
   deviceId: string;
+  deviceName?: string; // Phase 3: OK_OVERRIDE copy needs to name the device whose edit this replaced (spec §13)
   clientTs: string; // ISO — when the human acted
-  entityId?: string;
+  entityId?: string; // create only: client pre-assigns the id
+  baseVersion?: number; // update/delete only: entity version last seen locally (spec §4.2)
+}
+
+/** Outcome of a versioned update/delete: whether it landed cleanly or, for a
+ * solo record, silently overrode a version it hadn't seen (LWW, spec §13 —
+ * no prompt, both versions land in the audit log via the existing before/after). */
+export interface MutateOutcome {
+  overridden: boolean;
+  overriddenByDevice?: string;
+}
+
+/** A queued edit/delete arriving after the entity itself was removed (by
+ * another device, or genuinely gone) — distinct from a plain "not found" so
+ * callers can map it to the right taxonomy code instead of a generic error. */
+export class MutationTargetGoneError extends Error {
+  constructor() {
+    super("Transaction not found");
+  }
 }
 
 /** Run a create inside one $transaction with the intent row as the last
@@ -123,6 +142,66 @@ async function exactlyOnce(
 /** bitemporal-lite (spec §4.2): audit records when the human acted too */
 const withSyncMeta = <T extends object>(t: T, intent: IntentMeta | undefined) =>
   intent ? { ...t, _sync: { intentId: intent.intentId, deviceId: intent.deviceId, clientTs: intent.clientTs } } : t;
+
+/** Update/delete counterpart to exactlyOnce(): there's no new row whose
+ * unique constraint can catch a replay after the fact, so the Intent row is
+ * checked BEFORE mutating — a duplicate delivery is a no-op that returns the
+ * originally recorded outcome instead of re-applying (which would
+ * double-reverse balances). The P2002 catch below covers the residual race
+ * where two redeliveries of the same intent both pass the pre-check. */
+async function exactlyOnceMutate(
+  userId: string,
+  intent: IntentMeta | undefined,
+  kind: string,
+  body: (db: Db) => Promise<{ entityId: string } & MutateOutcome>
+): Promise<MutateOutcome> {
+  if (intent) {
+    const prior = await prisma.intent.findUnique({ where: { userId_id: { userId, id: intent.intentId } } });
+    if (prior) return { overridden: prior.status === "overridden" };
+  }
+  try {
+    return await prisma.$transaction(async (db) => {
+      const r = await body(db);
+      if (intent) {
+        await db.intent.create({
+          data: {
+            id: intent.intentId,
+            userId,
+            deviceId: intent.deviceId,
+            deviceName: intent.deviceName,
+            kind,
+            entityId: r.entityId,
+            status: r.overridden ? "overridden" : "applied",
+            clientTs: new Date(intent.clientTs),
+          },
+        });
+      }
+      return { overridden: r.overridden, overriddenByDevice: r.overriddenByDevice };
+    });
+  } catch (e) {
+    if (intent && typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002") {
+      const prior = await prisma.intent.findUnique({ where: { userId_id: { userId, id: intent.intentId } } });
+      if (prior) return { overridden: prior.status === "overridden" };
+    }
+    throw e;
+  }
+}
+
+/** Solo LWW check (spec §13, locked §19): no baseVersion means the caller
+ * isn't intent-tracked (a plain online edit) — skip the check entirely, same
+ * as always. A mismatch never blocks — it applies anyway and reports
+ * `overridden: true` so the caller can log/notify, never prompt. */
+async function checkOverride(
+  db: Db,
+  userId: string,
+  entityId: string,
+  baseVersion: number | undefined,
+  serverVersion: number
+): Promise<{ overridden: boolean; overriddenByDevice?: string }> {
+  if (baseVersion === undefined || baseVersion === serverVersion) return { overridden: false };
+  const priorIntent = await db.intent.findFirst({ where: { userId, entityId }, orderBy: { appliedAt: "desc" } });
+  return { overridden: true, overriddenByDevice: priorIntent?.deviceName ?? undefined };
+}
 
 export async function addExpense(userId: string, input: ExpenseInput, intent?: IntentMeta) {
   // rule-based auto-categorization when no category picked
@@ -261,6 +340,7 @@ export interface TransactionDetail {
   paidByParticipantId: string | null;
   isRecurring: boolean;
   splits: { participantId: string | null; owedAmount: number; method: string }[];
+  version: number; // offline-sync baseVersion for edits/deletes (spec §4.2) — Phase 3
 }
 
 /** Full detail for the edit form — a fresh, richer read than the list's lean LedgerRow (which has just enough for display, not for reconstructing per-participant split amounts). */
@@ -289,6 +369,7 @@ export async function getTransactionDetail(userId: string, id: string): Promise<
     paidByParticipantId: t.paidByParticipantId,
     isRecurring: t.isRecurring,
     splits: t.splits.map((s) => ({ participantId: s.participantId, owedAmount: Number(s.owedAmount), method: s.method })),
+    version: t.version,
   };
 }
 
@@ -299,15 +380,16 @@ export async function getTransactionDetail(userId: string, id: string): Promise<
  * ledger holds at every commit, exactly like softDeleteTransaction/
  * restoreTransaction below already do for delete/undo.
  */
-export async function updateExpense(userId: string, id: string, input: ExpenseInput) {
+export async function updateExpense(userId: string, id: string, input: ExpenseInput, intent?: IntentMeta) {
   const shares = input.split ? computeShares(input.amount, input.split) : null;
   const paidByParticipantId = input.split?.payerParticipantId ?? null;
   const newAccountId = paidByParticipantId === null ? input.accountId : null;
 
-  await prisma.$transaction(async (db) => {
+  const outcome = await exactlyOnceMutate(userId, intent, "expense.update", async (db) => {
     const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null }, include: { splits: true } });
-    if (!old) throw new Error("Transaction not found");
+    if (!old) throw new MutationTargetGoneError();
     if (old.type !== "EXPENSE") throw new Error("Not an expense");
+    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, old.version);
 
     await applyBalances(db, old, -1);
     if (old.splits.length) await db.expenseSplit.deleteMany({ where: { txId: id } });
@@ -333,17 +415,22 @@ export async function updateExpense(userId: string, id: string, input: ExpenseIn
       include: { splits: true },
     });
     await applyBalances(db, updated, 1);
-    await audit(db, userId, "update", "Transaction", id, old, updated);
+    // solo LWW (spec §13): the override is never hidden — `old` is still the
+    // clobbered version, so both land in this one audit row's before/after
+    await audit(db, userId, "update", "Transaction", id, old, withSyncMeta(updated, intent));
+    return { entityId: id, overridden, overriddenByDevice };
   });
 
   if (input.categoryId) await checkBudgetThresholds(userId, input.categoryId);
+  return outcome;
 }
 
-export async function updateIncome(userId: string, id: string, input: IncomeInput) {
-  await prisma.$transaction(async (db) => {
+export async function updateIncome(userId: string, id: string, input: IncomeInput, intent?: IntentMeta) {
+  return exactlyOnceMutate(userId, intent, "income.update", async (db) => {
     const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
-    if (!old) throw new Error("Transaction not found");
+    if (!old) throw new MutationTargetGoneError();
     if (old.type !== "INCOME") throw new Error("Not income");
+    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, old.version);
 
     await applyBalances(db, old, -1);
     const updated = await db.transaction.update({
@@ -359,11 +446,12 @@ export async function updateIncome(userId: string, id: string, input: IncomeInpu
       },
     });
     await applyBalances(db, updated, 1);
-    await audit(db, userId, "update", "Transaction", id, old, updated);
+    await audit(db, userId, "update", "Transaction", id, old, withSyncMeta(updated, intent));
+    return { entityId: id, overridden, overriddenByDevice };
   });
 }
 
-export async function updateTransfer(userId: string, id: string, input: TransferInput) {
+export async function updateTransfer(userId: string, id: string, input: TransferInput, intent?: IntentMeta) {
   if (input.fromAccountId === input.toAccountId) throw new Error("Pick two different accounts");
   const [from, to] = await Promise.all([
     prisma.account.findFirst({ where: { id: input.fromAccountId, userId } }),
@@ -371,10 +459,11 @@ export async function updateTransfer(userId: string, id: string, input: Transfer
   ]);
   if (!from || !to) throw new Error("Account not found");
 
-  await prisma.$transaction(async (db) => {
+  return exactlyOnceMutate(userId, intent, "transfer.update", async (db) => {
     const old = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
-    if (!old) throw new Error("Transaction not found");
+    if (!old) throw new MutationTargetGoneError();
     if (old.type !== "TRANSFER") throw new Error("Not a transfer");
+    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, old.version);
 
     await applyBalances(db, old, -1);
     const updated = await db.transaction.update({
@@ -390,18 +479,24 @@ export async function updateTransfer(userId: string, id: string, input: Transfer
       },
     });
     await applyBalances(db, updated, 1);
-    await audit(db, userId, "update", "Transaction", id, old, updated);
+    await audit(db, userId, "update", "Transaction", id, old, withSyncMeta(updated, intent));
+    return { entityId: id, overridden, overriddenByDevice };
   });
 }
 
-/** Soft delete with undo (PRD §4.2): balances reverse exactly; restore re-applies. */
-export async function softDeleteTransaction(userId: string, id: string) {
-  await prisma.$transaction(async (db) => {
+/** Soft delete with undo (PRD §4.2): balances reverse exactly; restore re-applies.
+ * Deleting an already-deleted (or already-gone) row is idempotent-OK (spec §5
+ * DUPLICATE philosophy applied to delete: the user's goal — "this shouldn't
+ * exist" — is already satisfied), not a needs-attention failure. */
+export async function softDeleteTransaction(userId: string, id: string, intent?: IntentMeta) {
+  return exactlyOnceMutate(userId, intent, "tx.delete", async (db) => {
     const t = await db.transaction.findFirst({ where: { id, userId, deletedAt: null } });
-    if (!t) throw new Error("Transaction not found");
+    if (!t) return { entityId: id, overridden: false };
+    const { overridden, overriddenByDevice } = await checkOverride(db, userId, id, intent?.baseVersion, t.version);
     await db.transaction.update({ where: { id }, data: { deletedAt: new Date() } });
     await applyBalances(db, t, -1);
-    await audit(db, userId, "soft-delete", "Transaction", id, t, undefined);
+    await audit(db, userId, "soft-delete", "Transaction", id, withSyncMeta(t, intent), undefined);
+    return { entityId: id, overridden, overriddenByDevice };
   });
 }
 

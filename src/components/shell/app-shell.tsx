@@ -130,6 +130,7 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
         </div>
         <HeaderPeriodPicker />
         </div>
+        <AuthExpiredBanner />
         {/* content */}
         <div className="flex-1 box-border w-full max-w-[1180px] mx-auto px-[clamp(14px,2.5vw,28px)] py-[clamp(14px,2.5vw,28px)] pb-[120px]">
           <Suspense fallback={null}>{children}</Suspense>
@@ -141,6 +142,28 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
       <CommandPalette />
       <Toast />
       <OfflineDebug />
+    </div>
+  );
+}
+
+// spec §12 "Session expired at sync time": a banner, not a per-item failure —
+// the queue holds untouched (drain() just stops retrying on 401) and nothing
+// is lost, so this is purely informational, never blocking.
+function AuthExpiredBanner() {
+  const { authExpired, pending, needsAttention } = useOffline();
+  const count = pending.length + needsAttention.length;
+  if (!authExpired || count === 0) return null;
+  return (
+    <div
+      className="flex items-center gap-2.5 px-[clamp(14px,2.5vw,28px)] py-2 text-[12.5px] font-semibold print:hidden"
+      style={{ background: "var(--amberSoft)", color: "var(--amber)" }}
+    >
+      <span className="flex-1">
+        Sign in again to sync your {count} change{count === 1 ? "" : "s"}.
+      </span>
+      <Link href="/sign-in" className="font-bold no-underline whitespace-nowrap" style={{ color: "var(--amber)" }}>
+        Sign in
+      </Link>
     </div>
   );
 }

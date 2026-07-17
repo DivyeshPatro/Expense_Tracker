@@ -37,12 +37,16 @@ export const expenseSchema = z.object({
 });
 
 /** Offline-sync intent metadata (offline-sync-spec §4.3) — optional on
- * in-scope mutations; presence turns the mutation exactly-once. */
+ * in-scope mutations; presence turns the mutation exactly-once. `baseVersion`
+ * (update/delete only, Phase 3) drives the solo LWW-override check; `deviceName`
+ * lets an overridden device's edit be named in OK_OVERRIDE copy (spec §13). */
 export const intentMetaSchema = z.object({
   intentId: z.string().uuid(),
   deviceId: z.string().min(8).max(64),
+  deviceName: z.string().trim().max(80).optional(),
   clientTs: z.string().datetime(),
   entityId: z.string().min(10).max(40).optional(),
+  baseVersion: z.number().int().nonnegative().optional(),
 });
 
 export const expenseWithIntentSchema = expenseSchema.extend({ intent: intentMetaSchema.optional() });
@@ -70,6 +74,12 @@ export const transferWithIntentSchema = transferSchema.extend({ intent: intentMe
 export const updateExpenseSchema = z.object({ id: z.string().min(1) }).merge(expenseSchema);
 export const updateIncomeSchema = z.object({ id: z.string().min(1) }).merge(incomeSchema);
 export const updateTransferSchema = z.object({ id: z.string().min(1) }).merge(transferSchema);
+
+// Phase 3: offline edit/delete of already-synced records (offline-sync-spec §17)
+export const updateExpenseWithIntentSchema = updateExpenseSchema.extend({ intent: intentMetaSchema.optional() });
+export const updateIncomeWithIntentSchema = updateIncomeSchema.extend({ intent: intentMetaSchema.optional() });
+export const updateTransferWithIntentSchema = updateTransferSchema.extend({ intent: intentMetaSchema.optional() });
+export const deleteTransactionSchema = z.object({ id: z.string().min(1), intent: intentMetaSchema.optional() });
 
 export const settlementSchema = z.object({
   participantId: z.string().min(1),

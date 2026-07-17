@@ -15,8 +15,14 @@ import { AmountInput, ErrorNote, Field, SubmitButton } from "./form-primitives";
 import { useOffline, type CreateKind } from "./offline-context";
 import { useUI } from "./ui-context";
 
-const FAILURE_COPY: Record<string, string> = {
-  VALIDATION: "This couldn't be saved as entered.",
+// spec §12 failure catalog — shared with transaction-detail.tsx's outbox-aware
+// view of an already-synced entity with a queued edit/delete (Phase 3)
+// VALIDATION is deliberately absent: the server's raw message for it is
+// already specific and useful (a zod issue, or "this transaction was deleted
+// elsewhere") — overriding it with one generic line would lose information.
+// INVALID_REF_HARD/STALE_INTENT get curated copy because the raw server
+// message for those is a plain code-shaped sentence, not user-facing prose.
+export const FAILURE_COPY: Record<string, string> = {
   INVALID_REF_HARD: "An account this refers to no longer exists.",
   STALE_INTENT: "This waited too long to sync safely. Review it and add it again.",
 };
@@ -70,7 +76,7 @@ function PendingView({
   const online = typeof navigator === "undefined" || navigator.onLine;
 
   const statusLine = needsAttention
-    ? `⚠ Needs your attention — ${intent.lastError ? cleanCopy(intent.lastError) : (intent.lastErrorCode && FAILURE_COPY[intent.lastErrorCode]) || "This couldn't be synced."}`
+    ? `⚠ Needs your attention — ${(intent.lastErrorCode && FAILURE_COPY[intent.lastErrorCode]) || (intent.lastError ? cleanCopy(intent.lastError) : "This couldn't be synced.")}`
     : online
       ? "⏳ Waiting to sync · will happen automatically"
       : "⏳ Waiting for internet · will happen automatically";

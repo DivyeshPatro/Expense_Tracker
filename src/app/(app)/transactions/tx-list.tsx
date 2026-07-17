@@ -49,6 +49,7 @@ export function TransactionsList({
   period: Period;
 }) {
   const { openModal } = useUI();
+  const { pending, needsAttention } = useOffline();
   const [rows, setRows] = useState(initialRows);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [page, setPage] = useState(0);
@@ -135,6 +136,10 @@ export function TransactionsList({
     setLoading(false);
   }
 
+  // a synced row can still have a queued edit/delete against it (spec §7):
+  // at most one outstanding intent per entity, so a plain id lookup suffices
+  const queuedByEntity = new Map([...needsAttention, ...pending].filter((i) => !i.kind.endsWith(".create")).map((i) => [i.entityId, i]));
+
   const groups: { label: string; items: (ReturnType<typeof txDisplay> & { id: string })[] }[] = [];
   for (const t of rows) {
     const label = friendlyDay(t.ymd);
@@ -200,21 +205,31 @@ export function TransactionsList({
         <div key={g.label}>
           <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mx-0.5 mt-1 mb-2 uppercase">{g.label}</div>
           <div className="card px-4 py-1.5">
-            {g.items.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => openModal("txDetail", { transactionId: t.id })}
-                aria-label={`${t.name}, ${t.meta}, ${t.amtF}`}
-                className="w-full flex items-center gap-3 py-[11px] border-b border-line last:border-b-0 bg-transparent border-x-0 border-t-0 cursor-pointer text-left min-h-[44px]"
-              >
-                <div className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none" style={{ background: t.iconBg }}>{t.icon}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold truncate">{t.name}</div>
-                  <div className="text-[11.5px] text-mut2 truncate">{t.meta}</div>
-                </div>
-                <div className="text-[13px] font-bold flex-none" style={{ color: t.amtColor }}>{t.amtF}</div>
-              </button>
-            ))}
+            {g.items.map((t) => {
+              const queued = queuedByEntity.get(t.id);
+              const attention = queued?.status === "needs-attention";
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => openModal("txDetail", { transactionId: t.id })}
+                  aria-label={`${t.name}, ${t.meta}, ${t.amtF}${queued ? (attention ? ", needs attention" : queued.kind === "tx.delete" ? ", removing" : ", waiting to sync") : ""}`}
+                  className="w-full flex items-center gap-3 py-[11px] border-b border-line last:border-b-0 bg-transparent border-x-0 border-t-0 cursor-pointer text-left min-h-[44px]"
+                  style={attention ? { borderLeft: "2px solid var(--red)", paddingLeft: 10, marginLeft: -12 } : undefined}
+                >
+                  <div className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none" style={{ background: t.iconBg }}>{t.icon}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold truncate">{t.name}</div>
+                    <div className="text-[11.5px] text-mut2 truncate">{t.meta}</div>
+                  </div>
+                  {queued && (
+                    <span className="text-[13px] flex-none" style={{ color: attention ? "var(--red)" : "var(--mut)" }} aria-hidden="true">
+                      {attention ? "⚠" : "⏳"}
+                    </span>
+                  )}
+                  <div className="text-[13px] font-bold flex-none" style={{ color: t.amtColor }}>{t.amtF}</div>
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -241,7 +256,10 @@ export function TransactionsList({
 function PendingRows() {
   const { pending, needsAttention } = useOffline();
   const { refData, openModal } = useUI();
-  const rows = [...needsAttention, ...pending];
+  // create-kind only: a mutation-kind intent's entity already has a real row
+  // below (badged there instead, via entityId cross-reference) — showing it
+  // here too would duplicate the transaction on screen
+  const rows = [...needsAttention, ...pending].filter((i) => i.kind.endsWith(".create"));
   if (rows.length === 0) return null;
 
   const accountName = (id: unknown) => refData.accounts.find((a) => a.id === id)?.name ?? "account";

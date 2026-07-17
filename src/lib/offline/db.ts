@@ -17,14 +17,16 @@ export interface OutboxIntent {
   seq?: number; // autoincrement, FIFO order
   userId: string; // outbox is never adopted by a different user (spec §15)
   deviceId: string;
+  deviceName?: string; // Phase 3: update/delete only — surfaced in OK_OVERRIDE copy (spec §13)
   kind: string; // "expense.create" | ...
-  payload: unknown; // exact zod input of the corresponding server action
+  payload: unknown; // exact zod input of the corresponding server action (delete: a small {amount, merchant} display snapshot only)
   entityId: string;
-  baseVersion?: number; // update/delete only
+  baseVersion?: number; // Phase 3: update/delete only — entity version last seen locally (spec §4.1)
   clientTs: string;
   status: "pending" | "syncing" | "needs-attention";
   attempts: number;
   nextRetryAt?: string;
+  firstFailedAt?: string; // Phase 3: poison-pill parking clock — set on the first RETRYABLE failure, distinct from clientTs (which moves on every coalesced edit)
   lastError?: string;
   lastErrorCode?: string; // taxonomy code from /api/sync (spec §5) — drives copy + retry-eligibility
 }
@@ -39,7 +41,7 @@ export interface SyncLogEntry {
   id?: number; // autoincrement
   ts: number; // epoch ms
   label: string; // "₹420 · Swiggy"
-  status: "synced" | "healed" | "needs-attention" | "offline" | "cancelled";
+  status: "synced" | "healed" | "needs-attention" | "offline" | "cancelled" | "overridden";
   detail?: string;
 }
 
