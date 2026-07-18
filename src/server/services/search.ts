@@ -9,9 +9,10 @@
 // back for split-aware total computation.
 
 import type { AccountType, Prisma } from "@prisma/client";
-import { istMidnight, monthRange } from "@/lib/dates";
+import { daysFromToday, istMidnight, monthRange } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { describeQuery, parseQuery } from "@/lib/search-parser";
+import { computeLoanBalances } from "@/lib/lending";
 import { prisma } from "../db";
 
 export interface NLAnswer {
@@ -86,5 +87,96 @@ export async function askLedgerly(userId: string, query: string, now = new Date(
   return {
     answer: describeQuery(parsed, formatPaise(total), rows.length),
     filter: { q: parsed.merchant ?? parsed.category ?? "", tab: parsed.type, monthKey: parsed.monthKey },
+  };
+}
+
+// ─────────────────── Unified search (Phase 2.5) ───────────────────
+
+export interface UnifiedResults {
+  contacts: { id: string; name: string; phone: string | null; lendingNet: number; hasShared: boolean }[];
+  accounts: { id: string; name: string; icon: string; balance: number }[];
+  bills: { id: string; name: string; amount: number; dueLabel: string; overdue: boolean }[];
+  groups: { id: string; name: string; memberCount: number }[];
+  merchants: string[];
+  nl: NLAnswer | null;
+}
+
+/** One query, categorized results across every module — contacts, accounts,
+ * bills, groups, plus the pre-existing merchant suggestions and the
+ * deterministic "Ask Ledgerly" answer. Each category is a bounded ILIKE
+ * (same idiom as searchMerchants); groups reuse listGroups' authorization
+ * path (owner OR linked member) rather than re-deriving it. */
+export async function unifiedSearch(userId: string, query: string): Promise<UnifiedResults> {
+  const q = query.trim();
+  if (q.length < 2) return { contacts: [], accounts: [], bills: [], groups: [], merchants: [], nl: null };
+  const like = { contains: q, mode: "insensitive" as const };
+
+  const [participants, accounts, bills, groups, merchants, nl] = await Promise.all([
+    prisma.participant.findMany({
+      where: { ownerId: userId, OR: [{ displayName: like }, { phone: like }, { notes: like }] },
+      select: { id: true, displayName: true, phone: true },
+      take: 4,
+      orderBy: { displayName: "asc" },
+    }),
+    prisma.account.findMany({
+      where: { userId, isArchived: false, OR: [{ name: like }, { bankName: like }] },
+      select: { id: true, name: true, icon: true, balance: true },
+      take: 4,
+    }),
+    prisma.bill.findMany({
+      where: { userId, status: { not: "PAID" }, name: like },
+      select: { id: true, name: true, amount: true, dueDate: true },
+      take: 4,
+      orderBy: { dueDate: "asc" },
+    }),
+    prisma.group.findMany({
+      where: {
+        name: like,
+        OR: [{ createdById: userId }, { members: { some: { participant: { linkedUserId: userId } } } }],
+      },
+      select: { id: true, name: true, _count: { select: { members: true } } },
+      take: 4,
+    }),
+    searchMerchants(userId, q),
+    askLedgerly(userId, q),
+  ]);
+
+  // lending context for matched contacts only — a bounded per-match query,
+  // not a whole-ledger scan (matches are capped at 4)
+  const participantIds = participants.map((p) => p.id);
+  const [loanEntries, sharedSplitRows] = participantIds.length
+    ? await Promise.all([
+        prisma.loanEntry.findMany({
+          where: { userId, deletedAt: null, participantId: { in: participantIds } },
+          select: { participantId: true, kind: true, amount: true, dueDate: true },
+        }),
+        prisma.expenseSplit.findMany({ where: { participantId: { in: participantIds } }, select: { participantId: true }, distinct: ["participantId"] }),
+      ])
+    : [[], []];
+  const nets = computeLoanBalances(loanEntries.map((e) => ({ participantId: e.participantId, kind: e.kind, amount: Number(e.amount), dueDate: e.dueDate })));
+  const sharedIds = new Set(sharedSplitRows.map((s) => s.participantId));
+
+  return {
+    contacts: participants.map((p) => ({
+      id: p.id,
+      name: p.displayName,
+      phone: p.phone,
+      lendingNet: nets.get(p.id)?.net ?? 0,
+      hasShared: sharedIds.has(p.id),
+    })),
+    accounts: accounts.map((a) => ({ id: a.id, name: a.name, icon: a.icon ?? "🏦", balance: Number(a.balance) })),
+    bills: bills.map((b) => {
+      const days = daysFromToday(b.dueDate);
+      return {
+        id: b.id,
+        name: b.name,
+        amount: Number(b.amount),
+        dueLabel: days < 0 ? "Overdue" : days === 0 ? "Due today" : `Due in ${days}d`,
+        overdue: days < 0,
+      };
+    }),
+    groups: groups.map((g) => ({ id: g.id, name: g.name, memberCount: g._count.members })),
+    merchants,
+    nl,
   };
 }

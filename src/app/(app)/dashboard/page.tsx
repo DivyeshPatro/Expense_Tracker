@@ -1,24 +1,35 @@
-// Decision-oriented dashboard (PRD §4.6). Desktop: attention strip, then the
-// period cards (Current Balance / Carry forward / Income / Expense, scoped to
-// this month by default, filterable to any month / custom range / to-date),
-// cash flow, accounts, donut, bills, settlements, recent transactions, budgets.
-// Mobile home is trimmed to just balance hero + this month's spend + a single
-// most-urgent item (over-budget or due bill, whichever is more urgent) +
-// recent transactions — everything else already has its own page (Analytics/
-// Accounts/Budgets/Bills/Shared), so mobile doesn't repeat it here too.
+// Finance Hub (Phase 2.5, evolved from the PRD §4.6 decision-oriented
+// dashboard): summarizes the user's whole financial world — accounts (with
+// cash/bank/card breakdown), expenses (this vs last month, top category),
+// lending, bills, shared expenses, financial health, a unified
+// needs-attention feed, and recent cross-module activity. Desktop shows
+// everything; mobile keeps the earlier deliberate trim (balance hero +
+// spend + one attention item + recent transactions) plus ONE compact
+// horizontally-scrollable hub strip so every module stays reachable from
+// home (user-confirmed treatment).
 
 import Link from "next/link";
 import { CashFlowCard, type CashFlowSeries } from "@/components/dashboard/cashflow";
+import { HealthWidget } from "@/components/dashboard/health-widget";
 import { LiveBalance } from "@/components/dashboard/live-balance";
+import { MobileHubStrip } from "@/components/dashboard/mobile-hub-strip";
+import { NotificationCenter } from "@/components/dashboard/notification-center";
+import { RecentActivityPanel } from "@/components/dashboard/recent-activity";
+import { RecentTxList } from "@/components/dashboard/recent-tx-list";
 import { OpenModalButton } from "@/components/shell/buttons";
+import { SectionHeader } from "@/components/shell/section-header";
+import { StatCard } from "@/components/shell/stat-card";
 import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonthKey, todayYMD, MONTH_NAMES } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
 import { listAccountRows } from "@/server/services/accounts";
+import { activityPage } from "@/server/services/activity";
 import { listBills } from "@/server/services/bills";
 import { listBudgets } from "@/server/services/budgets";
 import { cashTotals, categoryTotals, loadLedgerAgg, loadLedgerAggRange, monthAgg, recentTransactions } from "@/server/services/ledger";
+import { lendingDashboardSummary, lendingReminders } from "@/server/services/lending";
+import { listGroups } from "@/server/services/groups";
 import { sharedSummary } from "@/server/services/shared";
 import { requireUser } from "@/server/session";
 
@@ -40,24 +51,28 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   // rows (6 months) always covers the current month, so it's handed to
   // listBudgets below instead of that service doing its own narrower 1-month
-  // fetch — same in-flight promise, no extra round trip, still fully parallel
-  // (listBudgets's own budget.findMany still fires immediately either way).
+  // fetch — same in-flight promise, no extra round trip, still fully parallel.
   const rowsPromise = loadLedgerAgg(user.id, 6, now);
-  const [rows, periodRows, period, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared] = await Promise.all([
-    rowsPromise,
-    loadLedgerAggRange(user.id, range.start, range.end),
-    cashTotals(user.id, { start: range.start, end: range.end }),
-    // cash moved after the period ends — walks today's balance back to the period-end balance
-    range.end && range.end < now ? cashTotals(user.id, { start: range.end }) : Promise.resolve({ income: 0, expense: 0 }),
-    // ledger rows never posted to an account (imported history without account info):
-    // their cash effect is real but absent from every account's balance
-    cashTotals(user.id, { unassignedOnly: true }),
-    recentTransactions(user.id, 6),
-    listAccountRows(user.id),
-    listBudgets(user.id, now, rowsPromise),
-    listBills(user.id, now),
-    sharedSummary(user.id),
-  ]);
+  const [rows, periodRows, period, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared, lending, reminders, groups, activity] =
+    await Promise.all([
+      rowsPromise,
+      loadLedgerAggRange(user.id, range.start, range.end),
+      cashTotals(user.id, { start: range.start, end: range.end }),
+      // cash moved after the period ends — walks today's balance back to the period-end balance
+      range.end && range.end < now ? cashTotals(user.id, { start: range.end }) : Promise.resolve({ income: 0, expense: 0 }),
+      // ledger rows never posted to an account (imported history without account info):
+      // their cash effect is real but absent from every account's balance
+      cashTotals(user.id, { unassignedOnly: true }),
+      recentTransactions(user.id, 6),
+      listAccountRows(user.id),
+      listBudgets(user.id, now, rowsPromise),
+      listBills(user.id, now),
+      sharedSummary(user.id),
+      lendingDashboardSummary(user.id),
+      lendingReminders(user.id),
+      listGroups(user.id),
+      activityPage(user.id, { limit: 6 }),
+    ]);
 
   const accountsTotal = accounts.reduce((s, a) => s + a.balance, 0);
   const balanceNow = accountsTotal + (unassignedAll.income - unassignedAll.expense);
@@ -66,6 +81,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const txCountPeriod = periodRows.filter((r) => r.type === "EXPENSE").length;
   // formatPaise renders magnitude only — balances (unlike income/expense) can be negative
   const signed = (v: number) => `${v < 0 ? "−" : ""}${formatPaise(v)}`;
+
+  // accounts breakdown by type (Finance Hub: Total / Cash / Banks / Credit Cards)
+  const sumType = (...types: string[]) => accounts.filter((a) => types.includes(a.type)).reduce((s, a) => s + a.balance, 0);
+  const cashTotal = sumType("CASH", "WALLET");
+  const bankTotal = sumType("BANK", "INVESTMENT");
+  const cardTotal = sumType("CREDIT_CARD");
+
+  // expenses: this month vs last month + top category (Finance Hub)
+  const thisMonthAgg = monthAgg(rows, key);
+  const lastMonthKey = shiftMonthKey(key, -1);
+  const lastMonthAgg = monthAgg(rows, lastMonthKey);
 
   // cash flow series (6M / 8W / 14D)
   const monthKeys = Array.from({ length: 6 }, (_, i) => shiftMonthKey(key, i - 5));
@@ -90,9 +116,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const donutBg = `conic-gradient(${segs.join(", ") || "var(--accSoft) 0 100%"})`;
 
   const bills7 = bills.filter((b) => b.days <= 10).slice(0, 4);
+  const billsOverdueCount = bills.filter((b) => b.urgency === "overdue").length;
+  const billsUpcomingCount = bills.filter((b) => b.days >= 0 && b.days <= 10).length;
   const overBudgets = budgets.filter((b) => b.over);
   const pending = shared.members.filter((m) => Math.abs(m.net) > 100);
   const recent = recentRows.map(txDisplay);
+
+  // Financial Health widget data — composed entirely from what's already fetched
+  const nearestBill = bills[0];
+  const healthData = {
+    spendTrend: monthKeys.map((k) => ({ monthKey: k, expense: monthAgg(rows, k).expense })),
+    outstandingLoans: lending.youAreOwed,
+    upcomingBillCount: bills.filter((b) => b.days >= 0 && b.days <= 7).length,
+    nearestBillLabel: nearestBill ? `${nearestBill.name} · ${nearestBill.dueLabel.toLowerCase()}` : null,
+    creditExposure: accounts.filter((a) => a.type === "CREDIT_CARD").reduce((s, a) => s + Math.max(0, -a.balance), 0),
+    netPosition: accountsTotal + lending.net,
+  };
 
   // attention strip (desktop: every applicable chip, unchanged)
   const attention: { icon: string; text: string; href: string; bg: string; color: string }[] = [];
@@ -106,11 +145,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (shared.youOwe > 100) attention.push({ icon: "💸", text: `You owe ${formatPaise(shared.youOwe)}`, href: "/shared", bg: "var(--accSoft)", color: "var(--acc)" });
 
   // mobile home shows a single most-urgent item instead of the full strip
-  // (audit: "1 attention item — over-budget or due bill, whichever is more
-  // urgent" — a hard-deadline bill due today/soon outranks an over-budget
-  // category, which outranks a bill merely due within the week; settlements
-  // aren't part of this slot since they're not a deadline and stay reachable
-  // via Shared).
   const urgentBill = bills.find((b) => b.urgency === "overdue" || b.urgency === "urgent");
   const worstOverBudget = overBudgets.length ? [...overBudgets].sort((a, b) => b.spent - b.limit - (a.spent - a.limit))[0] : undefined;
   const soonBill = bills.find((b) => b.urgency === "soon");
@@ -155,9 +189,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      {/* period stat cards — the period itself is picked from the header, shared across sections.
-          Mobile home keeps only the balance hero + this month's spend; Carry forward and Income
-          stay desktop-only (audit: mobile leads with "balance hero, this month's spend, ..."). */}
+      {/* period stat cards — every card deep-links (Finance Hub requirement) */}
       <div className="flex flex-wrap gap-3.5">
         <div className="flex-[1.5_1_250px] rounded-[14px] p-[var(--pad)] text-white" style={{ background: "linear-gradient(135deg,var(--dark1),var(--dark2))", boxShadow: "0 8px 24px rgba(28,39,64,.25)" }}>
           <div className="text-[11px] opacity-65 font-semibold tracking-[.06em]">{mode === "month" && periodKey === key ? "TOTAL BALANCE" : `BALANCE · ${periodLabel}`}</div>
@@ -175,16 +207,34 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <span>− Expense {formatPaise(period.expense)}</span>
           </div>
         </div>
-        <StatCard label="CARRY FORWARD" value={<span style={carryForward < 0 ? { color: "var(--red)" } : undefined}>{signed(carryForward)}</span>} className="hidden md:block">
+        <StatCard label="CARRY FORWARD" value={<span style={carryForward < 0 ? { color: "var(--red)" } : undefined}>{signed(carryForward)}</span>} className="hidden md:block" href={withPeriodQS("/accounts")}>
           <div className="text-[11.5px] mt-[7px] text-mut2">{mode === "all" ? "opening balances before tracking began" : "balance before this period"}</div>
         </StatCard>
-        <StatCard label={`INCOME · ${periodLabel}`} value={<span className="text-green">+{formatPaise(period.income)}</span>} className="hidden md:block">
+        <StatCard label={`INCOME · ${periodLabel}`} value={<span className="text-green">+{formatPaise(period.income)}</span>} className="hidden md:block" href={withPeriodQS("/transactions")}>
           <div className="text-[11.5px] mt-[7px] text-mut2">money in</div>
         </StatCard>
-        <StatCard label={`EXPENSE · ${periodLabel}`} value={<span>−{formatPaise(period.expense)}</span>}>
-          <div className="text-[11.5px] mt-[7px] text-mut2">{txCountPeriod} transactions</div>
+        <StatCard label={`EXPENSE · ${periodLabel}`} value={<span>−{formatPaise(period.expense)}</span>} href={withPeriodQS("/transactions")}>
+          <div className="text-[11.5px] mt-[7px] text-mut2">
+            {txCountPeriod} transactions
+            {mode === "month" && periodKey === key && lastMonthAgg.expense > 0 && (
+              <> · last month {formatPaise(lastMonthAgg.expense)}</>
+            )}
+            {mode === "month" && periodKey === key && cats[0] && <> · top: {cats[0].name}</>}
+          </div>
         </StatCard>
       </div>
+
+      {/* mobile hub strip: the one mobile addition — compact deep-links into every module */}
+      <MobileHubStrip
+        data={{
+          lendingNet: lending.net,
+          lendingOwed: lending.youAreOwed,
+          billsDueCount: bills.filter((b) => b.days <= 7).length,
+          billsOverdue: billsOverdueCount > 0,
+          pendingSettlements: pending.length,
+          netPosition: healthData.netPosition,
+        }}
+      />
 
       {/* cash flow + accounts — already have their own pages (Analytics/Accounts), so mobile home skips them */}
       <div className="hidden md:flex flex-wrap gap-3.5">
@@ -205,12 +255,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               </div>
             </Link>
           ))}
+          {/* Finance Hub: at-a-glance breakdown by account type */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 border-t border-line text-[10.5px] text-mut2">
+            <span>Cash {signed(cashTotal)}</span>
+            <span>Banks {signed(bankTotal)}</span>
+            {cardTotal !== 0 && <span className="text-red">Cards {signed(cardTotal)}</span>}
+          </div>
         </section>
       </div>
 
-      {/* categories + bills + settlements — categories duplicates Analytics'
-          Categories tab, bills/settlements are folded into the single mobile
-          attention item above, so mobile home skips this whole row */}
+      {/* financial world row: health + needs-attention feed + recent activity (Finance Hub) */}
+      <div className="hidden md:flex flex-wrap gap-3.5 items-start">
+        <HealthWidget data={healthData} />
+        <NotificationCenter
+          reminders={reminders}
+          bills={bills.map((b) => ({ id: b.id, name: b.name, amount: b.amount, days: b.days, dueLabel: b.dueLabel, urgency: b.urgency }))}
+          settlements={pending.map((m) => ({ participantId: m.id, name: m.name, net: m.net }))}
+        />
+        <RecentActivityPanel events={activity.events} />
+      </div>
+
+      {/* categories + lending + bills + settlements */}
       <div className="hidden md:flex flex-wrap gap-3.5">
         <section className="card p-[var(--pad)] flex-[1.1_1_280px]">
           <h2 className="text-[13.5px] font-bold m-0">Spending by category</h2>
@@ -234,37 +299,69 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </div>
           </div>
         </section>
+        <section className="card p-[var(--pad)] flex-[1_1_230px] flex flex-col gap-[11px]">
+          <SectionHeader title="Lending" href="/lending" />
+          <Link href="/lending" className="no-underline text-ink flex flex-col gap-2">
+            <div className="flex justify-between text-[12.5px]">
+              <span className="text-mut font-medium">You are owed</span>
+              <span className="font-bold text-green">{formatPaise(lending.youAreOwed)}</span>
+            </div>
+            <div className="flex justify-between text-[12.5px]">
+              <span className="text-mut font-medium">You owe</span>
+              <span className="font-bold text-red">{formatPaise(lending.youOwe)}</span>
+            </div>
+            <div className="flex justify-between text-[12.5px] pt-2 border-t border-line">
+              <span className="text-mut font-medium">Net lending</span>
+              <span className="font-bold" style={{ color: lending.net < 0 ? "var(--red)" : "var(--green)" }}>
+                {lending.net < 0 ? "−" : "+"}{formatPaise(Math.abs(lending.net))}
+              </span>
+            </div>
+            {lending.overdueCount > 0 && (
+              <div className="text-[11px] font-semibold text-red">{lending.overdueCount} overdue loan{lending.overdueCount > 1 ? "s" : ""}</div>
+            )}
+          </Link>
+        </section>
         <section className="card p-[var(--pad)] flex-[1_1_250px] flex flex-col gap-[11px]">
           <div className="flex justify-between items-center">
-            <h2 className="text-[13.5px] font-bold m-0">Upcoming bills</h2>
+            <h2 className="text-[13.5px] font-bold m-0">
+              Upcoming bills
+              {(billsUpcomingCount > 0 || billsOverdueCount > 0) && (
+                <span className="ml-1.5 text-[10.5px] font-semibold text-mut2">
+                  {billsUpcomingCount} upcoming{billsOverdueCount > 0 && <span className="text-red"> · {billsOverdueCount} overdue</span>}
+                </span>
+              )}
+            </h2>
             <Link href="/bills" className="text-[11.5px] font-semibold no-underline">All →</Link>
           </div>
           {bills7.map((b) => (
-            <div key={b.id} className="flex items-center gap-2.5">
+            <Link key={b.id} href="/bills" className="flex items-center gap-2.5 no-underline text-ink">
               <div className="w-[30px] h-[30px] rounded-[9px] grid place-items-center text-[13px]" style={{ background: soft(b.color) }}>{b.icon}</div>
               <div className="flex-1 min-w-0">
                 <div className="text-[12.5px] font-semibold truncate">{b.name}</div>
                 <div className="text-[11px] font-semibold" style={{ color: urgencyColor(b.urgency) }}>{b.dueLabel}</div>
               </div>
               <div className="text-[12.5px] font-bold">{formatPaise(b.amount)}</div>
-            </div>
+            </Link>
           ))}
           {bills7.length === 0 && <div className="text-[12px] text-mut2">Nothing due in the next 10 days 🎉</div>}
         </section>
         <section className="card p-[var(--pad)] flex-[1_1_250px] flex flex-col gap-[11px]">
           <div className="flex justify-between items-center">
-            <h2 className="text-[13.5px] font-bold m-0">Settlements</h2>
+            <h2 className="text-[13.5px] font-bold m-0">
+              Settlements
+              {groups.length > 0 && <span className="ml-1.5 text-[10.5px] font-semibold text-mut2">{groups.length} group{groups.length > 1 ? "s" : ""}</span>}
+            </h2>
             <Link href="/shared" className="text-[11.5px] font-semibold no-underline">Shared →</Link>
           </div>
           {pending.map((m) => (
-            <div key={m.id} className="flex items-center gap-2.5">
+            <Link key={m.id} href="/shared" className="flex items-center gap-2.5 no-underline text-ink">
               <div className="w-[30px] h-[30px] rounded-full grid place-items-center text-[11.5px] font-bold text-white" style={{ background: m.color }}>{m.initial}</div>
               <div className="flex-1">
                 <div className="text-[12.5px] font-semibold">{m.name}</div>
                 <div className="text-[11px] text-mut2">{m.net > 0 ? "owes you" : "you owe"}</div>
               </div>
               <div className="text-[12.5px] font-bold" style={{ color: m.net > 0 ? "var(--green)" : "var(--red)" }}>{formatPaise(m.net)}</div>
-            </div>
+            </Link>
           ))}
           {pending.length === 0 && <div className="text-[12px] text-mut2">All settled up ✨</div>}
         </section>
@@ -274,32 +371,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           below its content's intrinsic width, so a long untruncated
           transaction meta line can force this section (and the page) wider
           than the viewport before the row's own `truncate` ever gets a
-          chance to clip it — this now matters on mobile since Budgets (the
-          sibling that used to share this row) is hidden there. */}
+          chance to clip it. */}
       <div className="flex flex-wrap gap-3.5">
         <section className="card p-[var(--pad)] flex-[1.6_1_340px] min-w-0 flex flex-col gap-3">
-          <div className="flex justify-between items-center">
-            <h2 className="text-[13.5px] font-bold m-0">Recent transactions</h2>
-            <Link href={withPeriodQS("/transactions")} className="text-[11.5px] font-semibold no-underline">All →</Link>
-          </div>
-          {recent.map((t) => (
-            <div key={t.id} className="flex items-center gap-[11px]">
-              <div className="w-[34px] h-[34px] rounded-[10px] grid place-items-center text-sm flex-none" style={{ background: t.iconBg }}>{t.icon}</div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] font-semibold truncate">{t.name}</div>
-                <div className="text-[11px] text-mut2 truncate">{t.meta}</div>
-              </div>
-              <div className="text-[12.5px] font-bold" style={{ color: t.amtColor }}>{t.amtF}</div>
-            </div>
-          ))}
+          <SectionHeader title="Recent transactions" href={withPeriodQS("/transactions")} />
+          <RecentTxList rows={recent.map((t) => ({ id: t.id, icon: t.icon, iconBg: t.iconBg, name: t.name, meta: t.meta, amtF: t.amtF, amtColor: t.amtColor }))} />
         </section>
         {/* full budget list already has its own page — mobile home relies on
             the attention item above for anything urgent instead of repeating it */}
         <section className="hidden md:flex card p-[var(--pad)] flex-[1_1_280px] flex-col gap-[13px]">
-          <div className="flex justify-between items-center">
-            <h2 className="text-[13.5px] font-bold m-0">Budgets</h2>
-            <Link href="/budgets" className="text-[11.5px] font-semibold no-underline">All →</Link>
-          </div>
+          <SectionHeader title="Budgets" href="/budgets" />
           {budgets.slice(0, 4).map((b) => (
             <div key={b.id}>
               <div className="flex justify-between text-xs font-semibold">
@@ -315,26 +396,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           ))}
         </section>
       </div>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  children,
-  className = "",
-}: {
-  label: string;
-  value: React.ReactNode;
-  children?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={`card flex-[1_1_150px] p-[var(--pad)] ${className}`}>
-      <div className="text-[11px] text-mut font-semibold tracking-[.06em]">{label}</div>
-      <div className="text-[21px] font-extrabold mt-[5px]">{value}</div>
-      {children}
     </div>
   );
 }
