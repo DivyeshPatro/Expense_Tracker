@@ -49,6 +49,19 @@ export async function deleteUserAccount(userId: string): Promise<void> {
       await db.importMapping.deleteMany({ where: { userId } });
       await db.auditLog.deleteMany({ where: { userId } });
 
+      // Intent.userId and Invitation.invitedById/participantId are plain
+      // strings with no declared Prisma relation (see invitations.ts, and
+      // Intent's own schema comment) — nothing DB-cascades these, so they'd
+      // otherwise survive as orphans pointing at a userId that no longer
+      // exists. Must run before participant deleteMany below, since
+      // Invitation.participantId's cleanup depends on this user's own
+      // participant rows still existing to look up.
+      await db.intent.deleteMany({ where: { userId } });
+      const ownedParticipantIds = (await db.participant.findMany({ where: { ownerId: userId }, select: { id: true } })).map((p) => p.id);
+      await db.invitation.deleteMany({
+        where: { OR: [{ invitedById: userId }, { participantId: { in: ownedParticipantIds } }] },
+      });
+
       await db.groupMember.deleteMany({ where: { participant: { ownerId: userId } } });
       await db.group.deleteMany({ where: { createdById: userId } });
       await db.participant.deleteMany({ where: { ownerId: userId } });
