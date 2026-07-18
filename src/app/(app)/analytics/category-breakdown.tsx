@@ -48,6 +48,7 @@ export function CategoryBreakdown({
             <button
               key={k}
               onClick={() => setTab(k)}
+              aria-pressed={tab === k}
               className="px-2.5 py-1 rounded-[6px] text-[11px] font-bold cursor-pointer border-none"
               style={{ background: tab === k ? "var(--acc)" : "transparent", color: tab === k ? "#fff" : "var(--acc)" }}
             >

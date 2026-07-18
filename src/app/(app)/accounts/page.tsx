@@ -42,6 +42,18 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             <div className="text-[11.5px] text-mut2 mt-[5px]">
               {label}: {a.periodNet < 0 ? "−" : "+"}{formatPaise(a.periodNet)}
             </div>
+            {a.type === "CREDIT_CARD" && (
+              <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-line">
+                <div className="text-[11px] text-mut2">
+                  {a.cardNetwork || a.cardLast4
+                    ? `${a.cardNetwork ?? ""}${a.cardLast4 ? ` •••• ${a.cardLast4}` : ""}`.trim()
+                    : "Billing details not set"}
+                </div>
+                <OpenModalButton type="accountCardDetails" prefill={{ accountId: a.id }} className="text-[11px] font-semibold text-acc bg-transparent border-none cursor-pointer p-0 hover:underline">
+                  Card details
+                </OpenModalButton>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -50,7 +62,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           <h2 className="text-[13.5px] font-bold m-0">Transfers</h2>
           <div className="text-[11.5px] text-mut2">{label}</div>
         </div>
-        {transfers.length === 0 && <div className="text-[12.5px] text-mut2 py-2">No transfers in this period — move money between accounts with ⇄ Transfer.</div>}
+        {transfers.length === 0 && <div className="text-[12px] text-mut2 py-2">No transfers in this period — move money between accounts with ⇄ Transfer.</div>}
         {transfers.map((t) => (
           <div key={t.id} className="flex items-center gap-3 py-[9px] border-b border-line last:border-b-0">
             <div className="w-8 h-8 rounded-[10px] grid place-items-center text-[13px] bg-accsoft">⇄</div>

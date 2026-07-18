@@ -10,7 +10,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { activityPageAction, importPreviewAction } from "@/app/actions";
 import { ACTIVITY_CHIPS, CHIP_LABELS, formatDiffRow, type ActivityChip, type TimelineEvent } from "@/lib/activity";
-import { friendlyDay } from "@/lib/dates";
+import { addDaysYMD, daysBetweenYMD, todayYMD } from "@/lib/dates";
+import { EmptyState } from "@/components/shell/empty-state";
 
 const MAX_VISIBLE_DIFF = 3;
 
@@ -19,8 +20,26 @@ function localYmd(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Phase 2.5 fix: `undefined` locale resolves to whatever the running
+// environment's default is — Node's server-side default differs from the
+// browser's, so every row hydration-mismatched ("18:21" server vs "6:21 pm"
+// client). Pinned explicitly, same as recent-activity.tsx's dashboard panel.
 function timeOfDay(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
+}
+
+/** Phase 2.5: coarser grouping than the old per-day headers — Today /
+ * Yesterday / This Week (rolling 7-day window) / Earlier, per spec. Each
+ * event's own local calendar day, not a cutoff on `ts` itself, so an event
+ * from 11pm yesterday and one from 1am today land in different buckets the
+ * same way a per-day header always did. */
+function bucketLabel(ymd: string, now: Date): string {
+  const today = todayYMD(now);
+  if (ymd === today) return "Today";
+  if (ymd === addDaysYMD(today, -1)) return "Yesterday";
+  const daysAgo = daysBetweenYMD(ymd, today);
+  if (daysAgo >= 0 && daysAgo <= 6) return "This Week";
+  return "Earlier";
 }
 
 export function ActivityList({
@@ -73,10 +92,13 @@ export function ActivityList({
     }
   }
 
-  // group into day sections, preserving server order (newest first)
+  // group into Today/Yesterday/This Week/Earlier sections, preserving
+  // server order (newest first) — each bucket can only appear once since
+  // events arrive newest-first and the bucket ordering is monotonic
   const groups: { label: string; items: TimelineEvent[] }[] = [];
+  const now = new Date();
   for (const ev of events) {
-    const label = friendlyDay(localYmd(ev.ts));
+    const label = bucketLabel(localYmd(ev.ts), now);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.items.push(ev);
     else groups.push({ label, items: [ev] });
@@ -95,6 +117,7 @@ export function ActivityList({
             <button
               key={c}
               onClick={() => selectChip(c)}
+              aria-pressed={chip === c}
               className="px-3 py-1.5 rounded-[7px] text-xs font-semibold cursor-pointer border-none whitespace-nowrap"
               style={{ background: chip === c ? "var(--acc)" : "transparent", color: chip === c ? "#fff" : "var(--mut)" }}
             >
@@ -105,9 +128,7 @@ export function ActivityList({
       )}
 
       {!loading && events.length === 0 && (
-        <div className="text-center py-[60px] px-5 text-mut2 text-[13px]">
-          Your activity will appear here — every change to your money, in plain English.
-        </div>
+        <EmptyState icon="🕐" title="Your activity will appear here" detail="Every change to your money, in plain English." />
       )}
 
       {groups.map((g) => (
@@ -120,6 +141,13 @@ export function ActivityList({
               const hidden = ev.diff.length - MAX_VISIBLE_DIFF;
               const rel = related[ev.activityId];
               const isImport = ev.entityType === "import" && ev.verb === "imported";
+              // Phase 2.5 cross-navigation: relatedFor() already computes
+              // category/account/participant links for Transaction and
+              // LoanEntry events (activity.ts) — previously only imports
+              // ever showed them. toggleRelated() already no-ops the
+              // merchant fetch for non-import events, so widening this gate
+              // is the only change needed to surface those links.
+              const hasRelated = isImport || ev.related.length > 0;
               return (
                 <div key={ev.activityId} className="flex items-start gap-3 py-[11px] border-b border-line last:border-b-0">
                   <div className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none bg-accsoft" aria-hidden="true">
@@ -179,7 +207,7 @@ export function ActivityList({
                         )}
                       </>
                     )}
-                    {isImport && (
+                    {hasRelated && (
                       <>
                         <button
                           onClick={() => toggleRelated(ev)}

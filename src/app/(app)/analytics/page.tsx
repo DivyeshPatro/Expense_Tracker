@@ -1,3 +1,4 @@
+import { StatCard } from "@/components/shell/stat-card";
 import { currentMonthKey, daysBetweenYMD, monthName, shiftMonthKey, todayYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
@@ -89,21 +90,15 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         <PrintButton />
       </div>
       <div className="flex flex-wrap gap-3.5">
-        <div className="card flex-[1_1_160px] p-[var(--pad)]">
-          <div className="text-[11px] text-mut font-semibold tracking-[.06em]">AVG DAILY SPEND</div>
-          <div className="text-[22px] font-extrabold mt-[5px]">{formatPaise(avgDaily)}</div>
+        <StatCard label="AVG DAILY SPEND" value={formatPaise(avgDaily)}>
           <div className="text-[11.5px] text-mut2 mt-[5px]">{period.label.toLowerCase()}</div>
-        </div>
-        <div className="card flex-[1_1_160px] p-[var(--pad)]">
-          <div className="text-[11px] text-mut font-semibold tracking-[.06em]">BIGGEST EXPENSE</div>
-          <div className="text-[22px] font-extrabold mt-[5px]">{biggest ? formatPaise(biggest.myExpense) : "—"}</div>
+        </StatCard>
+        <StatCard label="BIGGEST EXPENSE" value={biggest ? formatPaise(biggest.myExpense) : "—"}>
           <div className="text-[11.5px] text-mut2 mt-[5px]">{biggest?.merchant ?? ""}</div>
-        </div>
-        <div className="card flex-[1_1_160px] p-[var(--pad)]">
-          <div className="text-[11px] text-mut font-semibold tracking-[.06em]">SAVINGS RATE</div>
-          <div className="text-[22px] font-extrabold mt-[5px] text-green">{rate}%</div>
+        </StatCard>
+        <StatCard label="SAVINGS RATE" value={<span className="text-green">{rate}%</span>}>
           <div className="text-[11.5px] text-mut2 mt-[5px]">of {period.label.toLowerCase()} income</div>
-        </div>
+        </StatCard>
       </div>
 
       <AnalyticsTabs

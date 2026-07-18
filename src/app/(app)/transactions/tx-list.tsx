@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { queryTransactionsAction } from "@/app/actions";
+import { EmptyState } from "@/components/shell/empty-state";
 import { useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
@@ -210,7 +211,7 @@ export function TransactionsList({
       <PendingRows />
 
       {!loading && rows.length === 0 && (
-        <div className="text-center py-[60px] px-5 text-mut2 text-[13px]">Nothing matches — try a different search or filter.</div>
+        <EmptyState icon="🔎" title="Nothing matches" detail="Try a different search or filter." />
       )}
 
       {groups.map((g) => (

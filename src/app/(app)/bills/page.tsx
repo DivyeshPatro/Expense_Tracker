@@ -1,4 +1,5 @@
 import { OpenModalButton, PayBillButton } from "@/components/shell/buttons";
+import { EmptyState } from "@/components/shell/empty-state";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
 import { listBills } from "@/server/services/bills";
@@ -17,7 +18,7 @@ export default async function BillsPage() {
       </div>
       <div className="card px-4 py-1.5">
         {bills.length === 0 && (
-          <div className="text-center py-10 text-mut2 text-[13px]">No bills tracked yet — add rent, electricity, subscriptions…</div>
+          <EmptyState icon="🧾" title="No bills tracked yet" detail="Add rent, electricity, subscriptions — anything with a due date." />
         )}
         {bills.map((b) => (
           <div key={b.id} className="flex items-center gap-3 py-[13px] border-b border-line last:border-b-0 flex-wrap">

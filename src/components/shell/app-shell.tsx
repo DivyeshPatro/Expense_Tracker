@@ -19,6 +19,7 @@ import { UIProvider, useUI, type RefData } from "./ui-context";
 const NAV = [
   { href: "/dashboard", icon: "◧", label: "Dashboard" },
   { href: "/transactions", icon: "⇄", label: "Transactions" },
+  { href: "/lending", icon: "🤝", label: "Lending" },
   { href: "/accounts", icon: "▤", label: "Accounts" },
   { href: "/budgets", icon: "◔", label: "Budgets" },
   { href: "/bills", icon: "▦", label: "Bills" },
@@ -35,7 +36,7 @@ const TX_SUBS = [
   { label: "Transfers", tab: "TRANSFER" },
 ];
 
-const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics", "/activity"];
+const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics", "/activity", "/lending"];
 
 /** Carries the selected period (?p/&from/&to) along when navigating between period-aware pages, so switching sections doesn't reset back to "this month". */
 function withPeriod(href: string, currentSearch: string): string {
@@ -259,9 +260,12 @@ function ThemeToggle() {
   );
 }
 
+// lending-module-phase1: a genuine 6th primary slot (3 left + FAB + 2 right),
+// not tucked into the More sheet — Lending is as prominent as Transactions.
 const MOBILE_NAV_LEFT = [
   { href: "/dashboard", icon: "◧", label: "Home" },
   { href: "/transactions", icon: "⇄", label: "Txns" },
+  { href: "/lending", icon: "🤝", label: "Lending" },
 ];
 const MOBILE_NAV_RIGHT = [{ href: "/analytics", icon: "◵", label: "Analytics" }];
 
@@ -352,6 +356,7 @@ function QuickAddSheet({ close }: { close: () => void }) {
     { icon: "💰", label: "Income", act: () => openModal("inc") },
     { icon: "⇄", label: "Transfer", act: () => openModal("tr") },
     { icon: "👥", label: "Split with friends", act: () => openModal("exp", { split: true }) },
+    { icon: "🤝", label: "Lending entry", act: () => openModal("lendingEntry") },
   ];
   return (
     <div onClick={close} className="fixed inset-0 z-[55] flex items-end" style={{ background: "var(--ov)" }}>
@@ -483,6 +488,7 @@ function Fab() {
     { icon: "💰", label: "Income", act: () => openModal("inc") },
     { icon: "⇄", label: "Transfer", act: () => openModal("tr") },
     { icon: "👥", label: "Split with friends", act: () => openModal("exp", { split: true }) },
+    { icon: "🤝", label: "Lending entry", act: () => openModal("lendingEntry") },
   ];
   return (
     <>

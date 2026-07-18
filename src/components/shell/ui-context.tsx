@@ -2,7 +2,22 @@
 
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 
-export type ModalType = "exp" | "inc" | "tr" | "settle" | "budget" | "account" | "bill" | "friend" | "group" | "txDetail" | "pendingDetail";
+export type ModalType =
+  | "exp"
+  | "inc"
+  | "tr"
+  | "settle"
+  | "budget"
+  | "account"
+  | "bill"
+  | "friend"
+  | "group"
+  | "txDetail"
+  | "pendingDetail"
+  | "lendingEntry"
+  | "lendingContact"
+  | "loanDetail"
+  | "accountCardDetails";
 
 export interface ModalPrefill {
   split?: boolean;
@@ -12,10 +27,25 @@ export interface ModalPrefill {
   amountRupees?: string;
   transactionId?: string;
   intentId?: string;
+  loanKind?: "GAVE" | "GOT"; // lending-module-phase1
+  loanEntryId?: string; // lending-module-phase2
+  accountId?: string; // lending-module-phase2 (card vault edit)
+  targetLoanEntryId?: string; // lending-module-phase2: "Record Repayment" from Loan Detail — pre-allocates 100% to this loan
+  targetLoanRemainingRupees?: string;
 }
 
 export interface RefData {
-  accounts: { id: string; name: string; icon: string }[];
+  accounts: {
+    id: string;
+    name: string;
+    icon: string;
+    // lending-module-phase2: Card Vault fields, populated for CREDIT_CARD accounts only
+    type?: string;
+    cardNetwork?: string | null;
+    cardLast4?: string | null;
+    statementDay?: number | null;
+    dueDay?: number | null;
+  }[];
   expenseCategories: { id: string; name: string; icon: string }[];
   incomeCategories: { id: string; name: string; icon: string }[];
   participants: { id: string; name: string; initial: string; color: string }[];

@@ -29,6 +29,7 @@ export function AnalyticsTabs({ trend, categories, merchants }: { trend: ReactNo
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
+            aria-pressed={tab === t.key}
             className="flex-1 px-3 py-1.5 rounded-[7px] text-xs font-semibold cursor-pointer border-none"
             style={{ background: tab === t.key ? "var(--acc)" : "transparent", color: tab === t.key ? "#fff" : "var(--mut)" }}
           >

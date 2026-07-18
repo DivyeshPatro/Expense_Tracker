@@ -1,6 +1,9 @@
+import Link from "next/link";
 import { OpenModalButton } from "@/components/shell/buttons";
 import { GroupsPanel } from "@/components/shared/groups-panel";
 import { InviteButton } from "@/components/shared/invite-button";
+import { EmptyState } from "@/components/shell/empty-state";
+import { StatCard } from "@/components/shell/stat-card";
 import { friendlyDay, toYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { txDisplay } from "@/lib/tx-display";
@@ -40,37 +43,36 @@ export default async function SharedPage() {
       </div>
 
       <div className="flex flex-wrap gap-3.5">
-        <div className="card flex-[1_1_160px] p-[var(--pad)]">
-          <div className="text-[11px] text-mut font-semibold tracking-[.06em]">YOU OWE</div>
-          <div className="text-[23px] font-extrabold mt-[5px] text-red">{formatPaise(summary.youOwe)}</div>
-        </div>
-        <div className="card flex-[1_1_160px] p-[var(--pad)]">
-          <div className="text-[11px] text-mut font-semibold tracking-[.06em]">OWED TO YOU</div>
-          <div className="text-[23px] font-extrabold mt-[5px] text-green">{formatPaise(summary.owedToYou)}</div>
-        </div>
-        <div className="card flex-[1_1_160px] p-[var(--pad)]">
-          <div className="text-[11px] text-mut font-semibold tracking-[.06em]">NET BALANCE</div>
-          <div className="text-[23px] font-extrabold mt-[5px]" style={{ color: summary.net < 0 ? "var(--red)" : "var(--green)" }}>
-            {summary.net < 0 ? "−" : "+"}{formatPaise(summary.net)}
-          </div>
-        </div>
+        <StatCard label="YOU OWE" value={<span className="text-red">{formatPaise(summary.youOwe)}</span>} />
+        <StatCard label="OWED TO YOU" value={<span className="text-green">{formatPaise(summary.owedToYou)}</span>} />
+        <StatCard
+          label="NET BALANCE"
+          value={
+            <span style={{ color: summary.net < 0 ? "var(--red)" : "var(--green)" }}>
+              {summary.net < 0 ? "−" : "+"}{formatPaise(summary.net)}
+            </span>
+          }
+        />
       </div>
 
       <div className="flex flex-wrap gap-3.5 items-start">
         <section className="card flex-[1_1_300px] p-[var(--pad)] flex flex-col gap-[13px]">
           <h2 className="text-[13.5px] font-bold m-0">Balances</h2>
           {summary.members.length === 0 && (
-            <div className="text-[12.5px] text-mut2">No friends yet — add one to start splitting.</div>
+            <EmptyState icon="👥" title="No friends yet" detail="Add one to start splitting expenses." compact />
           )}
           {summary.members.map((m) => {
             const owed = Math.abs(m.net) > 100;
             return (
               <div key={m.id} className="flex items-center gap-[11px]">
-                <div className="w-9 h-9 rounded-full grid place-items-center text-[13px] font-bold text-white" style={{ background: m.color }}>{m.initial}</div>
-                <div className="flex-1">
-                  <div className="text-[13px] font-bold">{m.name}</div>
-                  <div className="text-[11.5px] text-mut2">{m.net > 100 ? "owes you" : m.net < -100 ? "you owe" : "settled up"}</div>
-                </div>
+                {/* Phase 2.5 cross-navigation: name+avatar open this friend's Lending contact */}
+                <Link href={`/lending?contact=${m.id}`} className="flex items-center gap-[11px] flex-1 min-w-0 no-underline text-ink hover:opacity-80">
+                  <div className="w-9 h-9 rounded-full grid place-items-center text-[13px] font-bold text-white flex-none" style={{ background: m.color }}>{m.initial}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-bold truncate">{m.name}</div>
+                    <div className="text-[11.5px] text-mut2">{m.net > 100 ? "owes you" : m.net < -100 ? "you owe" : "settled up"}</div>
+                  </div>
+                </Link>
                 <div className="text-[13px] font-extrabold" style={{ color: m.net > 100 ? "var(--green)" : m.net < -100 ? "var(--red)" : "var(--mut2)" }}>
                   {owed ? formatPaise(m.net) : "—"}
                 </div>
@@ -94,7 +96,7 @@ export default async function SharedPage() {
           })}
           <div className="border-t border-line pt-[11px]">
             <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mb-2">SETTLEMENT HISTORY</div>
-            {history.length === 0 && <div className="text-xs text-mut2 py-1">No settlements yet.</div>}
+            {history.length === 0 && <div className="text-[12px] text-mut2 py-1">No settlements yet.</div>}
             {history.map((s) => (
               <div key={s.id} className="flex justify-between text-xs py-1">
                 <span className="text-mut">
@@ -109,7 +111,7 @@ export default async function SharedPage() {
 
         <section className="card flex-[1.3_1_320px] px-4 py-1.5">
           <h2 className="text-[13.5px] font-bold pt-3 pb-1.5 m-0">Shared expenses</h2>
-          {sharedTx.length === 0 && <div className="text-[12.5px] text-mut2 py-4">No shared expenses yet — add one and split it.</div>}
+          {sharedTx.length === 0 && <div className="text-[12px] text-mut2 py-4">No shared expenses yet — add one and split it.</div>}
           {sharedTx.map((t) => (
             <div key={t.id} className="flex items-center gap-3 py-[11px] border-b border-line last:border-b-0">
               <div className="w-9 h-9 rounded-[11px] grid place-items-center text-[15px] flex-none" style={{ background: t.iconBg }}>{t.icon}</div>

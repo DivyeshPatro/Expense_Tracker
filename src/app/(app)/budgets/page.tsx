@@ -1,4 +1,5 @@
 import { OpenModalButton } from "@/components/shell/buttons";
+import { EmptyState } from "@/components/shell/empty-state";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
 import { listBudgets } from "@/server/services/budgets";
@@ -17,7 +18,7 @@ export default async function BudgetsPage() {
       </div>
       <div className="card p-[var(--pad)] flex flex-col gap-[18px]">
         {budgets.length === 0 && (
-          <div className="text-center py-10 text-mut2 text-[13px]">No budgets yet — create one to keep a category in check.</div>
+          <EmptyState icon="◔" title="No budgets yet" detail="Create one to keep a category in check." />
         )}
         {budgets.map((b) => (
           <div key={b.id}>

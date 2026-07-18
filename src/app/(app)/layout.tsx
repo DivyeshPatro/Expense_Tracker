@@ -30,7 +30,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const refData: RefData = {
     userName: user.name,
-    accounts: accounts.map((a) => ({ id: a.id, name: a.name, icon: a.icon ?? "🏦" })),
+    accounts: accounts.map((a) => ({
+      id: a.id,
+      name: a.name,
+      icon: a.icon ?? "🏦",
+      type: a.type,
+      cardNetwork: a.cardNetwork,
+      cardLast4: a.cardLast4,
+      statementDay: a.statementDay,
+      dueDay: a.dueDay,
+    })),
     expenseCategories: categories.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "📦" })),
     incomeCategories: categories.filter((c) => c.kind === "INCOME").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "💼" })),
     participants: participants.map((p) => ({ id: p.id, name: p.displayName, initial: p.displayName.charAt(0).toUpperCase(), color: p.color ?? "#6d5ae6" })),

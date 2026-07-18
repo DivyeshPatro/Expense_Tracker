@@ -22,7 +22,7 @@ export function ImportHistory({ batches }: { batches: ImportBatchRow[] }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   if (batches.length === 0) {
-    return <div className="text-[12.5px] text-mut2">No imports yet.</div>;
+    return <div className="text-[12px] text-mut2">No imports yet.</div>;
   }
 
   return (

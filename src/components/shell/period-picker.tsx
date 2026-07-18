@@ -11,6 +11,7 @@ import { useState } from "react";
 import { currentMonthKey, todayYMD } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
+import { DateField } from "./date-field";
 
 const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics"];
 
@@ -83,17 +84,18 @@ function PeriodPicker({
       <button className={chip(isThisMonth)} style={chipStyle(isThisMonth)} onClick={() => { setCustomOpen(false); onNavigate(""); }}>
         This month
       </button>
-      <input
-        type="month"
-        className="field !w-auto !py-[4px] !px-2 !text-[11.5px] !rounded-full font-semibold"
-        style={isOtherMonth ? { borderColor: "var(--acc)", color: "var(--acc)" } : undefined}
+      <DateField
+        mode="month"
+        showIcon={false}
         value={monthKey}
         max={currentKey}
-        onChange={(e) => {
-          if (!e.target.value) return;
+        onChange={(v) => {
+          if (!v) return;
           setCustomOpen(false);
-          onNavigate(e.target.value === currentKey ? "" : `p=${e.target.value}`);
+          onNavigate(v === currentKey ? "" : `p=${v}`);
         }}
+        triggerClassName="field !w-auto !py-[4px] !px-2.5 !text-[11.5px] !rounded-full font-semibold cursor-pointer"
+        triggerStyle={isOtherMonth ? { borderColor: "var(--acc)", color: "var(--acc)" } : undefined}
         aria-label="Pick a month"
       />
       <button className={chip(mode === "custom")} style={chipStyle(mode === "custom")} onClick={() => setCustomOpen((v) => !v)}>
@@ -104,9 +106,24 @@ function PeriodPicker({
       </button>
       {customOpen && (
         <span className="flex items-center gap-1 flex-wrap absolute mt-9 bg-card border border-line rounded-lg p-2 shadow-lg z-20">
-          <input type="date" className="field !w-auto !py-1 !px-1.5 !text-[11.5px]" value={f} max={t || today} onChange={(e) => setF(e.target.value)} aria-label="From date" />
+          <DateField
+            showIcon={false}
+            value={f}
+            max={t || today}
+            onChange={setF}
+            triggerClassName="field !w-auto !py-1 !px-1.5 !text-[11.5px] cursor-pointer"
+            aria-label="From date"
+          />
           <span className="text-[11.5px] text-mut2">→</span>
-          <input type="date" className="field !w-auto !py-1 !px-1.5 !text-[11.5px]" value={t} min={f} max={today} onChange={(e) => setT(e.target.value)} aria-label="To date" />
+          <DateField
+            showIcon={false}
+            value={t}
+            min={f}
+            max={today}
+            onChange={setT}
+            triggerClassName="field !w-auto !py-1 !px-1.5 !text-[11.5px] cursor-pointer"
+            aria-label="To date"
+          />
           <button
             disabled={!f || !t || f > t}
             className="px-2.5 py-1 rounded-full text-[11.5px] font-bold cursor-pointer border-none bg-acc text-white disabled:opacity-50"
