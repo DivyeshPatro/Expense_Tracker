@@ -20,8 +20,8 @@ export function DangerZone() {
       </button>
       <div className="text-[12px] text-mut2 -mt-2">
         Deletes every transaction, split, settlement, bill and recurring rule, and resets account balances back to
-        their opening balance. Accounts, categories, budgets and friends stay as-is. Use this before importing your
-        real history over the demo data.
+        their opening balance. Accounts, categories, budgets, friends and lending records (money lent or borrowed)
+        stay as-is — that's a separate ledger. Use this before importing your real history over the demo data.
       </div>
       <button
         onClick={() => setConfirmMode("delete")}
@@ -44,7 +44,7 @@ function ConfirmModal({ mode, close }: { mode: "clear" | "delete"; close: () => 
   const title = mode === "clear" ? "Clear all transactions?" : "Delete your account?";
   const desc =
     mode === "clear"
-      ? "This wipes all transactions, splits, settlements, bills and recurring rules, and resets every account balance to its opening balance. This cannot be undone."
+      ? "This wipes all transactions, splits, settlements, bills and recurring rules, and resets every account balance to its opening balance. Lending records are a separate ledger and are not affected. This cannot be undone."
       : "This permanently deletes your account, accounts, transactions, budgets, friends — everything. This cannot be undone.";
 
   async function confirm() {

@@ -4,11 +4,19 @@
 // setup, categories or budgets. Ordering here is deliberate — child rows are
 // removed before parents so nothing relies on DB-level cascade ordering
 // across sibling relations that reference the same target from two paths.
+//
+// Deliberately out of scope: LoanEntry/LoanAllocation (the Lending module).
+// Money lent to or borrowed from a contact is a separate ledger from
+// personal income/expense/transfer history, not a "transaction" in this
+// model's sense — clearing your spending history shouldn't also erase a
+// debt someone still owes you (or you owe them). If a user wants to wipe
+// lending too, that's a separate, explicit action, not a side effect of
+// this one.
 
 import { prisma } from "../db";
 import { audit } from "./audit";
 
-/** Wipes all transactional history; keeps accounts/categories/budgets/friends intact, balances reset to opening. */
+/** Wipes all personal transaction history; keeps accounts/categories/budgets/friends/lending intact, balances reset to opening. */
 export async function clearAllTransactions(userId: string): Promise<void> {
   await prisma.$transaction(async (db) => {
     const before = await db.transaction.count({ where: { userId } });
