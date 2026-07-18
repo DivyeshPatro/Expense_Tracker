@@ -13,13 +13,13 @@ describe("parseSpreadsheet — day-first CSV dates aren't pre-parsed as month-fi
   const csv = "Date,Merchant,Amount\n01/07/2026,Swiggy,-350\n02/07/2026,Salary,50000\n";
   const buf = Buffer.from(csv, "utf8");
 
-  it("hands the raw date string through, not a Date object SheetJS guessed itself", () => {
-    const parsed = parseSpreadsheet(buf);
+  it("hands the raw date string through, not a Date object SheetJS guessed itself", async () => {
+    const parsed = await parseSpreadsheet(buf);
     expect(parsed.rows[0]["Date"] instanceof Date).toBe(false);
   });
 
-  it("resolves through the full pipeline to the correct day-first date", () => {
-    const parsed = parseSpreadsheet(buf);
+  it("resolves through the full pipeline to the correct day-first date", async () => {
+    const parsed = await parseSpreadsheet(buf);
     const mapping = suggestMapping(parsed.headers, parsed.rows);
     const rows = parsed.rows.map((r, i) => normalizeRow(r, i, mapping));
     expect(rows[0].ymd).toBe("2026-07-01"); // NOT 2026-01-07

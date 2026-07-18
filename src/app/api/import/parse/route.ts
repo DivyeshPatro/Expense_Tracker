@@ -23,9 +23,10 @@ export async function POST(req: Request) {
   const buffer = Buffer.from(await file.arrayBuffer());
   let sheet;
   try {
-    sheet = parseSpreadsheet(buffer);
-  } catch {
-    return NextResponse.json({ error: "Couldn't read this file — is it a valid CSV or Excel file?" }, { status: 400 });
+    sheet = await parseSpreadsheet(buffer);
+  } catch (e) {
+    const message = e instanceof Error && e.message.includes(".xls") ? e.message : "Couldn't read this file — is it a valid CSV or Excel file?";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
   if (sheet.rows.length === 0) {
     return NextResponse.json({ error: "No rows found in the file" }, { status: 400 });

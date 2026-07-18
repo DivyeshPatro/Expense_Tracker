@@ -2,7 +2,7 @@
 // CSV covers the transaction ledger (the data people actually want to take
 // elsewhere); JSON is a complete structural dump of everything the user owns.
 
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { toYMD } from "@/lib/dates";
 import { prisma } from "../db";
 
@@ -47,23 +47,25 @@ export async function exportTransactionsXlsx(userId: string): Promise<Buffer> {
     orderBy: { occurredAt: "asc" },
   });
 
-  const sheetRows = rows.map((t) => ({
-    Date: toYMD(t.occurredAt),
-    Type: t.type,
-    Amount: Number(t.amount) / 100,
-    Account: t.account?.name ?? "",
-    "To Account": t.toAccount?.name ?? "",
-    Category: t.category?.name ?? "",
-    Merchant: t.merchant,
-    Notes: t.notes ?? "",
-    "Payment Method": t.paymentMethod ?? "",
-    Recurring: t.isRecurring ? "yes" : "no",
-  }));
-
-  const sheet = XLSX.utils.json_to_sheet(sheetRows);
-  const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, sheet, "Transactions");
-  return XLSX.write(book, { type: "buffer", bookType: "xlsx" });
+  const columns = ["Date", "Type", "Amount", "Account", "To Account", "Category", "Merchant", "Notes", "Payment Method", "Recurring"];
+  const book = new ExcelJS.Workbook();
+  const sheet = book.addWorksheet("Transactions");
+  sheet.columns = columns.map((header) => ({ header, key: header }));
+  for (const t of rows) {
+    sheet.addRow({
+      Date: toYMD(t.occurredAt),
+      Type: t.type,
+      Amount: Number(t.amount) / 100,
+      Account: t.account?.name ?? "",
+      "To Account": t.toAccount?.name ?? "",
+      Category: t.category?.name ?? "",
+      Merchant: t.merchant,
+      Notes: t.notes ?? "",
+      "Payment Method": t.paymentMethod ?? "",
+      Recurring: t.isRecurring ? "yes" : "no",
+    });
+  }
+  return Buffer.from(await book.xlsx.writeBuffer());
 }
 
 export async function exportFullJson(userId: string) {

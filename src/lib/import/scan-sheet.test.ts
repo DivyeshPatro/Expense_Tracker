@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { parseSpreadsheet } from "./parse-file";
 import { suggestMapping } from "./detect-columns";
 import { normalizeRow } from "./normalize";
@@ -22,22 +22,22 @@ const MONITO_GRID = [
   ["", "9 Mar 2023", "Income", "Refund", "Cap refund", "275"],
 ];
 
-function buildBuffer(grid: unknown[][]): Buffer {
-  const ws = XLSX.utils.aoa_to_sheet(grid);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+async function buildBuffer(grid: unknown[][]): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Sheet1");
+  ws.addRows(grid);
+  return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
 describe("parseSpreadsheet against a real Monito-shaped export", () => {
-  it("skips the app-name/version/created-on banner and the month-section label", () => {
-    const parsed = parseSpreadsheet(buildBuffer(MONITO_GRID));
+  it("skips the app-name/version/created-on banner and the month-section label", async () => {
+    const parsed = await parseSpreadsheet(await buildBuffer(MONITO_GRID));
     expect(parsed.rows).toHaveLength(5);
     expect(parsed.headers).toEqual(["Date", "Category type", "Category name", "Note", "Amount"]);
   });
 
-  it("auto-suggests Date/type/category/notes/amount without a merchant column", () => {
-    const parsed = parseSpreadsheet(buildBuffer(MONITO_GRID));
+  it("auto-suggests Date/type/category/notes/amount without a merchant column", async () => {
+    const parsed = await parseSpreadsheet(await buildBuffer(MONITO_GRID));
     const mapping = suggestMapping(parsed.headers, parsed.rows.slice(0, 20));
     expect(mapping.date).toBe("Date");
     expect(mapping.type).toBe("Category type");
@@ -47,8 +47,8 @@ describe("parseSpreadsheet against a real Monito-shaped export", () => {
     expect(mapping.merchant).toBeNull();
   });
 
-  it("normalizes every row correctly, falling back to note/category for the merchant field", () => {
-    const parsed = parseSpreadsheet(buildBuffer(MONITO_GRID));
+  it("normalizes every row correctly, falling back to note/category for the merchant field", async () => {
+    const parsed = await parseSpreadsheet(await buildBuffer(MONITO_GRID));
     const mapping = suggestMapping(parsed.headers, parsed.rows.slice(0, 20));
     const rows = parsed.rows.map((r, i) => normalizeRow(r, i, mapping));
 
@@ -64,7 +64,7 @@ describe("parseSpreadsheet against a real Monito-shaped export", () => {
     expect(rows.every((r) => r.merchant !== null)).toBe(true);
   });
 
-  it("handles a second month block with its own repeated header row (re-sync)", () => {
+  it("handles a second month block with its own repeated header row (re-sync)", async () => {
     const grid = [
       ...MONITO_GRID,
       ["", "", "", "", "", ""],
@@ -73,7 +73,7 @@ describe("parseSpreadsheet against a real Monito-shaped export", () => {
       ["", "Date", "Category type", "Category name", "Note", "Amount"],
       ["", "3 Apr 2023", "Expense", "Fuel", "Petrol", "500"],
     ];
-    const parsed = parseSpreadsheet(buildBuffer(grid));
+    const parsed = await parseSpreadsheet(await buildBuffer(grid));
     expect(parsed.rows).toHaveLength(6);
     expect(parsed.rows[5]).toMatchObject({ Date: "3 Apr 2023", "Category name": "Fuel", Amount: "500" });
   });
