@@ -22,20 +22,22 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  sessions       Session[]
-  authAccounts   AuthAccount[]
-  accounts       Account[]
-  transactions   Transaction[]
-  categories     Category[]
-  budgets        Budget[]
-  bills          Bill[]
-  recurringRules RecurringRule[]
-  tags           Tag[]
-  participants   Participant[]
-  settlements    Settlement[]
-  notifications  Notification[]
-  merchantRules  MerchantRule[]
-  importBatches  ImportBatch[]
+  sessions        Session[]
+  authAccounts    AuthAccount[]
+  accounts        Account[]
+  transactions    Transaction[]
+  categories      Category[]
+  budgets         Budget[]
+  bills           Bill[]
+  recurringRules  RecurringRule[]
+  tags            Tag[]
+  participants    Participant[]
+  settlements     Settlement[]
+  notifications   Notification[]
+  merchantRules   MerchantRule[]
+  importBatches   ImportBatch[]
+  loanEntries     LoanEntry[]
+  loanAllocations LoanAllocation[]
 }
 
 model Session {
@@ -103,10 +105,18 @@ model Account {
   icon           String?
   isArchived     Boolean     @default(false)
   createdAt      DateTime    @default(now())
+  // lending-module-phase1: Card Vault (spec-approved Phase 1 scope) — only
+  // meaningful when type == CREDIT_CARD. No encrypted storage yet, by design;
+  // last4/network are display-only, never a full card number.
+  cardNetwork    String?
+  cardLast4      String?
+  statementDay   Int? // day-of-month the statement cuts
+  dueDay         Int? // day-of-month payment is due
 
   transactionsFrom Transaction[] @relation("txAccount")
   transactionsTo   Transaction[] @relation("txToAccount")
   budgets          Budget[]
+  loanEntries      LoanEntry[]
 
   @@index([userId])
 }
@@ -187,10 +197,20 @@ model Intent {
   @@index([entityId, appliedAt])
 }
 
+// group-expenses-sprint: a category is EITHER personal (userId set, groupId
+// null) OR group-owned (groupId set, userId null) — never both. Group
+// categories belong to the group, not their creator: they survive the
+// creator leaving (no cascade tied to any one member), are visible only to
+// that group, and never appear in anyone's personal category list. Postgres
+// treats NULL as distinct for uniqueness, so the two @@unique constraints
+// below never interact — a group category's userId is always NULL and so
+// never collides with any personal @@unique([userId,...]) row, and vice versa.
 model Category {
   id       String  @id @default(cuid())
-  userId   String
-  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String?
+  user     User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId  String?
+  group    Group?  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   name     String // seeded defaults + custom
   kind     TxType // EXPENSE or INCOME
   parentId String? // subcategories
@@ -202,6 +222,8 @@ model Category {
   merchantRules MerchantRule[]
 
   @@unique([userId, name, kind])
+  @@unique([groupId, name, kind])
+  @@index([groupId])
 }
 
 // Rule-based auto-categorization: merchant → category, self-improving on re-categorization.
@@ -332,11 +354,17 @@ model Participant {
   displayName  String
   color        String?
   linkedUserId String?
+  // lending-module-phase1: Contacts screen fields — optional, additive.
+  // Shared Expenses never reads or writes these; only Lending's Contact UI does.
+  photo        String?
+  phone        String?
+  notes        String?
 
   splits       ExpenseSplit[]
   paidTx       Transaction[]  @relation("paidBy")
   groupMembers GroupMember[]
   settlements  Settlement[]
+  loanEntries  LoanEntry[]
 
   @@index([ownerId])
   // collaboration-architecture-rfc §9: hot path for "which groups is this
@@ -358,6 +386,7 @@ model Group {
   members      GroupMember[]
   transactions Transaction[]
   invitations  Invitation[]
+  categories   Category[] // group-expenses-sprint: the group's own EXPENSE category namespace
 
   @@index([createdById])
 }
@@ -445,6 +474,75 @@ model Settlement {
   note          String?
 
   @@index([userId, settledAt(sort: Desc)])
+}
+
+// ───────────────────────── Lending module (Phase 1) ─────────────────────────
+// Personal, not collaborative — one owner's private ledger with a contact,
+// reusing Participant rather than a second person model. A single signed
+// running balance per participant (Σ GAVE − Σ GOT), same sign convention as
+// netBalances() (positive = they owe you): "You Gave" always means money
+// moved from the owner to the contact (a fresh loan OR repaying money the
+// owner borrowed); "You Got" always means money moved from the contact to
+// the owner (a repayment received OR money the owner borrowed). No separate
+// direction enum, no separate Loan-vs-Repayment object — lending-module-rfc
+// §1 (forward-compatible: Phase 2's per-loan FIFO allocation adds a join
+// table over GAVE rows, additive, not a rework of this table).
+enum LoanEntryKind {
+  GAVE
+  GOT
+}
+
+model LoanEntry {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant   @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  kind          LoanEntryKind
+  amount        BigInt // paise, always positive
+  accountId     String? // funding source — null ⇒ untracked/cash-in-hand
+  account       Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  reason        String?
+  notes         String?
+  dueDate       DateTime? // meaningful for GAVE rows; Phase 2 billing intelligence reads this
+  occurredAt    DateTime
+  deletedAt     DateTime? // soft delete → undo, same pattern as Transaction
+  createdAt     DateTime      @default(now())
+  version       Int           @default(1) // offline sync conflict check, same pattern as Transaction
+
+  // lending-module-phase2: a GAVE row's settled/remaining/status is always
+  // DERIVED from its allocations (Σ vs amount), never stored — see
+  // LoanAllocation's own doc comment.
+  allocationsAsGave LoanAllocation[] @relation("allocationsAgainstGave")
+  allocationsAsGot  LoanAllocation[] @relation("allocationsFromGot")
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, participantId])
+  @@index([accountId])
+}
+
+// lending-module-phase2: settlement engine — a GOT (repayment) entry can be
+// allocated across one or more prior GAVE (loan) entries for the same
+// contact. Purely additive over Phase 1's flat ledger: LoanEntry itself is
+// untouched, and a loan's settled/remaining/status is always computed from
+// Σ allocations vs. amount (never a stored column), so it can't drift out of
+// sync. Soft-deleting either side of a pair is enough to correct settlement
+// math at read time — the same precedent Transaction/ExpenseSplit already
+// use (children are read-time filtered through their parent's deletedAt,
+// never specially cascaded) — so no cascade logic is needed here either.
+model LoanAllocation {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gaveEntryId String
+  gaveEntry   LoanEntry @relation("allocationsAgainstGave", fields: [gaveEntryId], references: [id], onDelete: Cascade)
+  gotEntryId  String
+  gotEntry    LoanEntry @relation("allocationsFromGot", fields: [gotEntryId], references: [id], onDelete: Cascade)
+  amount      BigInt // paise, portion of gotEntry applied to gaveEntry
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, gaveEntryId])
+  @@index([gotEntryId])
 }
 
 enum NotifKind {

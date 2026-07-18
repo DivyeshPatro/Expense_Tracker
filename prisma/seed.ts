@@ -5,6 +5,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { auth } from "../src/server/auth";
+import { GROUP_DEFAULT_CATEGORIES } from "../src/lib/categories";
 import { splitEqual } from "../src/lib/money";
 import { addDaysYMD, currentMonthKey, istNoon, shiftMonthKey, todayYMD } from "../src/lib/dates";
 
@@ -68,7 +69,7 @@ async function main() {
     const p = await prisma.participant.create({ data: { ownerId: user.id, displayName: f.name, color: f.color } });
     friends.set(f.key, p.id);
   }
-  await prisma.group.create({
+  const flat402 = await prisma.group.create({
     data: {
       name: "Flat 402",
       createdById: user.id,
@@ -76,6 +77,13 @@ async function main() {
         create: friendDefs.map((f, i) => ({ participantId: friends.get(f.key)!, role: i === 0 ? "ADMIN" : "MEMBER" })),
       },
     },
+  });
+  // group-expenses-sprint: the service-layer createGroup() seeds these
+  // transactionally for a real user; this script creates the demo group
+  // directly (bypassing the service, like the rest of this file's bulk
+  // inserts), so it needs the same seeding done explicitly here.
+  await prisma.category.createMany({
+    data: GROUP_DEFAULT_CATEGORIES.map((c) => ({ groupId: flat402.id, name: c.name, kind: c.kind, icon: c.icon, color: c.color })),
   });
 
   // ── build 6 months of history relative to today (IST) ──
