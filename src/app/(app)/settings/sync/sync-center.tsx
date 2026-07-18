@@ -23,9 +23,11 @@ function relative(iso: string | null): string {
   return `${Math.floor(s / 86400)} d ago`;
 }
 
+// Phase 2.5 consistency: pinned locale/timezone, not the environment default
+// (matches activity-list.tsx's timeOfDay() fix — same class of issue).
 function shortDate(iso: string | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
 }
 
 const LOG_ICON: Record<SyncLogEntry["status"], { icon: string; color: string }> = {
@@ -149,7 +151,7 @@ export function SyncCenter() {
       <section className="card p-6 flex flex-col gap-3">
         <h2 className="text-[13.5px] font-bold m-0">Recent activity</h2>
         {log.length === 0 ? (
-          <div className="text-[12.5px] text-mut2">Nothing yet — synced changes will show up here.</div>
+          <div className="text-[12px] text-mut2">Nothing yet — synced changes will show up here.</div>
         ) : (
           <div className="flex flex-col">
             {log.slice(0, logLimit).map((entry, idx) => {

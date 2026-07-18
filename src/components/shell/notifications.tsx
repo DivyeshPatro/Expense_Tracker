@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { listNotificationsAction, markNotificationsReadAction } from "@/app/actions";
+import { EmptyState } from "@/components/shell/empty-state";
 import { formatPaise } from "@/lib/money";
 import type { NotificationView } from "@/server/services/notifications";
 
@@ -85,9 +86,13 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
           </div>
           <div className="max-h-[360px] overflow-auto">
             {items === null ? (
-              <div className="px-4 py-6 text-center text-[12.5px] text-mut2">Loading…</div>
+              <div className="flex flex-col gap-2 p-4" aria-busy="true" aria-label="Loading notifications">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="skeleton h-[42px] rounded-lg" />
+                ))}
+              </div>
             ) : items.length === 0 ? (
-              <div className="px-4 py-6 text-center text-[12.5px] text-mut2">No notifications yet</div>
+              <EmptyState icon="🔔" title="No notifications yet" compact />
             ) : (
               items.map((n) => {
                 const { icon, text } = describe(n);

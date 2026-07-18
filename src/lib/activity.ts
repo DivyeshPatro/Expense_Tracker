@@ -33,7 +33,7 @@ export interface TimelineEvent {
   activityId: string; // "ACT_<auditRowId>" / "ACT_N<notificationId>" — derived, stable, never stored
   ts: string; // ISO-8601, audit row `at`
   verb: string;
-  entityType: "transaction" | "transfer" | "account" | "category" | "budget" | "bill" | "import" | "settlement";
+  entityType: "transaction" | "transfer" | "account" | "category" | "budget" | "bill" | "import" | "settlement" | "loan";
   entityId: string;
   entityLabel: string; // from snapshot — deleted entities keep their historical name
   icon: string;
@@ -88,9 +88,10 @@ export const ACTIVITY_ALLOWLIST: { entity: string; actions: string[] }[] = [
   { entity: "Budget", actions: ["create", "update"] },
   { entity: "Bill", actions: ["create", "bill-paid"] },
   { entity: "ImportBatch", actions: ["import", "undo-import"] },
+  { entity: "LoanEntry", actions: ["create", "update", "soft-delete", "restore"] },
 ];
 
-export const ACTIVITY_CHIPS = ["all", "money", "accounts", "budgets", "shared", "imports"] as const;
+export const ACTIVITY_CHIPS = ["all", "money", "accounts", "budgets", "shared", "lending", "imports"] as const;
 export type ActivityChip = (typeof ACTIVITY_CHIPS)[number];
 
 export const CHIP_LABELS: Record<ActivityChip, string> = {
@@ -99,6 +100,7 @@ export const CHIP_LABELS: Record<ActivityChip, string> = {
   accounts: "Accounts",
   budgets: "Budgets & Bills",
   shared: "Shared",
+  lending: "Lending",
   imports: "Imports",
 };
 
@@ -107,6 +109,7 @@ export const CHIP_ENTITIES: Record<Exclude<ActivityChip, "all">, string[]> = {
   accounts: ["Account"],
   budgets: ["Budget", "Bill"],
   shared: ["Settlement"],
+  lending: ["LoanEntry"],
   imports: ["ImportBatch"],
 };
 
@@ -202,6 +205,16 @@ const TX_FIELDS: FieldSpec[] = [
   { field: "paidByParticipantId", fieldLabel: "Paid by", format: (v, m) => participantLabel(v, m) },
 ];
 
+const LOAN_FIELDS: FieldSpec[] = [
+  { field: "amount", fieldLabel: "Amount", format: (v) => (num(v) === undefined ? undefined : formatPaise(num(v)!)), amount: true },
+  { field: "kind", fieldLabel: "Type", format: (v) => (str(v) === "GOT" ? "You Got" : "You Gave") },
+  { field: "accountId", fieldLabel: "Funding source", format: (v, m) => accountLabel(v, m) },
+  { field: "occurredAt", fieldLabel: "Date", format: (v) => isoToDateLabel(str(v)) },
+  { field: "dueDate", fieldLabel: "Due date", format: (v) => isoToDateLabel(str(v)) },
+  { field: "reason", fieldLabel: "Reason", format: (v) => (str(v) ? truncate(str(v)!) : "—") },
+  { field: "notes", fieldLabel: "Note", format: (v) => (str(v) ? `“${truncate(str(v)!)}”` : "—") },
+];
+
 function diffFields(specs: FieldSpec[], before: Snap, after: Snap, maps: LabelMaps): DiffRow[] {
   const rows: DiffRow[] = [];
   for (const s of specs) {
@@ -273,6 +286,13 @@ function relatedFor(row: AuditRowInput, maps: LabelMaps): RelatedLink[] {
   if (row.entity === "ImportBatch" && row.action === "import") {
     const imported = num(asSnap(row.after).imported) ?? 0;
     return [{ label: `View ${imported} transaction${imported === 1 ? "" : "s"}`, href: `/transactions?batch=${row.entityId}&p=all` }];
+  }
+  if (row.entity === "LoanEntry") {
+    const p = asSnap(row.after ?? row.before);
+    const participantId = str(p.participantId);
+    if (participantId && maps.participants.has(participantId)) {
+      return [{ label: `👥 ${maps.participants.get(participantId)}`, href: `/lending?contact=${participantId}` }];
+    }
   }
   return [];
 }
@@ -355,6 +375,75 @@ const REGISTRY: Record<string, Present> = {
       detail: amount === undefined ? undefined : formatPaise(amount),
       diff: [],
       effects: [], // settlements adjust friend balances, not account balances
+    };
+  },
+  "LoanEntry:create": (row, maps) => {
+    const p = asSnap(row.after);
+    const name = participantLabel(p.participantId, maps);
+    const amount = num(p.amount);
+    const gave = str(p.kind) !== "GOT";
+    return {
+      ...base(row),
+      verb: gave ? "lent" : "repaid",
+      entityType: "loan",
+      entityLabel: name,
+      icon: gave ? "💸" : "💰",
+      summary: gave ? `You lent ${name}` : `${name} repaid you`,
+      detail: amount === undefined ? undefined : formatPaise(amount),
+      diff: [],
+      effects: [], // lending entries don't touch account balances (Phase 1 scope)
+    };
+  },
+  "LoanEntry:update": (row, maps) => {
+    const before = asSnap(row.before);
+    const after = asSnap(row.after);
+    const name = participantLabel(after.participantId, maps);
+    const diff = diffFields(LOAN_FIELDS, before, after, maps);
+    if (diff.length === 0) return null;
+    const gave = str(after.kind) !== "GOT";
+    return {
+      ...base(row),
+      verb: "edited",
+      entityType: "loan",
+      entityLabel: name,
+      icon: "✏️",
+      summary: gave ? `Edited a loan to ${name}` : `Edited a repayment from ${name}`,
+      diff,
+      effects: [],
+    };
+  },
+  "LoanEntry:soft-delete": (row, maps) => {
+    const p = asSnap(row.before);
+    const name = participantLabel(p.participantId, maps);
+    const amount = num(p.amount);
+    const gave = str(p.kind) !== "GOT";
+    return {
+      ...base(row),
+      verb: "deleted",
+      entityType: "loan",
+      entityLabel: name,
+      icon: "🗑",
+      summary: gave ? `Deleted a loan to ${name}` : `Deleted a repayment from ${name}`,
+      detail: amount === undefined ? undefined : formatPaise(amount),
+      diff: [],
+      effects: [],
+    };
+  },
+  "LoanEntry:restore": (row, maps) => {
+    const p = asSnap(row.after);
+    const name = participantLabel(p.participantId, maps);
+    const amount = num(p.amount);
+    const gave = str(p.kind) !== "GOT";
+    return {
+      ...base(row),
+      verb: "restored",
+      entityType: "loan",
+      entityLabel: name,
+      icon: "↩️",
+      summary: gave ? `Restored a loan to ${name}` : `Restored a repayment from ${name}`,
+      detail: amount === undefined ? undefined : formatPaise(amount),
+      diff: [],
+      effects: [],
     };
   },
   "Category:create": (row) => {

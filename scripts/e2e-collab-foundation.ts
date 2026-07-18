@@ -219,10 +219,15 @@ async function main() {
 
   // ═══════════════════════ read-path scoping ═══════════════════════
 
+  // group-expenses-sprint: categories are now group-OWNED rows
+  // (Category.groupId), seeded by createGroup() itself — no longer derived
+  // from "what's been used in the group's transactions" (that heuristic is
+  // gone; superseded, not just narrowed further).
   const groupCats = await listGroupCategories(alice.id, flat.id);
   ok(
-    "listGroupCategories returns only categories actually used in the group's own transactions",
-    groupCats.some((c) => c.id === aliceCategory.id) && groupCats.length >= 1
+    "listGroupCategories returns the group's OWN category rows (createGroup's default seed), never a member's personal categories",
+    groupCats.length === 9 && groupCats.every((c) => c.groupId === flat.id) && !groupCats.some((c) => c.id === aliceCategory.id),
+    `${groupCats.length} rows`
   );
   const alicePrivateCategoryCount = await prisma.category.count({ where: { userId: alice.id } });
   ok(

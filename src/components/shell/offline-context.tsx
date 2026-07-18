@@ -21,6 +21,9 @@ import {
   updateExpenseAction,
   updateIncomeAction,
   updateTransferAction,
+  addLoanEntryAction,
+  updateLoanEntryAction,
+  deleteLoanEntryAction,
   type ActionResult,
 } from "@/app/actions";
 import { formatPaise } from "@/lib/money";
@@ -38,11 +41,14 @@ import {
   type ConflictSnapshot,
   type OutboxIntent,
 } from "@/lib/offline/db";
-import { expenseSchema, incomeSchema, transferSchema } from "@/validators";
+import { expenseSchema, incomeSchema, transferSchema, loanEntrySchema } from "@/validators";
 
-export type CreateKind = "expense.create" | "income.create" | "transfer.create";
-// Phase 3 (offline-sync-spec §17): edit/delete of already-synced solo records
-export type MutationKind = "expense.update" | "income.update" | "transfer.update" | "tx.delete";
+export type CreateKind = "expense.create" | "income.create" | "transfer.create" | "loan.create";
+// Phase 3 (offline-sync-spec §17): edit/delete of already-synced solo records.
+// lending-module-phase1: loan.update/loan.delete follow the exact same tier
+// as expense/income/transfer — full offline create+edit+delete, not the
+// lighter Settlement tier — per spec's "Editable. Deletable. Offline."
+export type MutationKind = "expense.update" | "income.update" | "transfer.update" | "tx.delete" | "loan.update" | "loan.delete";
 export type OutboxKind = CreateKind | MutationKind;
 
 // online-branch fallback only (no IndexedDB — private browsing); the outbox
@@ -51,6 +57,7 @@ const ACTIONS: Record<CreateKind, (input: unknown) => Promise<ActionResult>> = {
   "expense.create": addExpenseAction,
   "income.create": addIncomeAction,
   "transfer.create": addTransferAction,
+  "loan.create": addLoanEntryAction,
 };
 
 /** production audit §1.2/§PhaseA.2: a write with no Intent row is invisible
@@ -76,6 +83,8 @@ async function directMutationFallback(
   if (kind === "tx.delete") return deleteTransactionAction({ id: entityId, intent });
   if (kind === "expense.update") return updateExpenseAction({ id: entityId, ...payload, intent });
   if (kind === "income.update") return updateIncomeAction({ id: entityId, ...payload, intent });
+  if (kind === "loan.delete") return deleteLoanEntryAction({ id: entityId, intent });
+  if (kind === "loan.update") return updateLoanEntryAction({ id: entityId, ...payload, intent });
   return updateTransferAction({ id: entityId, ...payload, intent });
 }
 
@@ -91,12 +100,18 @@ const transferValidator = (p: unknown) => {
   const r = transferSchema.safeParse(p);
   return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
 };
-// "tx.delete" has no payload to validate — omitted
+const loanEntryValidator = (p: unknown) => {
+  const r = loanEntrySchema.safeParse(p);
+  return r.success ? null : (r.error.issues[0]?.message ?? "Invalid input");
+};
+// "tx.delete"/"loan.delete" have no payload to validate — omitted
 const VALIDATORS: Partial<Record<OutboxKind, (payload: unknown) => string | null>> = {
   "expense.create": expenseValidator,
   "expense.update": expenseValidator,
   "income.create": incomeValidator,
   "income.update": incomeValidator,
+  "loan.create": loanEntryValidator,
+  "loan.update": loanEntryValidator,
   "transfer.create": transferValidator,
   "transfer.update": transferValidator,
 };
@@ -119,9 +134,13 @@ const TICK_MS = 30_000;
 
 export function intentLabel(intent: Pick<OutboxIntent, "kind" | "payload">): string {
   // delete intents carry a {amount, merchant} display snapshot only — softDeleteTransaction needs no payload at all (spec §4.1's "exactly the zod input" is a create/update-only description)
-  const p = (intent.payload ?? {}) as { amount?: unknown; merchant?: string };
+  const p = (intent.payload ?? {}) as { amount?: unknown; merchant?: string; participantName?: string; kind?: "GAVE" | "GOT" };
   const paise = Math.round((Number(p.amount) || 0) * 100);
   if (intent.kind === "transfer.create" || intent.kind === "transfer.update") return `${formatPaise(paise)} · Transfer`;
+  if (intent.kind === "loan.create" || intent.kind === "loan.update" || intent.kind === "loan.delete") {
+    const verb = p.kind === "GOT" ? "You Got" : "You Gave";
+    return `${formatPaise(paise)} · ${verb}${p.participantName ? ` · ${p.participantName}` : ""}`;
+  }
   const name = p.merchant || (intent.kind === "income.create" || intent.kind === "income.update" ? "Income" : "Expense");
   return `${formatPaise(paise)} · ${name}`;
 }

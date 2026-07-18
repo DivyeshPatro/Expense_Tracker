@@ -3,19 +3,27 @@
 // Modal forms, matching the prototype: centered dialog on desktop, bottom sheet
 // on mobile. Amount + category + account is enough to log an expense (≤3 interactions).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   addExpenseAction,
   addParticipantAction,
   createAccountAction,
   createBillAction,
   createGroupAction,
+  openLoansForContactAction,
   saveBudgetAction,
   settleAction,
+  updateAccountCardDetailsAction,
 } from "@/app/actions";
-import { todayYMD } from "@/lib/dates";
+import { friendlyDay, todayYMD } from "@/lib/dates";
+import { formatPaise } from "@/lib/money";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
+import type { OpenLoanRow } from "@/server/services/lending";
+import { DateField } from "./date-field";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
+import { GroupCategorySelect } from "./group-category-select";
+import { LendingContactSheet } from "./lending-detail";
+import { LoanDetailModal } from "@/components/lending/loan-detail";
 import { useOffline } from "./offline-context";
 import { PendingDetailSheet } from "./pending-detail";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
@@ -34,6 +42,10 @@ const TITLES: Record<string, string> = {
   group: "New group",
   txDetail: "Transaction",
   pendingDetail: "Transaction",
+  lendingEntry: "Lending entry",
+  lendingContact: "Contact",
+  loanDetail: "Loan details",
+  accountCardDetails: "Card details",
 };
 
 export function Modals() {
@@ -63,6 +75,10 @@ export function Modals() {
         {modal.type === "group" && <GroupForm />}
         {modal.type === "txDetail" && modal.prefill?.transactionId && <TransactionDetailSheet transactionId={modal.prefill.transactionId} />}
         {modal.type === "pendingDetail" && modal.prefill?.intentId && <PendingDetailSheet intentId={modal.prefill.intentId} />}
+        {modal.type === "lendingEntry" && <LendingEntryForm prefill={modal.prefill} />}
+        {modal.type === "lendingContact" && modal.prefill?.participantId && <LendingContactSheet participantId={modal.prefill.participantId} />}
+        {modal.type === "loanDetail" && modal.prefill?.loanEntryId && <LoanDetailModal loanEntryId={modal.prefill.loanEntryId} />}
+        {modal.type === "accountCardDetails" && modal.prefill?.accountId && <AccountCardDetailsForm accountId={modal.prefill.accountId} />}
       </div>
     </div>
   );
@@ -90,10 +106,21 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   );
   const [exact, setExact] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
+  // group-expenses-sprint: who actually paid — null = "Me". The expense's
+  // creator and its payer are two different people (Rahul paid, I logged
+  // it) — defaults to Me, same as the implicit behavior before this existed.
+  const [payerId, setPayerId] = useState<string | null>(null);
 
-  const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights };
+  const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
   const selected = refData.participants.filter((p) => parts[p.id]);
   const amtPaise = Math.round((Number(amount) || 0) * 100);
+
+  function selectGroup(id: string) {
+    setGroupId(id);
+    // group-expenses-sprint: a category id from the wrong namespace (personal,
+    // or a different group) must never silently ride along across a group switch
+    setCategoryId("");
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -109,11 +136,15 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
           </select>
         </Field>
         <Field label="CATEGORY">
-          <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            {refData.expenseCategories.map((c) => (
-              <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-            ))}
-          </select>
+          {groupId ? (
+            <GroupCategorySelect groupId={groupId} value={categoryId} onChange={setCategoryId} />
+          ) : (
+            <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              {refData.expenseCategories.map((c) => (
+                <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+              ))}
+            </select>
+          )}
         </Field>
       </div>
       <div className="flex gap-2.5 flex-wrap">
@@ -121,7 +152,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
           <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Swiggy" />
         </Field>
         <Field label="DATE">
-          <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateField value={date} onChange={setDate} />
         </Field>
       </div>
       <Field label="NOTES">
@@ -129,7 +160,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
       </Field>
       {refData.groups.length > 0 && (
         <Field label="GROUP">
-          <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+          <select className="field" value={groupId} onChange={(e) => selectGroup(e.target.value)}>
             <option value="">Personal (not in a group)</option>
             {refData.groups.map((g) => (
               <option key={g.id} value={g.id}>🏠 {g.name}</option>
@@ -229,7 +260,7 @@ function IncomeForm() {
           <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Salary · Acme Corp" />
         </Field>
         <Field label="DATE">
-          <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateField value={date} onChange={setDate} />
         </Field>
       </div>
       {refData.groups.length > 0 && (
@@ -292,7 +323,7 @@ function TransferForm() {
         <AmountInput value={amount} onChange={setAmount} autoFocus />
       </Field>
       <Field label="DATE">
-        <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <DateField value={date} onChange={setDate} />
       </Field>
       {refData.groups.length > 0 && (
         <Field label="GROUP">
@@ -362,6 +393,227 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
   );
 }
 
+// ─────────── Lending (Phase 1): "You Gave" / "You Got" ───────────
+
+function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
+  const { refData } = useUI();
+  const { createViaOutbox } = useOffline();
+  const { run, busy, error } = useSubmit();
+  const [kind, setKind] = useState<"GAVE" | "GOT">(prefill?.loanKind ?? "GAVE");
+  const [participantId, setParticipantId] = useState(prefill?.participantId ?? refData.participants[0]?.id ?? "");
+  const [amount, setAmount] = useState(prefill?.targetLoanRemainingRupees ?? "");
+  const [accountId, setAccountId] = useState("");
+  const [date, setDate] = useState(todayYMD());
+  const [dueDate, setDueDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [notes, setNotes] = useState("");
+  // lending-module-phase2: manual settlement allocation, GOT entries only.
+  // "auto" ⇒ send no allocations, server FIFO-allocates. "custom" ⇒ send
+  // exactly what's in allocationAmounts. Arriving here via "Record
+  // Repayment" on a specific loan (Loan Detail) starts pre-targeted at that
+  // loan instead of defaulting to auto.
+  const [allocationMode, setAllocationMode] = useState<"auto" | "custom">(prefill?.targetLoanEntryId ? "custom" : "auto");
+  const [allocationAmounts, setAllocationAmounts] = useState<Record<string, string>>(() =>
+    prefill?.targetLoanEntryId ? { [prefill.targetLoanEntryId]: prefill.targetLoanRemainingRupees ?? "" } : {}
+  );
+
+  const participantName = refData.participants.find((p) => p.id === participantId)?.name ?? "";
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-1.5">
+        {(["GAVE", "GOT"] as const).map((k) => (
+          <button
+            key={k}
+            onClick={() => setKind(k)}
+            aria-pressed={kind === k}
+            className="flex-1 px-[13px] py-2 rounded-lg text-[13px] font-bold cursor-pointer border-none"
+            style={{ background: kind === k ? "var(--acc)" : "var(--accSoft)", color: kind === k ? "#fff" : "var(--acc)" }}
+          >
+            {k === "GAVE" ? "You Gave" : "You Got"}
+          </button>
+        ))}
+      </div>
+      <Field label="AMOUNT (₹)">
+        <AmountInput value={amount} onChange={setAmount} autoFocus />
+      </Field>
+      <Field label="CONTACT">
+        <select className="field" value={participantId} onChange={(e) => setParticipantId(e.target.value)}>
+          {refData.participants.length === 0 && <option value="">Add a friend first</option>}
+          {refData.participants.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </Field>
+      {kind === "GOT" && participantId && (
+        <LoanAllocationPicker
+          participantId={participantId}
+          mode={allocationMode}
+          setMode={setAllocationMode}
+          amounts={allocationAmounts}
+          setAmounts={setAllocationAmounts}
+          repaymentAmountRupees={amount}
+        />
+      )}
+      <div className="flex gap-2.5 flex-wrap">
+        <Field label="FUNDING SOURCE">
+          <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <option value="">Untracked / cash in hand</option>
+            {refData.accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="DATE">
+          <DateField value={date} onChange={setDate} />
+        </Field>
+      </div>
+      {kind === "GAVE" && (
+        <Field label="DUE DATE (OPTIONAL)">
+          <div className="flex items-center gap-2">
+            <DateField value={dueDate} onChange={setDueDate} min={date} />
+            {dueDate && (
+              <button
+                type="button"
+                onClick={() => setDueDate("")}
+                className="text-[11.5px] font-semibold text-mut2 bg-transparent border-none cursor-pointer hover:text-ink flex-none"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </Field>
+      )}
+      <Field label="REASON">
+        <input className="field" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Dinner, rent help" />
+      </Field>
+      <Field label="NOTES">
+        <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+      </Field>
+      <ErrorNote error={error} />
+      <SubmitButton
+        busy={busy}
+        color={kind === "GAVE" ? "var(--acc)" : "var(--green)"}
+        onClick={() =>
+          run(
+            () =>
+              createViaOutbox("loan.create", {
+                participantId,
+                kind,
+                amount,
+                accountId: accountId || null,
+                reason: reason || undefined,
+                notes: notes || undefined,
+                date,
+                dueDate: kind === "GAVE" && dueDate ? dueDate : null,
+                participantName, // display-only, for intentLabel — ignored by the server schema
+                allocations:
+                  kind === "GOT" && allocationMode === "custom"
+                    ? Object.entries(allocationAmounts)
+                        .filter(([, v]) => Number(v) > 0)
+                        .map(([gaveEntryId, v]) => ({ gaveEntryId, amount: v }))
+                    : undefined,
+              }),
+            kind === "GAVE" ? "Loan recorded" : "Repayment recorded"
+          )
+        }
+      >
+        {kind === "GAVE" ? "Record You Gave" : "Record You Got"}
+      </SubmitButton>
+    </div>
+  );
+}
+
+/** Settlement engine, Priority 1's "allow users to manually override the
+ * allocation" — default is FIFO (server-computed, nothing sent); Custom
+ * lets the user split this repayment across specific open loans. Omitted
+ * entirely (returns null) when the contact has no open loans to allocate
+ * against — the repayment is just recorded as an ordinary balance
+ * reduction, same as Phase 1. */
+function LoanAllocationPicker({
+  participantId,
+  repaymentAmountRupees,
+  mode,
+  setMode,
+  amounts,
+  setAmounts,
+}: {
+  participantId: string;
+  repaymentAmountRupees: string;
+  mode: "auto" | "custom";
+  setMode: (m: "auto" | "custom") => void;
+  amounts: Record<string, string>;
+  setAmounts: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+}) {
+  const [loans, setLoans] = useState<OpenLoanRow[] | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoans(undefined);
+    void openLoansForContactAction(participantId).then((rows) => {
+      if (!cancelled) setLoans(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [participantId]);
+
+  if (loans === undefined) return <div className="text-[11.5px] text-mut2 px-1">Checking open loans…</div>;
+  if (loans.length === 0) return null;
+
+  const repaymentPaise = Math.round((Number(repaymentAmountRupees) || 0) * 100);
+  const totalAllocated = loans.reduce((s, l) => s + Math.round((Number(amounts[l.id]) || 0) * 100), 0);
+
+  return (
+    <div className="flex flex-col gap-2 bg-accsoft rounded-[10px] p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[11.5px] font-bold">Apply to</div>
+        <div className="flex gap-1 bg-card border border-line rounded-[7px] p-[2px]">
+          {(["auto", "custom"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              aria-pressed={mode === m}
+              className="px-2.5 py-1 rounded-[5px] text-[11px] font-bold cursor-pointer border-none"
+              style={{ background: mode === m ? "var(--acc)" : "transparent", color: mode === m ? "#fff" : "var(--mut)" }}
+            >
+              {m === "auto" ? "Auto" : "Custom"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === "auto" && (
+        <div className="text-[11px] text-mut2">Applied to the oldest outstanding loan(s) first.</div>
+      )}
+      {mode === "custom" && (
+        <div className="flex flex-col gap-1.5">
+          {loans.map((l) => (
+            <div key={l.id} className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-semibold truncate">{l.reason || friendlyDay(l.occurredAt)}</div>
+                <div className="text-[10.5px] text-mut2">Remaining {formatPaise(l.remainingAmount)}</div>
+              </div>
+              <input
+                type="number"
+                inputMode="decimal"
+                className="field w-[92px] flex-none"
+                placeholder="0"
+                value={amounts[l.id] ?? ""}
+                onChange={(e) => setAmounts((prev) => ({ ...prev, [l.id]: e.target.value }))}
+              />
+            </div>
+          ))}
+          <div className="text-[11px] text-mut2">
+            Allocated {formatPaise(totalAllocated)} of {formatPaise(repaymentPaise)}
+            {totalAllocated > repaymentPaise && <span className="text-red font-semibold"> — exceeds the amount above</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────── Budget ───────────
 
 function BudgetForm() {
@@ -406,6 +658,11 @@ function AccountForm() {
   const [name, setName] = useState("");
   const [type, setType] = useState<string>("BANK");
   const [opening, setOpening] = useState("");
+  const [cardNetwork, setCardNetwork] = useState("");
+  const [cardLast4, setCardLast4] = useState("");
+  const [statementDay, setStatementDay] = useState("");
+  const [dueDay, setDueDay] = useState("");
+  const isCard = type === "CREDIT_CARD";
   return (
     <div className="flex flex-col gap-3">
       <Field label="NICKNAME">
@@ -423,9 +680,96 @@ function AccountForm() {
           <input type="number" inputMode="decimal" className="field" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0" />
         </Field>
       </div>
+      {isCard && (
+        <>
+          <div className="flex gap-2.5 flex-wrap">
+            <Field label="NETWORK">
+              <input className="field" value={cardNetwork} onChange={(e) => setCardNetwork(e.target.value)} placeholder="e.g. Visa" />
+            </Field>
+            <Field label="LAST 4 DIGITS">
+              <input className="field" inputMode="numeric" maxLength={4} value={cardLast4} onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, ""))} placeholder="4242" />
+            </Field>
+          </div>
+          <div className="flex gap-2.5 flex-wrap">
+            <Field label="STATEMENT DAY (1–31)">
+              <input type="number" min={1} max={31} className="field" value={statementDay} onChange={(e) => setStatementDay(e.target.value)} placeholder="e.g. 3" />
+            </Field>
+            <Field label="PAYMENT DUE DAY (1–31)">
+              <input type="number" min={1} max={31} className="field" value={dueDay} onChange={(e) => setDueDay(e.target.value)} placeholder="e.g. 18" />
+            </Field>
+          </div>
+        </>
+      )}
       <ErrorNote error={error} />
-      <SubmitButton busy={busy} onClick={() => run(() => createAccountAction({ name, type, openingBalance: opening || 0 }), "Account added")}>
+      <SubmitButton
+        busy={busy}
+        onClick={() =>
+          run(
+            () =>
+              createAccountAction({
+                name,
+                type,
+                openingBalance: opening || 0,
+                cardNetwork: isCard && cardNetwork ? cardNetwork : undefined,
+                cardLast4: isCard && cardLast4 ? cardLast4 : undefined,
+                statementDay: isCard && statementDay ? statementDay : undefined,
+                dueDay: isCard && dueDay ? dueDay : undefined,
+              }),
+            "Account added"
+          )
+        }
+      >
         Add account
+      </SubmitButton>
+    </div>
+  );
+}
+
+function AccountCardDetailsForm({ accountId }: { accountId: string }) {
+  const { refData } = useUI();
+  const { run, busy, error } = useSubmit();
+  const account = refData.accounts.find((a) => a.id === accountId);
+  const [cardNetwork, setCardNetwork] = useState(account?.cardNetwork ?? "");
+  const [cardLast4, setCardLast4] = useState(account?.cardLast4 ?? "");
+  const [statementDay, setStatementDay] = useState(account?.statementDay ? String(account.statementDay) : "");
+  const [dueDay, setDueDay] = useState(account?.dueDay ? String(account.dueDay) : "");
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-[12.5px] text-mut2">{account?.name ?? "This card"}'s billing cycle drives Card Billing Intelligence's recovery guidance.</div>
+      <div className="flex gap-2.5 flex-wrap">
+        <Field label="NETWORK">
+          <input className="field" value={cardNetwork} onChange={(e) => setCardNetwork(e.target.value)} placeholder="e.g. Visa" autoFocus />
+        </Field>
+        <Field label="LAST 4 DIGITS">
+          <input className="field" inputMode="numeric" maxLength={4} value={cardLast4} onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, ""))} placeholder="4242" />
+        </Field>
+      </div>
+      <div className="flex gap-2.5 flex-wrap">
+        <Field label="STATEMENT DAY (1–31)">
+          <input type="number" min={1} max={31} className="field" value={statementDay} onChange={(e) => setStatementDay(e.target.value)} placeholder="e.g. 3" />
+        </Field>
+        <Field label="PAYMENT DUE DAY (1–31)">
+          <input type="number" min={1} max={31} className="field" value={dueDay} onChange={(e) => setDueDay(e.target.value)} placeholder="e.g. 18" />
+        </Field>
+      </div>
+      <ErrorNote error={error} />
+      <SubmitButton
+        busy={busy}
+        onClick={() =>
+          run(
+            () =>
+              updateAccountCardDetailsAction({
+                accountId,
+                cardNetwork: cardNetwork || null,
+                cardLast4: cardLast4 || null,
+                statementDay: statementDay ? statementDay : null,
+                dueDay: dueDay ? dueDay : null,
+              }),
+            "Card details saved"
+          )
+        }
+      >
+        Save card details
       </SubmitButton>
     </div>
   );
@@ -460,7 +804,7 @@ function BillForm() {
       </div>
       <div className="flex gap-2.5 flex-wrap">
         <Field label="DUE DATE">
-          <input className="field" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          <DateField value={dueDate} onChange={setDueDate} />
         </Field>
         <Field label="REPEATS">
           <select className="field" value={cadence} onChange={(e) => setCadence(e.target.value)}>

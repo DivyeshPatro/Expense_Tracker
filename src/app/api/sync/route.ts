@@ -34,11 +34,27 @@ import {
   type IntentMeta,
   type MutateOutcome,
 } from "@/server/services/transactions";
-import { expenseSchema, incomeSchema, transferSchema } from "@/validators";
+import {
+  addLoanEntry,
+  updateLoanEntry,
+  deleteLoanEntry,
+  MutationTargetGoneError as LendingMutationTargetGoneError,
+} from "@/server/services/lending";
+import { expenseSchema, incomeSchema, transferSchema, loanEntrySchema } from "@/validators";
 
 const STALE_INTENT_MS = 30 * 24 * 60 * 60 * 1000; // matches the server's Intent retention window (spec §4.2)
 
-type Kind = "expense.create" | "income.create" | "transfer.create" | "expense.update" | "income.update" | "transfer.update" | "tx.delete";
+type Kind =
+  | "expense.create"
+  | "income.create"
+  | "transfer.create"
+  | "expense.update"
+  | "income.update"
+  | "transfer.update"
+  | "tx.delete"
+  | "loan.create"
+  | "loan.update"
+  | "loan.delete";
 
 type ZodLike = { safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: { issues: { message: string }[] } } };
 
@@ -50,18 +66,23 @@ const SCHEMAS: Partial<Record<Kind, ZodLike>> = {
   "income.update": incomeSchema,
   "transfer.update": transferSchema,
   // "tx.delete" has no payload to validate
+  "loan.create": loanEntrySchema,
+  "loan.update": loanEntrySchema,
+  // "loan.delete" has no payload to validate
 };
 
 const CREATE: Partial<Record<Kind, (userId: string, input: never, intent: IntentMeta) => Promise<string>>> = {
   "expense.create": addExpense as never,
   "income.create": addIncome as never,
   "transfer.create": addTransfer as never,
+  "loan.create": addLoanEntry as never,
 };
 
 const UPDATE: Partial<Record<Kind, (userId: string, id: string, input: never, intent: IntentMeta) => Promise<MutateOutcome>>> = {
   "expense.update": updateExpense as never,
   "income.update": updateIncome as never,
   "transfer.update": updateTransfer as never,
+  "loan.update": updateLoanEntry as never,
 };
 
 interface RawIntent {
@@ -147,6 +168,18 @@ async function applyOne(userId: string, raw: RawIntent): Promise<SyncResult> {
     }
   }
 
+  // Lending is personal-only — no group/authorization complexity, so this
+  // branch is simpler than tx.delete's: no ConflictError/NotAuthorizedError
+  // can ever be thrown by deleteLoanEntry.
+  if (kind === "loan.delete") {
+    try {
+      const outcome = await deleteLoanEntry(userId, entityId, intentMeta);
+      return outcomeResult(intentId, outcome);
+    } catch (e) {
+      return { intentId, code: "VALIDATION", error: e instanceof Error ? e.message : "Something went wrong" };
+    }
+  }
+
   const schema = SCHEMAS[kind as Kind];
   if (!schema) return { intentId, code: "VALIDATION", error: "Unknown intent kind" };
   const parsed = schema.safeParse(payload);
@@ -170,6 +203,9 @@ async function applyOne(userId: string, raw: RawIntent): Promise<SyncResult> {
     if (e instanceof NotAuthorizedError) return { intentId, code: await classifyAuthFailure(entityId) };
     if (e instanceof MutationTargetGoneError) {
       return { intentId, code: "VALIDATION", error: "This transaction was deleted elsewhere before your edit could sync." };
+    }
+    if (e instanceof LendingMutationTargetGoneError) {
+      return { intentId, code: "VALIDATION", error: "This entry was deleted elsewhere before your edit could sync." };
     }
     if (isFkViolation(e)) {
       // category is soft-heal-eligible (deleted category → uncategorized); every

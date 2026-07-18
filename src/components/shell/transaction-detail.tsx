@@ -38,7 +38,6 @@ import { useRouter } from "next/navigation";
 import {
   entityHistoryAction,
   getTransactionDetailAction,
-  listGroupCategoriesAction,
   undoDeleteAction,
   updateExpenseAction,
 } from "@/app/actions";
@@ -46,7 +45,10 @@ import { formatDiffRow, type TimelineEvent } from "@/lib/activity";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import type { TransactionDetail } from "@/server/services/transactions";
+import { DateField } from "./date-field";
+import { EmptyState } from "@/components/shell/empty-state";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
+import { GroupCategorySelect } from "./group-category-select";
 import { intentLabel, useOffline, type MutationKind } from "./offline-context";
 import { FAILURE_COPY } from "./pending-detail";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
@@ -56,7 +58,7 @@ import { ensureDeviceId, getDeviceName, type OutboxIntent } from "@/lib/offline/
 const cleanCopy = (msg: string) => msg.charAt(0).toUpperCase() + msg.slice(1);
 
 export function TransactionDetailSheet({ transactionId }: { transactionId: string }) {
-  const { closeModal, showToast } = useUI();
+  const { closeModal, showToast, openModal } = useUI();
   const { pending, needsAttention, enqueueMutation, cancelPending, restorePending } = useOffline();
   const router = useRouter();
   // undefined = still loading, null = fetched but gone (e.g. deleted elsewhere)
@@ -149,10 +151,16 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
   }
 
   if (detail === undefined) {
-    return <div className="text-center py-10 text-mut2 text-[13px]">Loading…</div>;
+    return (
+      <div className="flex flex-col gap-2.5" aria-busy="true" aria-label="Loading transaction">
+        <div className="skeleton h-6 w-32 rounded" />
+        <div className="skeleton h-[92px] rounded-[14px]" />
+        <div className="skeleton h-[92px] rounded-[14px]" />
+      </div>
+    );
   }
   if (detail === null) {
-    return <div className="text-center py-10 text-mut2 text-[13px]">This transaction no longer exists.</div>;
+    return <EmptyState icon="🧾" title="This transaction no longer exists." />;
   }
 
   if (editing) {
@@ -241,10 +249,23 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
             const isPayer = s.participantId === detail.paidByParticipantId;
             return (
               <div key={s.participantId ?? "me"} className="flex items-center justify-between text-[13px]">
-                <span className="font-semibold">
-                  {name}
-                  {isPayer ? " · paid" : ""}
-                </span>
+                {/* Phase 2.5 cross-navigation: a real friend (not "You"/the
+                    owner, and not a removed friend with no id left to link
+                    to) opens their Lending contact instead of being plain text */}
+                {s.participantId ? (
+                  <button
+                    onClick={() => openModal("lendingContact", { participantId: s.participantId! })}
+                    className="font-semibold text-acc bg-transparent border-none cursor-pointer p-0 hover:underline text-left"
+                  >
+                    {name}
+                    {isPayer ? " · paid" : ""}
+                  </button>
+                ) : (
+                  <span className="font-semibold">
+                    {name}
+                    {isPayer ? " · paid" : ""}
+                  </span>
+                )}
                 <span className="font-bold">{formatPaise(s.owedAmount)}</span>
               </div>
             );
@@ -562,7 +583,7 @@ function HistoryCard({ transactionId }: { transactionId: string }) {
                 </span>
                 <time dateTime={ev.ts} className="text-[11px] text-mut2 flex-none">
                   {historyDayLabel(ev.ts)},{" "}
-                  {new Date(ev.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  {new Date(ev.ts).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
                 </time>
               </div>
               {ev.diff.length === 0 && ev.detail && <div className="text-[11.5px] text-mut2">{ev.detail}</div>}
@@ -609,9 +630,9 @@ function HistoryCard({ transactionId }: { transactionId: string }) {
  * refData.accounts is the VIEWER's own accounts, not the row owner's, so a
  * functional picker here would let someone move a friend's money into an
  * account of theirs that doesn't exist. Category options come from
- * listGroupCategoriesAction (shared-group categories already used in this
- * group), not refData.expenseCategories/incomeCategories, per the RFC §10
- * narrowed-visibility decision. The amount locks whenever a split exists:
+ * GroupCategorySelect (the group's own category namespace — group-expenses-
+ * sprint), never refData.expenseCategories/incomeCategories. The amount locks
+ * whenever a split exists:
  * safely recomputing shares needs the interactive split editor plus a
  * group-scoped participant picker, both explicitly out of scope this phase.
  * Any existing split is resubmitted byte-for-byte from detail.splits' own
@@ -626,21 +647,8 @@ function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail
   const [merchant, setMerchant] = useState(detail.merchant);
   const [date, setDate] = useState(detail.ymd);
   const [notes, setNotes] = useState(detail.notes ?? "");
-  const [categories, setCategories] = useState<{ id: string; name: string; icon: string | null }[]>([]);
   const hasSplit = detail.splits.length > 0;
   const groupId = detail.groupId;
-
-  useEffect(() => {
-    let cancelled = false;
-    if (groupId && detail.type !== "TRANSFER") {
-      listGroupCategoriesAction(groupId).then((cats) => {
-        if (!cancelled) setCategories(cats.filter((c) => c.kind === detail.type));
-      });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [groupId, detail.type]);
 
   function existingSplitPayload() {
     if (!hasSplit) return undefined;
@@ -704,14 +712,13 @@ function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail
               </div>
             </Field>
             <Field label="CATEGORY">
-              <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                <option value="">Uncategorized</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.icon} {c.name}
-                  </option>
-                ))}
-              </select>
+              {groupId ? (
+                <GroupCategorySelect groupId={groupId} value={categoryId} onChange={setCategoryId} />
+              ) : (
+                <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                  <option value="">Uncategorized</option>
+                </select>
+              )}
             </Field>
           </>
         )}
@@ -727,7 +734,7 @@ function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail
         </Field>
       )}
       <Field label="DATE">
-        <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <DateField value={date} onChange={setDate} />
       </Field>
       <Field label="NOTES">
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
@@ -785,11 +792,9 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [payerId, setPayerId] = useState<string | null>(detail.paidByParticipantId);
 
-  const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights };
+  const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
   const selected = refData.participants.filter((p) => parts[p.id]);
   const amtPaise = Math.round((Number(amount) || 0) * 100);
-  // payer must be either "you" or someone currently selected in the split
-  const effectivePayerId = payerId && selected.some((p) => p.id === payerId) ? payerId : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -805,11 +810,19 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
           </select>
         </Field>
         <Field label="CATEGORY">
-          <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            {refData.expenseCategories.map((c) => (
-              <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-            ))}
-          </select>
+          {/* group-expenses-sprint: a group-tagged expense is labeled from the
+              group's own category namespace, not the owner's personal list —
+              "group expenses should not use personal categories" applies
+              regardless of who's editing, owner included */}
+          {detail.groupId ? (
+            <GroupCategorySelect groupId={detail.groupId} value={categoryId} onChange={setCategoryId} />
+          ) : (
+            <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              {refData.expenseCategories.map((c) => (
+                <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+              ))}
+            </select>
+          )}
         </Field>
       </div>
       <div className="flex gap-2.5 flex-wrap">
@@ -817,7 +830,7 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
           <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Swiggy" />
         </Field>
         <Field label="DATE">
-          <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateField value={date} onChange={setDate} />
         </Field>
       </div>
       <Field label="NOTES">
@@ -825,26 +838,6 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
       </Field>
 
       <SplitEditor state={splitState} amtPaise={amtPaise} participants={refData.participants} />
-
-      {split && selected.length > 0 && (
-        <Field label="PAID BY">
-          <div className="flex gap-1.5 flex-wrap">
-            {[{ id: null as string | null, name: "You" }, ...selected.map((p) => ({ id: p.id as string | null, name: p.name }))].map((who) => (
-              <button
-                key={who.id ?? "me"}
-                onClick={() => setPayerId(who.id)}
-                className="px-3 py-[7px] rounded-full text-[12px] font-semibold cursor-pointer border-none"
-                style={{
-                  background: effectivePayerId === who.id ? "var(--acc)" : "var(--accSoft)",
-                  color: effectivePayerId === who.id ? "#fff" : "var(--acc)",
-                }}
-              >
-                {who.name}
-              </button>
-            ))}
-          </div>
-        </Field>
-      )}
 
       <ErrorNote error={error} />
       <div className="flex gap-2.5">
@@ -863,7 +856,7 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
                   merchant,
                   date,
                   notes: notes || undefined,
-                  split: buildSplitPayload(splitState, selected.map((p) => p.id), effectivePayerId),
+                  split: buildSplitPayload(splitState, selected.map((p) => p.id)),
                 };
                 // a split touches other participants' balances — needs the
                 // server's validation, same restriction as creating one (Phase 1/2)
@@ -938,7 +931,7 @@ function EditIncomeForm({ detail, prefill, onCancel }: { detail: TransactionDeta
           <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Salary · Acme Corp" />
         </Field>
         <Field label="DATE">
-          <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateField value={date} onChange={setDate} />
         </Field>
       </div>
       <Field label="NOTES">
@@ -1003,7 +996,7 @@ function EditTransferForm({ detail, prefill, onCancel }: { detail: TransactionDe
         <AmountInput value={amount} onChange={setAmount} autoFocus />
       </Field>
       <Field label="DATE">
-        <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <DateField value={date} onChange={setDate} />
       </Field>
       <Field label="NOTES">
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />

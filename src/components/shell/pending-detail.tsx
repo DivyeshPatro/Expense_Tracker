@@ -11,6 +11,7 @@
 import { useState } from "react";
 import type { OutboxIntent } from "@/lib/offline/db";
 import { formatPaise } from "@/lib/money";
+import { DateField } from "./date-field";
 import { AmountInput, ErrorNote, Field, SubmitButton } from "./form-primitives";
 import { useOffline, type CreateKind } from "./offline-context";
 import { useUI } from "./ui-context";
@@ -223,7 +224,7 @@ function PendingEditForm({ intent, onCancel, onSaved }: { intent: OutboxIntent; 
       )}
 
       <Field label="DATE">
-        <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <DateField value={date} onChange={setDate} />
       </Field>
       <Field label="NOTES">
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />

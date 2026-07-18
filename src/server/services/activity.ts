@@ -95,8 +95,13 @@ const toRowInput = (r: {
 
 export async function activityPage(
   userId: string,
-  opts: { chip?: ActivityChip; entityId?: string; start?: Date; end?: Date; cursor?: string } = {}
+  opts: { chip?: ActivityChip; entityId?: string; start?: Date; end?: Date; cursor?: string; limit?: number } = {}
 ): Promise<ActivityPageResult> {
+  // Phase 2.5: `limit` caps both source fetches AND the emitted page — the
+  // dashboard's Recent Activity panel needs 6 events, not 50. Chain
+  // collapsing can shrink a page below the raw row count, never grow it,
+  // so fetching limit+1 per stream still detects "has more" correctly.
+  const pageSize = Math.min(opts.limit ?? PAGE_SIZE, PAGE_SIZE);
   const cursor = parseCursor(opts.cursor);
   const entities = opts.chip && opts.chip !== "all" ? new Set(CHIP_ENTITIES[opts.chip]) : null;
   const allow = ACTIVITY_ALLOWLIST.filter((a) => !entities || entities.has(a.entity));
@@ -115,14 +120,14 @@ export async function activityPage(
         ...(timeRange ? { at: timeRange } : {}),
       },
       orderBy: [{ at: "desc" }, { id: "desc" }],
-      take: PAGE_SIZE + 1,
+      take: pageSize + 1,
       ...(cursor.a ? { cursor: { id: cursor.a }, skip: 1 } : {}),
     }),
     includeNotifs
       ? prisma.notification.findMany({
           where: { userId, kind: "BUDGET_EXCEEDED", ...(timeRange ? { createdAt: timeRange } : {}) },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          take: PAGE_SIZE + 1,
+          take: pageSize + 1,
           ...(cursor.n ? { cursor: { id: cursor.n }, skip: 1 } : {}),
         })
       : Promise.resolve([]),
@@ -130,15 +135,15 @@ export async function activityPage(
   ]);
   maps.actorNames = await actorNameMap(distinctActorIds(auditRows));
 
-  const auditHasMore = auditRows.length > PAGE_SIZE;
-  const notifHasMore = notifRows.length > PAGE_SIZE;
+  const auditHasMore = auditRows.length > pageSize;
+  const notifHasMore = notifRows.length > pageSize;
 
   // present both streams; each emitted event remembers which source row it
   // consumed last so the composite cursor can resume both streams exactly
   type Sourced = { ev: TimelineEvent; src: "a" | "n"; consumedId: string };
   const sourced: Sourced[] = [];
 
-  for (const item of groupUpdateChains((auditHasMore ? auditRows.slice(0, PAGE_SIZE) : auditRows).map(toRowInput))) {
+  for (const item of groupUpdateChains((auditHasMore ? auditRows.slice(0, pageSize) : auditRows).map(toRowInput))) {
     if (Array.isArray(item)) {
       const ev = presentChain(item, maps);
       if (ev) sourced.push({ ev, src: "a", consumedId: item[item.length - 1].id });
@@ -147,15 +152,15 @@ export async function activityPage(
       if (ev) sourced.push({ ev, src: "a", consumedId: item.id });
     }
   }
-  for (const n of notifHasMore ? notifRows.slice(0, PAGE_SIZE) : notifRows) {
+  for (const n of notifHasMore ? notifRows.slice(0, pageSize) : notifRows) {
     const ev = presentNotificationRow({ id: n.id, kind: n.kind, payload: n.payload, createdAt: n.createdAt.toISOString() });
     if (ev) sourced.push({ ev, src: "n", consumedId: n.id });
   }
 
   sourced.sort((x, y) => (x.ev.ts === y.ev.ts ? (x.ev.activityId < y.ev.activityId ? 1 : -1) : x.ev.ts < y.ev.ts ? 1 : -1));
 
-  const page = sourced.slice(0, PAGE_SIZE);
-  const leftovers = sourced.length > PAGE_SIZE;
+  const page = sourced.slice(0, pageSize);
+  const leftovers = sourced.length > pageSize;
   const hasMore = auditHasMore || notifHasMore || leftovers;
 
   const next: Cursor = { a: cursor.a, n: cursor.n };
