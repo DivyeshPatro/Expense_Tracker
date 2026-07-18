@@ -39,6 +39,24 @@ export const DEFAULT_CATEGORIES: CategoryMeta[] = [
   { name: "Other", kind: "INCOME", icon: "📦", color: "#78716c" },
 ];
 
+/** group-expenses-sprint: seeded once per new group (createGroup), never
+ * per-user — a group's category namespace is its own, not derived from
+ * whoever created it. Expense-only: the sprint's own mockup and scope are
+ * expense-flavored; group income categorization stays out of scope (a group
+ * transaction tagged INCOME still uses the creator's personal income list,
+ * unchanged). */
+export const GROUP_DEFAULT_CATEGORIES: CategoryMeta[] = [
+  { name: "Food", kind: "EXPENSE", icon: "🍔", color: "#e07b39" },
+  { name: "Grocery", kind: "EXPENSE", icon: "🛒", color: "#7c3aed" },
+  { name: "Rent", kind: "EXPENSE", icon: "🏠", color: "#2a63f6" },
+  { name: "Bills", kind: "EXPENSE", icon: "💡", color: "#b97d10" },
+  { name: "Shopping", kind: "EXPENSE", icon: "🛍", color: "#d1497e" },
+  { name: "Transport", kind: "EXPENSE", icon: "🚗", color: "#57534e" },
+  { name: "Entertainment", kind: "EXPENSE", icon: "🎉", color: "#6d5ae6" },
+  { name: "Travel", kind: "EXPENSE", icon: "✈️", color: "#0f766e" },
+  { name: "Miscellaneous", kind: "EXPENSE", icon: "📦", color: "#78716c" },
+];
+
 export const TRANSFER_META = { icon: "⇄", color: "#64748b" };
 
 /** Fallback meta when a transaction has no category. */

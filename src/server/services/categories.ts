@@ -17,24 +17,34 @@ export const listCategories = cache(async (userId: string) => {
   return prisma.category.findMany({ where: { userId }, orderBy: { name: "asc" } });
 });
 
-/** Collaboration-architecture-rfc §10 (resolved 2026-07-17): a group member
- * who doesn't own a transaction's namespace may still need to label it, but
- * only sees categories already used within that shared group — never a
- * co-member's full private list, which may hold categories that have
- * nothing to do with the group (a personal "Gym membership," say). Any role
- * may read; the set is empty until the group's first categorized expense
- * exists, in which case the caller falls back to leaving the field
- * uncategorized rather than exposing anything broader. */
+/** group-expenses-sprint: a group's own EXPENSE category namespace — real
+ * rows owned by the group (Category.groupId), not derived from usage. This
+ * replaces the collaboration-architecture-rfc §10 "categories already used
+ * in the group's own transactions" heuristic, which was itself a workaround
+ * for groups never having had their own categories at all; superseded now
+ * that they do. Any role may read (matches §10's original access tier —
+ * labeling a shared expense doesn't need elevated permission). */
 export async function listGroupCategories(actingUserId: string, groupId: string) {
   await assertGroupRole(prisma, actingUserId, groupId, "MEMBER");
-  const rows = await prisma.transaction.findMany({
-    where: { groupId, categoryId: { not: null }, deletedAt: null },
-    select: { categoryId: true },
-    distinct: ["categoryId"],
+  return prisma.category.findMany({ where: { groupId }, orderBy: { name: "asc" } });
+}
+
+/** MEMBER+ may add a custom category to the group's shared list — same tier
+ * as creating a group transaction (assertCanCreateInGroup), since labeling
+ * new kinds of shared spend is a normal part of using the group, not an
+ * admin action. Scoped to EXPENSE only, matching GROUP_DEFAULT_CATEGORIES'
+ * own scope. */
+export async function createGroupCategory(actingUserId: string, groupId: string, name: string) {
+  await assertGroupRole(prisma, actingUserId, groupId, "MEMBER");
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Category name is required");
+  const existing = await prisma.category.findUnique({ where: { groupId_name_kind: { groupId, name: trimmed, kind: "EXPENSE" } } });
+  if (existing) return existing;
+  return prisma.$transaction(async (db) => {
+    const cat = await db.category.create({ data: { groupId, name: trimmed, kind: "EXPENSE", icon: KIND_ICON.EXPENSE } });
+    await audit(db, actingUserId, "create", "Category", cat.id, undefined, cat, actingUserId);
+    return cat;
   });
-  const categoryIds = rows.map((r) => r.categoryId).filter((id): id is string => id !== null);
-  if (categoryIds.length === 0) return [];
-  return prisma.category.findMany({ where: { id: { in: categoryIds } }, orderBy: { name: "asc" } });
 }
 
 const KIND_ICON: Record<TxType, string> = { EXPENSE: "📦", INCOME: "💼", TRANSFER: "⇄" };

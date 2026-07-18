@@ -100,6 +100,16 @@ export const budgetSchema = z.object({
   limit: paiseFromRupees,
 });
 
+// lending-module-phase2: Card Vault fields — only meaningful when
+// type === "CREDIT_CARD", drive Card Billing Intelligence's cycle math.
+const cardDayField = z.union([z.string(), z.number()]).transform((v, ctx) => {
+  const n = typeof v === "string" ? Number(v) : v;
+  if (!Number.isInteger(n) || n < 1 || n > 31) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a day between 1 and 31" });
+    return z.NEVER;
+  }
+  return n;
+});
 export const accountSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(60),
   type: z.enum(["BANK", "CASH", "WALLET", "CREDIT_CARD", "INVESTMENT"]),
@@ -114,6 +124,18 @@ export const accountSchema = z.object({
       return Math.round(n * 100); // may be negative (credit card)
     }),
   bankName: z.string().trim().max(60).optional(),
+  cardNetwork: z.string().trim().max(30).optional(),
+  cardLast4: z.string().trim().regex(/^\d{0,4}$/, "Last 4 digits only").optional(),
+  statementDay: cardDayField.optional(),
+  dueDay: cardDayField.optional(),
+});
+
+export const accountCardDetailsSchema = z.object({
+  accountId: z.string().min(1),
+  cardNetwork: z.string().trim().max(30).nullable().optional(),
+  cardLast4: z.string().trim().regex(/^\d{0,4}$/, "Last 4 digits only").nullable().optional(),
+  statementDay: cardDayField.nullable().optional(),
+  dueDay: cardDayField.nullable().optional(),
 });
 
 export const billSchema = z.object({
@@ -151,4 +173,37 @@ export const groupSchema = z.object({
 export const groupMemberSchema = z.object({
   groupId: z.string().min(1),
   participantId: z.string().min(1),
+});
+
+// Lending module (Phase 1)
+// lending-module-phase2: allocations is meaningful for GOT entries only —
+// which prior GAVE entries this repayment settles. Omitted ⇒ server
+// auto-allocates FIFO (oldest outstanding loan first); provided ⇒ manual
+// override, validated against each loan's own remaining balance.
+export const loanAllocationSchema = z.object({
+  gaveEntryId: z.string().min(1),
+  amount: paiseFromRupees,
+});
+export const loanEntrySchema = z.object({
+  participantId: z.string().min(1, "Pick a contact"),
+  kind: z.enum(["GAVE", "GOT"]),
+  amount: paiseFromRupees,
+  accountId: z.string().nullable(),
+  reason: z.string().trim().max(120).optional(),
+  notes: z.string().trim().max(500).optional(),
+  date: ymd,
+  dueDate: ymd.nullable().optional(),
+  allocations: z.array(loanAllocationSchema).optional(),
+});
+export const loanEntryWithIntentSchema = loanEntrySchema.extend({ intent: intentMetaSchema.optional() });
+export const updateLoanEntrySchema = z.object({ id: z.string().min(1) }).merge(loanEntrySchema);
+export const updateLoanEntryWithIntentSchema = updateLoanEntrySchema.extend({ intent: intentMetaSchema.optional() });
+export const deleteLoanEntrySchema = z.object({ id: z.string().min(1), intent: intentMetaSchema.optional() });
+
+export const participantDetailsSchema = z.object({
+  participantId: z.string().min(1),
+  displayName: z.string().trim().min(1, "Name is required").max(60).optional(),
+  photo: z.string().trim().max(2000).nullable().optional(),
+  phone: z.string().trim().max(30).nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
 });

@@ -5,10 +5,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/server/session";
-import { createAccount } from "@/server/services/accounts";
+import { createAccount, updateAccountCardDetails } from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
-import { changeCategoryKind, createCategory, deleteCategory, listGroupCategories, renameCategory } from "@/server/services/categories";
+import { changeCategoryKind, createCategory, createGroupCategory, deleteCategory, listGroupCategories, renameCategory } from "@/server/services/categories";
 import { queryTransactions, type TxListFilter } from "@/server/services/ledger";
 import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
 import {
@@ -19,6 +19,20 @@ import {
   type CommitInput,
 } from "@/server/services/import";
 import { addParticipant, recordSettlement } from "@/server/services/shared";
+import {
+  addLoanEntry,
+  cardRecoveryDashboard,
+  deleteLoanEntry,
+  getLoanDetail,
+  lendingDashboardSummary,
+  lendingReminders,
+  lendingReportsData,
+  listLoanEntries,
+  openLoansForContact,
+  restoreLoanEntry,
+  updateLoanEntry,
+  updateParticipantDetails,
+} from "@/server/services/lending";
 import { listNotifications, markAllRead } from "@/server/services/notifications";
 import {
   addGroupMember,
@@ -40,7 +54,7 @@ import {
   updateTransfer,
   ConflictError,
 } from "@/server/services/transactions";
-import { askLedgerly, searchMerchants } from "@/server/services/search";
+import { askLedgerly, searchMerchants, unifiedSearch } from "@/server/services/search";
 import { activityPage, entityHistory, importPreview } from "@/server/services/activity";
 import { ACTIVITY_CHIPS, type ActivityChip } from "@/lib/activity";
 import { parsePeriod } from "@/lib/period";
@@ -58,11 +72,16 @@ import {
   groupSchema,
   incomeWithIntentSchema,
   participantSchema,
+  participantDetailsSchema,
   settlementSchema,
   transferWithIntentSchema,
   updateExpenseWithIntentSchema,
   updateIncomeWithIntentSchema,
   updateTransferWithIntentSchema,
+  loanEntryWithIntentSchema,
+  updateLoanEntryWithIntentSchema,
+  deleteLoanEntrySchema,
+  accountCardDetailsSchema,
 } from "@/validators";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -252,6 +271,18 @@ export async function createAccountAction(input: unknown): Promise<ActionResult>
   }
 }
 
+export async function updateAccountCardDetailsAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { accountId, ...data } = accountCardDetailsSchema.parse(input);
+    await updateAccountCardDetails(user.id, accountId, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 export async function addParticipantAction(input: unknown): Promise<ActionResult> {
   try {
     const user = await requireUser();
@@ -262,6 +293,104 @@ export async function addParticipantAction(input: unknown): Promise<ActionResult
   } catch (e) {
     return fail(e);
   }
+}
+
+export async function updateParticipantDetailsAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { participantId, ...data } = participantDetailsSchema.parse(input);
+    await updateParticipantDetails(user.id, participantId, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Lending (Phase 1) ───────────
+
+export async function addLoanEntryAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { intent, ...data } = loanEntryWithIntentSchema.parse(input);
+    await addLoanEntry(user.id, data, intent);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function updateLoanEntryAction(input: unknown): Promise<MutateActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, intent, ...data } = updateLoanEntryWithIntentSchema.parse(input);
+    const outcome = await updateLoanEntry(user.id, id, data, intent);
+    refresh();
+    return { ok: true, overridden: outcome.overridden, overriddenByDevice: outcome.overriddenByDevice };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteLoanEntryAction(input: unknown): Promise<MutateActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, intent } = deleteLoanEntrySchema.parse(input);
+    const outcome = await deleteLoanEntry(user.id, id, intent);
+    refresh();
+    return { ok: true, overridden: outcome.overridden, overriddenByDevice: outcome.overriddenByDevice };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function undoDeleteLoanEntryAction(id: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await restoreLoanEntry(user.id, id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function listLoanEntriesAction(participantId?: string) {
+  const user = await requireUser();
+  return listLoanEntries(user.id, { participantId });
+}
+
+export async function lendingDashboardAction() {
+  const user = await requireUser();
+  return lendingDashboardSummary(user.id);
+}
+
+// ─────────── Lending (Phase 2) ───────────
+
+export async function openLoansForContactAction(participantId: string) {
+  const user = await requireUser();
+  return openLoansForContact(user.id, participantId);
+}
+
+export async function loanDetailAction(loanEntryId: string) {
+  const user = await requireUser();
+  return getLoanDetail(user.id, loanEntryId);
+}
+
+export async function cardRecoveryDashboardAction() {
+  const user = await requireUser();
+  return cardRecoveryDashboard(user.id);
+}
+
+export async function lendingRemindersAction() {
+  const user = await requireUser();
+  return lendingReminders(user.id);
+}
+
+export async function lendingReportsAction(months?: number) {
+  const user = await requireUser();
+  return lendingReportsData(user.id, months);
 }
 
 export async function askLedgerlyAction(query: string) {
@@ -423,9 +552,31 @@ export async function listGroupCategoriesAction(groupId: string) {
   return listGroupCategories(user.id, groupId);
 }
 
+// group-expenses-sprint: "+ Create New Category" inside a group's category
+// dropdown — scoped to that group only (createGroupCategory), never the
+// caller's personal list.
+export async function createGroupCategoryAction(
+  groupId: string,
+  name: string
+): Promise<ActionResult & { category?: { id: string; name: string; icon: string } }> {
+  try {
+    const user = await requireUser();
+    const category = await createGroupCategory(user.id, groupId, name);
+    refresh();
+    return { ok: true, category: { id: category.id, name: category.name, icon: category.icon ?? "📦" } };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 export async function searchMerchantsAction(query: string): Promise<string[]> {
   const user = await requireUser();
   return searchMerchants(user.id, query);
+}
+
+export async function unifiedSearchAction(query: string) {
+  const user = await requireUser();
+  return unifiedSearch(user.id, query);
 }
 
 // ─────────── Notifications ───────────

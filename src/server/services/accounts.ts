@@ -15,6 +15,11 @@ export interface AccountView {
   color: string;
   balance: number; // paise, negative for credit-card debt
   periodNet: number; // paise net movement within the requested window (defaults to this month)
+  // lending-module-phase2: Card Vault — populated only for CREDIT_CARD accounts
+  cardNetwork: string | null;
+  cardLast4: string | null;
+  statementDay: number | null;
+  dueDay: number | null;
 }
 
 export interface AccountRow {
@@ -23,6 +28,13 @@ export interface AccountRow {
   icon: string;
   color: string;
   balance: number; // paise, negative for credit-card debt
+  // lending-module-phase2: Card Vault — populated only for CREDIT_CARD rows.
+  // Free to include: the underlying query already fetches every column.
+  type: AccountType;
+  cardNetwork: string | null;
+  cardLast4: string | null;
+  statementDay: number | null;
+  dueDay: number | null;
 }
 
 /**
@@ -34,7 +46,18 @@ export interface AccountRow {
  */
 export const listAccountRows = cache(async (userId: string): Promise<AccountRow[]> => {
   const accounts = await prisma.account.findMany({ where: { userId, isArchived: false }, orderBy: { createdAt: "asc" } });
-  return accounts.map((a) => ({ id: a.id, name: a.name, icon: a.icon ?? "🏦", color: a.color ?? "#2a63f6", balance: Number(a.balance) }));
+  return accounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    icon: a.icon ?? "🏦",
+    color: a.color ?? "#2a63f6",
+    balance: Number(a.balance),
+    type: a.type,
+    cardNetwork: a.cardNetwork,
+    cardLast4: a.cardLast4,
+    statementDay: a.statementDay,
+    dueDay: a.dueDay,
+  }));
 });
 
 /** range defaults to the current month when omitted — matches the shared period picker's own default. Use listAccountRows instead when the caller doesn't need type/typeLabel/periodNet (e.g. Dashboard). */
@@ -63,6 +86,10 @@ export async function listAccounts(userId: string, range?: { start?: Date; end?:
       color: a.color ?? "#2a63f6",
       balance: Number(a.balance),
       periodNet: net,
+      cardNetwork: a.cardNetwork,
+      cardLast4: a.cardLast4,
+      statementDay: a.statementDay,
+      dueDay: a.dueDay,
     };
   });
 }
@@ -77,7 +104,18 @@ const TYPE_ICONS: Record<AccountType, string> = {
 
 export async function createAccount(
   userId: string,
-  input: { name: string; type: AccountType; openingBalance: number; bankName?: string; color?: string }
+  input: {
+    name: string;
+    type: AccountType;
+    openingBalance: number;
+    bankName?: string;
+    color?: string;
+    // lending-module-phase2: Card Vault — only meaningful for CREDIT_CARD
+    cardNetwork?: string;
+    cardLast4?: string;
+    statementDay?: number;
+    dueDay?: number;
+  }
 ) {
   await prisma.$transaction(async (db) => {
     const a = await db.account.create({
@@ -90,6 +128,10 @@ export async function createAccount(
         balance: input.openingBalance,
         icon: TYPE_ICONS[input.type],
         color: input.color ?? "#2a63f6",
+        cardNetwork: input.type === "CREDIT_CARD" ? input.cardNetwork || null : null,
+        cardLast4: input.type === "CREDIT_CARD" ? input.cardLast4 || null : null,
+        statementDay: input.type === "CREDIT_CARD" ? (input.statementDay ?? null) : null,
+        dueDay: input.type === "CREDIT_CARD" ? (input.dueDay ?? null) : null,
       },
     });
     await audit(db, userId, "create", "Account", a.id, undefined, a);
@@ -98,6 +140,32 @@ export async function createAccount(
 
 export async function archiveAccount(userId: string, id: string) {
   await prisma.account.updateMany({ where: { id, userId }, data: { isArchived: true } });
+}
+
+/** Card Vault editing (lending-module-phase2) — the one way to set
+ * statementDay/dueDay on a credit-card account created before this sprint,
+ * since account creation is otherwise the only entry point. Undefined
+ * fields leave the existing value untouched; pass null explicitly to clear
+ * — same semantics as updateParticipantDetails. Direct server action, not
+ * outbox-routed: a metadata edit, not a financial-ledger write, same
+ * precedent as contact-details editing. */
+export async function updateAccountCardDetails(
+  userId: string,
+  accountId: string,
+  data: { cardNetwork?: string | null; cardLast4?: string | null; statementDay?: number | null; dueDay?: number | null }
+) {
+  const a = await prisma.account.findFirst({ where: { id: accountId, userId } });
+  if (!a) throw new Error("Account not found");
+  if (a.type !== "CREDIT_CARD") throw new Error("Card details only apply to credit-card accounts");
+  return prisma.account.update({
+    where: { id: accountId },
+    data: {
+      cardNetwork: data.cardNetwork === undefined ? a.cardNetwork : data.cardNetwork,
+      cardLast4: data.cardLast4 === undefined ? a.cardLast4 : data.cardLast4,
+      statementDay: data.statementDay === undefined ? a.statementDay : data.statementDay,
+      dueDay: data.dueDay === undefined ? a.dueDay : data.dueDay,
+    },
+  });
 }
 
 /** Rebuild check: balance − (openingBalance + Σ ledger) per account; all zeros ⇒ ledger reconciles. */
