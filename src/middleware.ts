@@ -1,5 +1,21 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { checkRateLimit, type RateLimitBucket } from "./server/rate-limit";
+
+// Rate-limited by path — brute-force/credential-stuffing on sign-in,
+// spam account creation, and email-bombing via password-reset requests are
+// the abuse patterns that actually matter here. Keyed by IP: good enough at
+// this app's scale, and avoids reading/re-streaming the request body in
+// middleware just to key by email too.
+const RATE_LIMITED_PATHS: { path: string; bucket: RateLimitBucket }[] = [
+  { path: "/api/auth/sign-in/email", bucket: "auth" },
+  { path: "/api/auth/sign-up/email", bucket: "auth" },
+  { path: "/api/auth/request-password-reset", bucket: "sensitive" },
+];
+
+function clientIp(request: NextRequest): string {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
+}
 
 // Security headers, applied to every response. CSP uses a per-request nonce
 // (Next's documented pattern: https://nextjs.org/docs/app/building-your-application/configuring/content-security-policy)
@@ -10,7 +26,20 @@ import type { NextRequest } from "next/server";
 // inline style="" attributes (which this app uses for chart bars, dynamic
 // colors, etc.) — blocking those has much lower XSS value than blocking
 // inline scripts, so it's not worth the churn.
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
+  if (request.method === "POST") {
+    const hit = RATE_LIMITED_PATHS.find((p) => request.nextUrl.pathname === p.path);
+    if (hit) {
+      const { allowed, retryAfterSeconds } = await checkRateLimit(hit.bucket, clientIp(request));
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "Too many attempts — try again shortly." },
+          { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+        );
+      }
+    }
+  }
+
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   // dev-only: Next's Fast Refresh/HMR runs webpack's eval-based source maps,
   // which CSP's script-src otherwise blocks outright — production builds
