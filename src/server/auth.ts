@@ -2,11 +2,18 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "./db";
 import { onboardUser } from "./services/onboarding";
+import { sendPasswordResetEmail } from "./email";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
+    // url already points at better-auth's own /reset-password/:token redirect
+    // callback (baseURL-relative) — see request-password-reset in
+    // better-auth's password routes. We just deliver it.
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail(user.email, url);
+    },
   },
   session: {
     // 30 days (offline-sync-spec §19.1, locked): a week-offline phone must

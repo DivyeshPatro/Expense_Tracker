@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
-export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
+export function AuthForm({ mode, justReset }: { mode: "sign-in" | "sign-up"; justReset?: boolean }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -42,6 +42,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
             {mode === "sign-up" ? "Every rupee, visible in one place." : "Sign in to your ledger."}
           </div>
         </div>
+        {justReset && <div className="text-[12.5px] font-semibold text-green bg-greensoft rounded-lg px-3 py-2">Password reset — sign in with your new password.</div>}
         {mode === "sign-up" && (
           <div>
             <div className="label-caps">NAME</div>
@@ -53,7 +54,14 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus={mode === "sign-in"} />
         </div>
         <div>
-          <div className="label-caps">PASSWORD</div>
+          <div className="flex items-center justify-between">
+            <div className="label-caps">PASSWORD</div>
+            {mode === "sign-in" && (
+              <a href="/forgot-password" className="text-[11.5px] font-semibold text-acc">
+                Forgot password?
+              </a>
+            )}
+          </div>
           <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} />
         </div>
         {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
