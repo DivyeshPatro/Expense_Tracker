@@ -4,6 +4,7 @@
 // Every action is scoped to the session user — no client-supplied user ids.
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { requireUser } from "@/server/session";
 import { createAccount, updateAccountCardDetails } from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
@@ -102,6 +103,20 @@ function fail(e: unknown): ActionResult {
   if (e && typeof e === "object" && "issues" in e) {
     const issues = (e as { issues: { message: string }[] }).issues;
     return { ok: false, error: issues[0]?.message ?? "Invalid input" };
+  }
+  // Raw Prisma exceptions (constraint text, column/table names) are never
+  // meant for the client — every error type above this is one we throw
+  // ourselves with deliberately human-readable copy, but a
+  // PrismaClientKnownRequestError/etc. reaching here means something
+  // unexpected happened at the DB layer, not a curated message.
+  if (
+    e instanceof Prisma.PrismaClientKnownRequestError ||
+    e instanceof Prisma.PrismaClientValidationError ||
+    e instanceof Prisma.PrismaClientInitializationError ||
+    e instanceof Prisma.PrismaClientUnknownRequestError
+  ) {
+    console.error("[action] unexpected database error", e);
+    return { ok: false, error: "Something went wrong — please try again." };
   }
   return { ok: false, error: e instanceof Error ? e.message : "Something went wrong" };
 }
@@ -659,10 +674,10 @@ export async function deleteGroupAction(groupId: string): Promise<ActionResult> 
 
 // ─────────── Invitations ───────────
 
-export async function createInvitationAction(participantId: string): Promise<ActionResult & { token?: string }> {
+export async function createInvitationAction(participantId: string, email: string): Promise<ActionResult & { token?: string }> {
   try {
     const user = await requireUser();
-    const { token } = await createInvitation(user.id, participantId);
+    const { token } = await createInvitation(user.id, participantId, email);
     return { ok: true, token };
   } catch (e) {
     return fail(e);
@@ -672,7 +687,7 @@ export async function createInvitationAction(participantId: string): Promise<Act
 export async function acceptInvitationAction(token: string): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    await acceptInvitation(token, user.id);
+    await acceptInvitation(token, user.id, user.email);
     refresh();
     return { ok: true };
   } catch (e) {

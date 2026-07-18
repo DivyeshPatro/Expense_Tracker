@@ -164,7 +164,8 @@ async function applyOne(userId: string, raw: RawIntent): Promise<SyncResult> {
     } catch (e) {
       if (e instanceof ConflictError) return { intentId, code: "CONFLICT", conflict: e.snapshot };
       if (e instanceof NotAuthorizedError) return { intentId, code: await classifyAuthFailure(entityId) };
-      return { intentId, code: "VALIDATION", error: e instanceof Error ? e.message : "Something went wrong" };
+      console.error(`[api/sync] tx.delete ${entityId} failed`, e);
+      return { intentId, code: "VALIDATION", error: "Could not sync this delete — try again." };
     }
   }
 
@@ -176,7 +177,8 @@ async function applyOne(userId: string, raw: RawIntent): Promise<SyncResult> {
       const outcome = await deleteLoanEntry(userId, entityId, intentMeta);
       return outcomeResult(intentId, outcome);
     } catch (e) {
-      return { intentId, code: "VALIDATION", error: e instanceof Error ? e.message : "Something went wrong" };
+      console.error(`[api/sync] loan.delete ${entityId} failed`, e);
+      return { intentId, code: "VALIDATION", error: "Could not sync this delete — try again." };
     }
   }
 
@@ -222,7 +224,8 @@ async function applyOne(userId: string, raw: RawIntent): Promise<SyncResult> {
       }
       return { intentId, code: "INVALID_REF_HARD", error: "An account this refers to no longer exists" };
     }
-    return { intentId, code: "VALIDATION", error: e instanceof Error ? e.message : "Something went wrong" };
+    console.error(`[api/sync] ${kind} ${entityId} failed`, e);
+    return { intentId, code: "VALIDATION", error: "Something went wrong — try again or re-check this entry." };
   }
 }
 

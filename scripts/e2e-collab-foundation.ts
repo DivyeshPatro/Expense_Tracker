@@ -53,8 +53,8 @@ async function main() {
 
   // Bob joins TestFlat via the real invitation flow (exercises §9's atomic grant)
   const bobParticipant = await prisma.participant.create({ data: { ownerId: alice.id, displayName: "Bob" } });
-  const { token } = await createInvitation(alice.id, bobParticipant.id, flat.id, "MEMBER");
-  await acceptInvitation(token, bob.id);
+  const { token } = await createInvitation(alice.id, bobParticipant.id, bob.email, flat.id, "MEMBER");
+  await acceptInvitation(token, bob.id, bob.email);
 
   const bobRoleAfterAccept = await resolveGroupRole(prisma, flat.id, bob.id);
   ok("accepting a group invitation grants membership atomically (§9)", bobRoleAfterAccept === "MEMBER", `role=${bobRoleAfterAccept}`);

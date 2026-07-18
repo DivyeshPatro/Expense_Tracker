@@ -3,6 +3,12 @@
 // Invitation.participantId has no declared Prisma relation, so the participant
 // lookup below is a plain second query, not an `include`.
 //
+// The invitation is still bound to the invited email even though no mail is
+// sent: the inviter enters it up front, and acceptInvitation refuses to bind
+// the link to any session whose email doesn't match. Without this, anyone who
+// gets hold of the (unguessable but copy/paste-able, e.g. via shoulder-surfing
+// or an over-shared chat thread) link could accept it as their own account.
+//
 // Collaboration-architecture-rfc §9: an invitation can optionally carry a
 // groupId + role, in which case accepting it atomically grants group
 // membership alongside the existing linkedUserId link. Plain 1:1 friend
@@ -13,13 +19,18 @@ import { prisma } from "../db";
 import { assertGroupRole } from "./authorization";
 
 const TTL_DAYS = 7;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function createInvitation(
   userId: string,
   participantId: string,
+  email: string,
   groupId?: string,
   role: GroupRole = "MEMBER"
 ): Promise<{ token: string }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!EMAIL_RE.test(normalizedEmail)) throw new Error("Enter a valid email address");
+
   // group invitations grant access to something the inviter doesn't
   // necessarily own outright — ADMIN+ only (same tier as addGroupMember)
   let participantOwnerId = userId;
@@ -38,7 +49,7 @@ export async function createInvitation(
   const token = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + TTL_DAYS * 24 * 60 * 60 * 1000);
   await prisma.invitation.create({
-    data: { email: "", invitedById: userId, participantId, token, expiresAt, groupId: groupId ?? null, role: groupId ? role : null },
+    data: { email: normalizedEmail, invitedById: userId, participantId, token, expiresAt, groupId: groupId ?? null, role: groupId ? role : null },
   });
   return { token };
 }
@@ -68,12 +79,15 @@ export async function getInvitation(token: string): Promise<InvitationView | nul
   };
 }
 
-export async function acceptInvitation(token: string, userId: string): Promise<void> {
+export async function acceptInvitation(token: string, userId: string, userEmail: string): Promise<void> {
   await prisma.$transaction(async (db) => {
     const invitation = await db.invitation.findUnique({ where: { token } });
     if (!invitation) throw new Error("Invitation not found");
     if (invitation.status !== "PENDING") throw new Error("Invitation already used");
     if (invitation.expiresAt < new Date()) throw new Error("Invitation expired");
+    if (invitation.email !== userEmail.trim().toLowerCase()) {
+      throw new Error("This invitation was sent to a different email address — sign in as that account to accept it");
+    }
     await db.participant.update({ where: { id: invitation.participantId }, data: { linkedUserId: userId } });
     await db.invitation.update({ where: { token }, data: { status: "ACCEPTED" } });
     if (invitation.groupId) {
