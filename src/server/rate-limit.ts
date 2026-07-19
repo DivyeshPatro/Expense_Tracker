@@ -9,7 +9,12 @@
 // same reasoning as email.ts's Resend fallback.
 
 import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
+// This runs inside middleware.ts, which Next.js executes in the Edge
+// Runtime — the package's default "." export always resolves to its Node.js
+// build (uses process.version, unavailable there). "/cloudflare" is
+// Upstash's documented edge-safe entry, and works on Vercel Edge Middleware
+// too (same V8-isolate model), not just literal Cloudflare Workers.
+import { Redis } from "@upstash/redis/cloudflare";
 
 export type RateLimitBucket = "auth" | "sensitive";
 
