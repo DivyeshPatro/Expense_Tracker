@@ -41,4 +41,18 @@ describe("suggestMapping", () => {
     const assigned = [m.date, m.amount, m.merchant, m.category].filter(Boolean);
     expect(new Set(assigned).size).toBe(assigned.length);
   });
+
+  it("maps Khatabook-style headers (Party Name, Entry Type, Remark) only when the khatabook preset is active", () => {
+    const headers = ["Date", "Amount", "Party Name", "Entry Type", "Remark"];
+    const rows = [{ Date: "2026-07-01", Amount: "500", "Party Name": "Ravi", "Entry Type": "GAVE", Remark: "for groceries" }];
+    // Without the preset, "Party Name" / "Entry Type" / "Remark" aren't recognized merchant/type/notes synonyms.
+    const without = suggestMapping(headers, rows);
+    expect(without.merchant).not.toBe("Party Name");
+    expect(without.notes).not.toBe("Remark");
+    // With the preset, the overlay recognizes them.
+    const withPreset = suggestMapping(headers, rows, "khatabook");
+    expect(withPreset.merchant).toBe("Party Name");
+    expect(withPreset.type).toBe("Entry Type");
+    expect(withPreset.notes).toBe("Remark");
+  });
 });

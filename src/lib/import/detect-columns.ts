@@ -23,6 +23,19 @@ export const HEADER_SYNONYMS: Record<Exclude<TargetField, "ignore">, string[]> =
   paymentMethod: ["paymentmethod", "mode", "channel", "paymentmode"],
 };
 
+// Preset overlays: source-specific header guesses merged on top of
+// HEADER_SYNONYMS only when that preset is explicitly chosen (Import Center
+// hub) — kept out of the generic table so a bare "Name" column in an
+// unrelated CSV doesn't get mis-guessed as a merchant just because Khatabook
+// happens to call its party-name column that.
+export const PRESET_HEADER_SYNONYMS: Record<string, Partial<Record<Exclude<TargetField, "ignore">, string[]>>> = {
+  khatabook: {
+    merchant: ["partyname", "party", "name", "customername"],
+    type: ["entrytype", "inout", "cashinout", "gavegot"],
+    notes: ["remark"],
+  },
+};
+
 /** True when a raw spreadsheet row looks like a header row (2+ cells match known field keywords). */
 export function looksLikeHeaderRow(cells: unknown[]): boolean {
   const texts = cells.map((c) => norm(String(c ?? "")));
@@ -39,13 +52,26 @@ export function looksLikeHeaderRow(cells: unknown[]): boolean {
   return matches >= 2;
 }
 
-/** Suggests a column mapping from spreadsheet headers + a sample of rows. */
-export function suggestMapping(headers: string[], sampleRows: Record<string, unknown>[]): ColumnMapping {
+/** Suggests a column mapping from spreadsheet headers + a sample of rows.
+ *  Optional `preset` (e.g. "khatabook") overlays source-specific header
+ *  synonyms on top of the base list — see PRESET_HEADER_SYNONYMS. */
+export function suggestMapping(
+  headers: string[],
+  sampleRows: Record<string, unknown>[],
+  preset?: string
+): ColumnMapping {
   const mapping = emptyMapping();
   const used = new Set<string>();
 
+  const overlay = preset ? PRESET_HEADER_SYNONYMS[preset] : undefined;
+  const synonymsFor = (field: Exclude<TargetField, "ignore">): string[] => {
+    const base = HEADER_SYNONYMS[field];
+    const extra = overlay?.[field];
+    return extra && extra.length ? [...extra, ...base] : base;
+  };
+
   const byHeader = (field: Exclude<TargetField, "ignore">): string | null => {
-    const synonyms = HEADER_SYNONYMS[field];
+    const synonyms = synonymsFor(field);
     for (const h of headers) {
       if (used.has(h)) continue;
       const n = norm(h);

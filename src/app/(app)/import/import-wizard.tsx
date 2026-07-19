@@ -63,6 +63,7 @@ export function ImportWizard() {
 
   const [fileName, setFileName] = useState("");
   const [source, setSource] = useState("");
+  const [preset, setPreset] = useState<string | undefined>(undefined);
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [assign, setAssign] = useState<Record<string, TargetField>>({});
@@ -84,13 +85,19 @@ export function ImportWizard() {
     try {
       const form = new FormData();
       form.append("file", file);
+      if (preset) form.append("preset", preset);
       const res = await fetch("/api/import/parse", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Upload failed");
       setHeaders(data.headers);
       setRows(data.rows);
       setFileName(data.fileName);
-      const guessedSource = String(data.fileName).replace(/\.[^.]+$/, "");
+      // Reconcile the preset with whatever the server actually used (it echoes
+      // it back). Default the source label to "Khatabook" when that preset is
+      // active so the saved-mapping memory key matches across users.
+      const activePreset = (data.preset as string | undefined) ?? preset;
+      setPreset(activePreset);
+      const guessedSource = activePreset === "khatabook" ? "Khatabook" : String(data.fileName).replace(/\.[^.]+$/, "");
       setSource(guessedSource);
       const saved = await getSavedMappingAction(guessedSource);
       const initialMapping = saved ? (saved.columnMap as unknown as ColumnMapping) : (data.mapping as ColumnMapping);
@@ -194,13 +201,38 @@ export function ImportWizard() {
       {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
 
       {step === "upload" && (
-        <div className="card p-6 flex flex-col gap-3 items-start">
-          <div className="text-[13.5px] font-bold">Upload a CSV or Excel file</div>
-          <div className="text-[12.5px] text-mut">
-            Works with exports from Monito, bank statements, or any spreadsheet with date/amount/merchant columns.
-            Nothing is written to your ledger until you review and confirm at the end.
+        <div className="card p-6 flex flex-col gap-4">
+          <div>
+            <div className="text-[13.5px] font-bold">Import transactions</div>
+            <div className="text-[12.5px] text-mut mt-1">
+              Bring in data from another app or your bank. Nothing is written to your ledger until you review and confirm at the end.
+            </div>
           </div>
-          <label className="btn-primary cursor-pointer">
+          <div className="flex flex-col gap-2">
+            <div className="label-caps">SOURCE FORMAT</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <SourceCard
+                icon="📄"
+                label="CSV / Excel"
+                detail="Bank statements, Monito, or any spreadsheet with date + amount + merchant columns."
+                selected={preset === undefined}
+                onClick={() => setPreset(undefined)}
+              />
+              <SourceCard
+                icon="📒"
+                label="Khatabook"
+                detail="Gave / Got exports with party-name columns. We map Entry Type, Party Name and Remark for you."
+                selected={preset === "khatabook"}
+                onClick={() => setPreset("khatabook")}
+              />
+            </div>
+            {preset === "khatabook" && (
+              <div className="text-[12px] text-amber bg-ambersoft rounded-lg px-3 py-2">
+                ⚠ Khatabook tracks people you lent to — Ledgerly imports those rows as plain income/expense transactions, not as lending entries. Lending parties live in a separate area.
+              </div>
+            )}
+          </div>
+          <label className="btn-primary cursor-pointer self-start">
             {busy ? "Reading…" : "Choose file"}
             <input
               type="file"
@@ -374,6 +406,35 @@ export function ImportWizard() {
         />
       )}
     </div>
+  );
+}
+
+function SourceCard({
+  icon,
+  label,
+  detail,
+  selected,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  detail: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-left p-3.5 rounded-[10px] cursor-pointer border transition-colors ${selected ? "border-acc bg-accsoft" : "border-line2 bg-card hover:bg-accsoft"}`}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-[18px]" aria-hidden="true">{icon}</span>
+        <span className="text-[13px] font-bold">{label}</span>
+        {selected && <span className="ml-auto text-[11px] font-bold text-acc">✓ Selected</span>}
+      </div>
+      <div className="text-[11.5px] text-mut2 leading-snug">{detail}</div>
+    </button>
   );
 }
 

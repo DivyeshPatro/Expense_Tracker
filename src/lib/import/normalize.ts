@@ -5,8 +5,11 @@
 import type { ColumnMapping, NormalizedRow } from "./types";
 import { parseFlexibleAmount, parseFlexibleDate } from "./parse-value";
 
-const EXPENSE_WORDS = ["debit", "expense", "withdrawal", "dr", "spent", "out"];
-const INCOME_WORDS = ["credit", "income", "deposit", "cr", "received", "in"];
+// "gave"/"got" cover Khatabook's type-column vocabulary (EntryType = GAVE/GOT).
+// Safe here because these are substring-matched only against a mapped type
+// column whose values are a controlled vocabulary, not free text.
+const EXPENSE_WORDS = ["debit", "expense", "withdrawal", "dr", "spent", "out", "gave"];
+const INCOME_WORDS = ["credit", "income", "deposit", "cr", "received", "in", "got"];
 
 export function normalizeRow(raw: Record<string, unknown>, rowIndex: number, mapping: ColumnMapping): NormalizedRow {
   const ymd = mapping.date ? parseFlexibleDate(raw[mapping.date]) : null;

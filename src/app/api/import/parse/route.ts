@@ -21,6 +21,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File too large (max 15 MB)" }, { status: 400 });
   }
   const buffer = Buffer.from(await file.arrayBuffer());
+  const preset = (form.get("preset") as string | null) ?? undefined;
   let sheet;
   try {
     sheet = await parseSpreadsheet(buffer);
@@ -31,6 +32,6 @@ export async function POST(req: Request) {
   if (sheet.rows.length === 0) {
     return NextResponse.json({ error: "No rows found in the file" }, { status: 400 });
   }
-  const mapping = suggestMapping(sheet.headers, sheet.rows.slice(0, 20));
-  return NextResponse.json({ headers: sheet.headers, rows: sheet.rows, mapping, fileName: file.name });
+  const mapping = suggestMapping(sheet.headers, sheet.rows.slice(0, 20), preset);
+  return NextResponse.json({ headers: sheet.headers, rows: sheet.rows, mapping, fileName: file.name, preset });
 }
