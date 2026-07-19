@@ -2,6 +2,7 @@ import { OpenModalButton, PayBillButton } from "@/components/shell/buttons";
 import { EmptyState } from "@/components/shell/empty-state";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
+import { billUrgencyBackground, billUrgencyColor } from "@/lib/urgency";
 import { listBills } from "@/server/services/bills";
 import { requireUser } from "@/server/session";
 
@@ -29,10 +30,7 @@ export default async function BillsPage() {
             </div>
             <div
               className="px-2.5 py-1 rounded-full text-[11px] font-bold"
-              style={{
-                background: b.urgency === "overdue" || b.urgency === "urgent" ? "var(--redSoft)" : b.urgency === "soon" ? "var(--amberSoft)" : "var(--accSoft)",
-                color: b.urgency === "overdue" || b.urgency === "urgent" ? "var(--red)" : b.urgency === "soon" ? "var(--amber)" : "var(--mut)",
-              }}
+              style={{ background: billUrgencyBackground(b.urgency), color: billUrgencyColor(b.urgency) }}
             >
               {b.dueLabel}
             </div>

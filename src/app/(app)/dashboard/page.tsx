@@ -23,6 +23,7 @@ import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonth
 import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
+import { billUrgencyColor } from "@/lib/urgency";
 import { listAccountRows } from "@/server/services/accounts";
 import { activityPage } from "@/server/services/activity";
 import { listBills } from "@/server/services/bills";
@@ -89,7 +90,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const cardTotal = sumType("CREDIT_CARD");
 
   // expenses: this month vs last month + top category (Finance Hub)
-  const thisMonthAgg = monthAgg(rows, key);
   const lastMonthKey = shiftMonthKey(key, -1);
   const lastMonthAgg = monthAgg(rows, lastMonthKey);
 
@@ -338,7 +338,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <div className="w-[30px] h-[30px] rounded-[9px] grid place-items-center text-[13px]" style={{ background: soft(b.color) }}>{b.icon}</div>
               <div className="flex-1 min-w-0">
                 <div className="text-[12.5px] font-semibold truncate">{b.name}</div>
-                <div className="text-[11px] font-semibold" style={{ color: urgencyColor(b.urgency) }}>{b.dueLabel}</div>
+                <div className="text-[11px] font-semibold" style={{ color: billUrgencyColor(b.urgency) }}>{b.dueLabel}</div>
               </div>
               <div className="text-[12.5px] font-bold">{formatPaise(b.amount)}</div>
             </Link>
@@ -398,12 +398,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
     </div>
   );
-}
-
-function urgencyColor(u: string): string {
-  if (u === "overdue" || u === "urgent") return "var(--red)";
-  if (u === "soon") return "var(--amber)";
-  return "var(--mut)";
 }
 
 type Bar = { label: string; income: number; expense: number };
