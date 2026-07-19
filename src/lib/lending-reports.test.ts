@@ -158,6 +158,17 @@ describe("outstandingTrend", () => {
     ];
     expect(outstandingTrend(entries, ["2026-06", "2026-07"])).toEqual([10000, 15000]);
   });
+
+  it("carryIn seeds the running total, letting the caller pass only entries inside the window", () => {
+    const entries = [entry({ kind: "GAVE", amount: 5000, ymd: "2026-06-05" })];
+    // equivalent to passing the pre-window entries too and starting from 0
+    expect(outstandingTrend(entries, ["2026-06", "2026-07"], 7000)).toEqual([12000, 12000]);
+  });
+
+  it("carryIn defaults to 0, matching the old whole-ledger-in-entries behavior", () => {
+    const entries = [entry({ kind: "GAVE", amount: 5000, ymd: "2026-06-05" })];
+    expect(outstandingTrend(entries, ["2026-06", "2026-07"])).toEqual([5000, 5000]);
+  });
 });
 
 describe("recoveryRate", () => {

@@ -16,7 +16,7 @@
 
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
-import { currentMonthKey, istNoon, shiftMonthKey } from "@/lib/dates";
+import { currentMonthKey, istNoon, monthRange, shiftMonthKey } from "@/lib/dates";
 import { computeLoanBalances } from "@/lib/lending";
 import { allocateFifo, computeLoanStatus, validateManualAllocation, type LoanStatus, type OpenLoan } from "@/lib/loan-settlement";
 import {
@@ -27,7 +27,6 @@ import {
   outstandingTrend,
   overdueLoans as computeOverdueLoans,
   receivableVsPayable,
-  recoveryRate,
   topBorrowers,
   type CardExposureRow,
   type CardLoanForRecovery,
@@ -775,21 +774,37 @@ export interface LendingReportsData {
 /** Priority 7 (Lending Reports) — reuses lendingBalances and
  * allGaveEntriesData (both cache()'d, shared with Card Recovery and
  * Reminders) so a page rendering all three tabs in one request never
- * re-fetches the same rows. Only one query of its own: every entry
- * (GAVE + GOT) for the monthly/trend/recovery-rate math, which needs GOT
- * rows the GAVE-only shared loader doesn't carry. */
+ * re-fetches the same rows.
+ *
+ * Its own query used to be "every GAVE+GOT entry, ever" — correct, since
+ * recoveryRatePercent is explicitly an all-time stat, but wasteful: the
+ * monthly/trend charts only look at the last `months` months, so a
+ * long-lived account was paying to pull years of rows into Node just to sum
+ * them in JS. Now it's three cheap DB-side aggregates instead: an all-time
+ * GAVE/GOT groupBy (for recoveryRatePercent — O(2) rows back, not O(all
+ * entries)), a pre-window groupBy (the running-balance carry-in
+ * outstandingTrend needs to seed its first month correctly), and a findMany
+ * bounded to the window itself (for the per-month chart math). */
 export async function lendingReportsData(userId: string, months = 6): Promise<LendingReportsData> {
   const now = new Date();
   const key = currentMonthKey(now);
   const monthKeys = Array.from({ length: months }, (_, i) => shiftMonthKey(key, i - (months - 1)));
+  const windowStart = monthRange(monthKeys[0]).start;
 
-  const [allEntries, contacts, gaveData] = await Promise.all([
-    prisma.loanEntry.findMany({ where: { userId, deletedAt: null }, select: { kind: true, amount: true, occurredAt: true } }),
+  const [allTimeTotals, carryInTotals, windowEntries, contacts, gaveData] = await Promise.all([
+    prisma.loanEntry.groupBy({ by: ["kind"], where: { userId, deletedAt: null }, _sum: { amount: true } }),
+    prisma.loanEntry.groupBy({ by: ["kind"], where: { userId, deletedAt: null, occurredAt: { lt: windowStart } }, _sum: { amount: true } }),
+    prisma.loanEntry.findMany({ where: { userId, deletedAt: null, occurredAt: { gte: windowStart } }, select: { kind: true, amount: true, occurredAt: true } }),
     lendingBalances(userId),
     allGaveEntriesData(userId),
   ]);
 
-  const entries: LoanEntryForTrend[] = allEntries.map((e) => ({ kind: e.kind, amount: Number(e.amount), ymd: e.occurredAt.toISOString().slice(0, 10) }));
+  const sumByKind = (rows: { kind: string; _sum: { amount: bigint | null } }[], kind: "GAVE" | "GOT") => Number(rows.find((r) => r.kind === kind)?._sum.amount ?? 0);
+  const totalLent = sumByKind(allTimeTotals, "GAVE");
+  const totalRecovered = sumByKind(allTimeTotals, "GOT");
+  const carryIn = sumByKind(carryInTotals, "GAVE") - sumByKind(carryInTotals, "GOT");
+
+  const entries: LoanEntryForTrend[] = windowEntries.map((e) => ({ kind: e.kind, amount: Number(e.amount), ymd: e.occurredAt.toISOString().slice(0, 10) }));
 
   const cardAccountsSeen = new Map<string, { id: string; name: string; icon: string }>();
   for (const g of gaveData) {
@@ -815,10 +830,10 @@ export async function lendingReportsData(userId: string, months = 6): Promise<Le
     monthKeys,
     monthlyLending: monthlyLending(entries, monthKeys),
     monthlyRecoveries: monthlyRecoveries(entries, monthKeys),
-    outstandingTrend: outstandingTrend(entries, monthKeys),
+    outstandingTrend: outstandingTrend(entries, monthKeys, carryIn),
     receivable,
     payable,
-    recoveryRatePercent: recoveryRate(entries),
+    recoveryRatePercent: totalLent > 0 ? Math.round((totalRecovered / totalLent) * 100) : 0,
     cardExposure: cardExposure([...cardAccountsSeen.values()], cardLoansForExposure),
     overdueLoans: computeOverdueLoans(overdueInput, now),
     topBorrowers: topBorrowers(contacts.map((c) => ({ participantId: c.id, participantName: c.name, net: c.net }))),

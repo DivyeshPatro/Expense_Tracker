@@ -133,12 +133,15 @@ export function monthlyRecoveries(entries: LoanEntryForTrend[], monthKeys: strin
 /** Cumulative net (Σ GAVE − Σ GOT) as of the end of each month key — a
  * single sorted pass shared across every month, not a rescan per month
  * (the spec explicitly calls out avoiding repeated balance scans).
- * `monthKeys` must already be in ascending chronological order. */
-export function outstandingTrend(entries: LoanEntryForTrend[], monthKeys: string[]): number[] {
+ * `monthKeys` must already be in ascending chronological order. `carryIn`
+ * seeds the running total with the net balance as of just before `entries`'
+ * earliest date — lets the caller pass only the entries inside the chart
+ * window instead of the whole ledger, without changing the result. */
+export function outstandingTrend(entries: LoanEntryForTrend[], monthKeys: string[], carryIn = 0): number[] {
   const sorted = [...entries].sort((a, b) => a.ymd.localeCompare(b.ymd));
   const result: number[] = [];
   let cursor = 0;
-  let running = 0;
+  let running = carryIn;
   for (const key of monthKeys) {
     const cutoff = `${key}-32`; // sorts after every real day in that month
     while (cursor < sorted.length && sorted[cursor].ymd < cutoff) {
