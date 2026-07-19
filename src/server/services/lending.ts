@@ -377,11 +377,20 @@ export interface LoanEntryRow {
 }
 
 export async function listLoanEntries(userId: string, opts: { participantId?: string; limit?: number } = {}): Promise<LoanEntryRow[]> {
+  // Scoped to one contact (the Contact Ledger view), this must NOT be
+  // capped: ContactSummaryCard's stats (Total Lent, Average Loan, Recovery
+  // Rate, First/Last Transaction — see computeContactSummary's own "all-time"
+  // doc comment) are computed from this exact array, so silently truncating
+  // it doesn't just hide old rows from the timeline, it makes those numbers
+  // wrong for any contact with more than `limit` entries. Bounded by
+  // definition anyway — one relationship's lifetime history, not every
+  // user's data. The unscoped dashboard "recent entries" call (no
+  // participantId, always passes an explicit limit) is unaffected.
   const rows = await prisma.loanEntry.findMany({
     where: { userId, deletedAt: null, participantId: opts.participantId },
     include: { participant: { select: { displayName: true } }, account: { select: { name: true } } },
     orderBy: { occurredAt: "desc" },
-    take: opts.limit ?? 100,
+    take: opts.limit ?? (opts.participantId ? undefined : 100),
   });
   return rows.map((e) => ({
     id: e.id,

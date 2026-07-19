@@ -20,12 +20,20 @@ import { useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 import type { LendingParticipantView, LoanEntryRow } from "@/server/services/lending";
 
+const TIMELINE_PAGE_SIZE = 30;
+
 export function ContactLedgerView({ participantId, onClose }: { participantId: string; onClose?: () => void }) {
   const { openModal, showToast } = useUI();
   const [contact, setContact] = useState<LendingParticipantView | null | undefined>(undefined);
   const [entries, setEntries] = useState<LoanEntryRow[] | undefined>(undefined);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDetails, setEditingDetails] = useState(false);
+  // The full history is already in `entries` (needed for ContactSummaryCard's
+  // all-time stats — see listLoanEntries' own comment on why that fetch isn't
+  // capped), but a contact with a long history shouldn't render every row's
+  // worth of DOM at once. This only limits what's rendered, not what's
+  // fetched — "Show more" just reveals more of the array already in memory.
+  const [visibleCount, setVisibleCount] = useState(TIMELINE_PAGE_SIZE);
 
   const load = useCallback(async () => {
     const [summary, rows] = await Promise.all([lendingDashboardAction(), listLoanEntriesAction(participantId)]);
@@ -38,6 +46,7 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
     setEntries(undefined);
     setEditingId(null);
     setEditingDetails(false);
+    setVisibleCount(TIMELINE_PAGE_SIZE);
     void load();
   }, [load]);
 
@@ -46,16 +55,17 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   // the same order every render — Rules of Hooks — and guard internally
   // against entries still being undefined (initial load / route transition)
   const summary = useMemo<ContactSummary | null>(() => (entries ? computeContactSummary(entries, net) : null), [entries, net]);
+  const visibleEntries = useMemo(() => (entries ?? []).slice(0, visibleCount), [entries, visibleCount]);
   const groups = useMemo(() => {
     const g: { label: string; items: LoanEntryRow[] }[] = [];
-    for (const e of entries ?? []) {
+    for (const e of visibleEntries) {
       const label = friendlyDay(e.ymd);
       const last = g[g.length - 1];
       if (!last || last.label !== label) g.push({ label, items: [e] });
       else last.items.push(e);
     }
     return g;
-  }, [entries]);
+  }, [visibleEntries]);
 
   if (entries === undefined || summary === null) return <ContactLedgerSkeleton />;
   if (contact === null && entries.length === 0) {
@@ -181,6 +191,14 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
             ))}
           </div>
         ))}
+        {visibleEntries.length < entries.length && (
+          <button
+            onClick={() => setVisibleCount((c) => c + TIMELINE_PAGE_SIZE)}
+            className="mt-2 p-2 rounded-lg text-[12px] font-semibold text-acc text-center cursor-pointer border border-line2 bg-transparent hover:bg-accsoft"
+          >
+            Show more ({entries.length - visibleEntries.length} older)
+          </button>
+        )}
       </div>
     </div>
   );
