@@ -1,90 +1,176 @@
-# Ledgerly — Personal Finance & Shared Expense Tracker
+# Ledgerly
 
-## The goal
+**A personal finance and shared-expense tracker that's offline-first from
+the ground up — one system instead of five apps.**
 
-Track every rupee I earn, hold, spend, or am owed — in one place, in under
-3 taps to log — starting as a single-user finance app and growing into a
-Splitwise-style shared-expense platform for roommates, **without ever
-rewriting the schema**. Think Splitwise + Google Finance + Apple Wallet +
-Money Manager + Walnut + Notion, but as one system instead of five apps.
+Ledgerly tracks every rupee you earn, hold, spend, or are owed, whether
+you're online or not, whether you're the only person touching the ledger
+or splitting expenses with a whole flat. It started as a solo personal
+ledger and grew into a collaborative shared-expense platform on the exact
+same schema — no rewrite between phases.
 
-Concretely, that means:
+> Full requirements and the original design record live in
+> [`project/`](project/) (`Ledgerly PRD.dc.html`, `Ledgerly
+> Architecture.dc.html`, and the phase-by-phase RFCs) — these are the
+> source-of-truth specs this build implements. This README and
+> [`docs/`](docs/) describe the system *as built*, which in a few places
+> is more conservative than those original specs; where that's true, it's
+> called out explicitly rather than glossed over.
 
-- **A personal ledger first.** Every account (bank, cash, UPI wallet, credit
-  card), every expense/income/transfer, budgets, bills, recurring
-  transactions, analytics — fully usable solo, day one.
-- **A shared-expense platform second, on the same data.** When roommates
-  join later, a shared expense is just a personal transaction with a split
-  attached — not a different system bolted on.
-- **Deterministic, not AI.** Search, auto-categorization, settlement
-  suggestions, and future data import are all rule-based. No LLM calls
-  anywhere in the product — a standing constraint, not a phase-1 shortcut.
-- **A real migration path.** Historical expenses currently tracked in
-  another app (Monito) get imported losslessly once this is stable, via a
-  generic import engine designed to take other sources later (bank
-  statements, Splitwise, Google Sheets) without a rewrite.
+## Table of contents
 
-Full detail lives in `project/Ledgerly PRD.dc.html` (requirements +
-acceptance criteria) and `project/Ledgerly Architecture.dc.html` (schema +
-design decisions) — these were authored in Claude Design and are the source
-of truth this build implements. `HANDOFF.md` explains that bundle;
-`chats/chat1.md` is the design conversation that shaped it.
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Technology stack](#technology-stack)
+- [Architecture](#architecture)
+- [Getting started](#getting-started)
+- [Environment variables](#environment-variables)
+- [Database setup & Prisma workflow](#database-setup--prisma-workflow)
+- [Running tests](#running-tests)
+- [Linting](#linting)
+- [Build process](#build-process)
+- [Deployment](#deployment)
+- [CI pipeline](#ci-pipeline)
+- [Folder structure](#folder-structure)
+- [Documentation](#documentation)
+- [Roadmap](#roadmap)
+- [License](#license)
 
-## Where we are
+## Features
 
-### Phase 1 — Personal finance
+**Personal finance**
+- Accounts (bank, cash, UPI wallet, credit card, investment) with running
+  balances.
+- Expense/income/transfer logging in under 3 taps; category
+  auto-suggestion from a self-reinforcing merchant-rule dictionary.
+- Budgets with exactly-once threshold alerts; bills with due-date
+  urgency; idempotent recurring transactions.
+- Analytics — trend charts, full category breakdown with drill-down.
+- A generic CSV/XLSX import wizard — auto-detects the header row even
+  through banner rows and repeated month-section labels, maps columns via
+  heuristics, flags duplicates, and remembers the mapping for next time.
+  The mapping step *is* the adapter for a new source; no code changes
+  needed to support one.
 
-- [x] Accounts & transfers (5 types, running balances, credit-card payment as transfer)
-- [x] Transactions — expense / income / transfer, quick-add, delete requires an explicit confirm step (then a 5s undo), category filter chip (from Analytics drill-down or ⌘K search)
-- [x] Categories — 28 seeded defaults + custom categories, in separate Expense/Income tabs; rename, switch Expense ↔ Income (fixes a category created under the wrong kind without touching the transactions that already reference it), and guarded delete (Settings, and inline during import) + rule-based auto-categorization
-- [x] Budgets — monthly, 80%/100% thresholds, exactly-once alerts
-- [x] Bills — due-date urgency, "mark paid" rolls the due date
-- [x] Recurring transactions — idempotent daily cron
-- [x] Dashboard — attention strip, cash flow, accounts, category donut, budgets. Header cards show Current Balance / Carry forward / Income / Expense for a selectable period — this month by default, with a month picker, custom date range, and "To date" (first transaction → today). Balance math is transaction-derived (carry forward + income − expense), so imported history without account info still counts; all sums run as DB aggregates, not loaded rows.
-- [x] The period picker lives in the top header, not just the Dashboard: it's shared across Dashboard/Transactions/Accounts/Analytics via URL params (`?p=`/`?from`/`?to`), so picking "June 2026" and switching sections (sidebar, bottom nav, or a card's "All →" link) keeps that same period instead of each page resetting to its own default.
-- [x] Search — deterministic ⌘K parser ("swiggy in march", "upi expenses", explicit years like "food in march 2023") — filters pushed to the DB query, not loaded-then-filtered in JS
-- [x] Analytics — trend charts (fixed 6-month view) plus period-scoped stats (avg daily spend, biggest expense, savings rate) and a full category breakdown (not just top 5) with an Expense/Income toggle — click any category to jump to Transactions pre-filtered to that category and period
-- [ ] Receipts (upload/view/replace/delete via Supabase Storage)
-- [~] Reports export — full-ledger CSV and XLSX export both exist (Settings), and Analytics (period-scoped via the shared header picker) has a Print/Save-as-PDF view. True per-period XLSX/CSV export — i.e. an export limited to just the selected period/range rather than the whole ledger — is not yet wired.
+**Shared expenses**
+- Friends with no signup required; collaborative Groups with
+  OWNER/ADMIN/MEMBER roles once you're ready for more than ad-hoc splits.
+- Equal/exact/percent/ratio splits, DB-trigger-enforced to always sum
+  correctly.
+- A deterministic settlement suggester (greedy netting, at most n−1
+  transfers) — no AI anywhere in the product, by design.
+- Shareable-link invitations that can grant group membership on
+  acceptance.
 
-### Phase 2 — Shared expenses
+**Lending**
+- A personal GAVE/GOT ledger per contact, separate from the group model.
+- FIFO automatic settlement with manual-allocation override.
+- Card Billing Intelligence — know exactly which statement cycle a
+  card-funded loan belongs to and when to recover it before interest
+  accrues.
+- Reports: monthly trend, all-time recovery rate, overdue loans, top
+  borrowers.
 
-- [x] Friends (ghost participants, no signup required) & groups — create/rename/delete a group, add/remove members, from the Shared page
-- [x] Splits — equal / exact, remainder paise to the payer, DB-enforced sum
-- [x] Settlement engine — net balances, greedy minimum-transaction suggestions
-- [x] Settle up (UPI / cash / bank) + history
-- [x] Invitations linking a ghost participant to a real account — shareable-link only (`/invite/[token]`, 7-day expiry); no email delivery is wired up, by design (no email provider in scope)
-- [x] Percentage & ratio split modes — equal/exact/percent/ratio are all live end-to-end (UI + `splitByWeights`); `CUSTOM` (the fifth schema value) remains unhandled — nothing in the product sets it
-- [x] In-app notification center UI — bell dropdown in the top bar (unread badge, mark-all-read), reads the same `Notification` rows budgets/recurring already wrote
+**Offline-first sync**
+- Every mutating action queues locally and is guaranteed to reach the
+  server — you're never blocked from recording a financial event by a
+  bad connection.
+- Actor-aware conflict resolution: your own multi-device edits merge
+  silently; a real conflict between two different people surfaces a
+  clear choice, never a silent overwrite.
+- A Sync Center you can actually trust — full queue visibility, not a
+  black box.
 
-### Phase 3 — Data & polish
+**Finance Hub**
+- A dashboard composed from each module's own service functions, so its
+  numbers can never silently diverge from what that module's own page
+  shows.
+- A unified activity timeline (a pure projection over the existing audit
+  log — no second history mechanism) and a unified ⌘K search, including
+  a deterministic natural-language query parser ("swiggy in march").
 
-- [x] Generic import wizard — upload CSV/XLSX → real header row auto-detected anywhere in the sheet (tolerates banner rows, "Created on …" stamps, and repeated month-section labels — verified against an actual Monito export) → column mapping (header heuristics + value-shape scoring) → category/account resolution → preview with duplicate detection (date+amount+merchant, ±1 day) and per-row validation → commit → one-click undo. Every distinct category value in the file must be explicitly resolved before you can continue: values spelled exactly like one of your categories auto-match, everything else is flagged and must be mapped to an existing category, created on the spot (e.g. "Clothing"), or explicitly marked "leave uncategorized" — nothing is silently skipped. Rows with no per-row account (common for category-only trackers like Monito) default to unassigned rather than being dumped onto whichever account happens to be first in your list. The preview table's new/duplicate/invalid counts are clickable filters, so reviewing e.g. 84 invalid rows out of 2,400 doesn't mean scrolling past everything else. Handles sources with no dedicated merchant column at all (falls back to note → category → type as the transaction name) and Indian bank-statement conventions (separate Debit/Credit columns, DD/MM/YYYY dates, Dr/Cr suffixes — dates are parsed by our own day-first-aware logic, not SheetJS's own US-month-first guess for ambiguous CSV date strings). The mapping step *is* the generic adapter — new sources need no code changes. Remembers mappings per named source for next time.
-- [ ] PWA / offline logging
+**Production-grade foundations**
+- Security headers, rate limiting, sanitized error responses, password
+  reset, invitation-token binding — see
+  [`docs/deployment.md`](docs/deployment.md).
+- WCAG AA color contrast, keyboard-trapped modals, semantic landmarks, an
+  automated accessibility test suite.
+- 240+ unit tests, a full Playwright E2E suite across every major flow,
+  ESLint, and CI on every PR.
 
-### Cross-cutting
+See [`CHANGELOG.md`](CHANGELOG.md) for the complete v1.0.0 milestone
+list, and each `docs/*.md` for the reasoning behind the non-obvious
+choices.
 
-- [x] Auth (Better Auth, email/password, per-user data scoping)
-- [x] Dark mode (persisted), responsive layout (sidebar ↔ bottom nav + FAB)
-- [x] Settings — full data export (CSV/JSON), clear-all-transactions (resets every account back to its actual opening balance, not a stale computed number — see demo-seed fix below), self-serve account deletion — all behind a type-to-confirm modal
-- [x] Performance: the transaction list and search push filtering + pagination to Postgres (50/page) instead of loading full history into memory; the ⌘K palette's merchant suggestions are fetched on demand instead of a full-table scan on every navigation; the dashboard and analytics load a lean aggregation-only query (no account/toAccount/paidBy/receipt joins) instead of the full display shape, and cash-flow bars bucket in one pass instead of re-scanning the window per bar; the transaction list no longer fires a redundant client-side refetch (and a "Load more" race) immediately after every page load. Matters once you've imported years of history — dev mode (`next dev`) is still noticeably slower than a production build (`next build && next start`) regardless, since routes compile on first hit.
-- [x] 61 unit tests (money math, split rounding, settlement engine, search parser incl. explicit-year queries, import parsing/column-detection/dedupe/sheet-scanning/day-first-date-ambiguity)
-- [x] End-to-end Playwright walkthroughs (18 prototype-parity checks + 12 import/export/data-management checks + 11 checks reproducing a real Monito export end-to-end + 3 large-import/transaction-timeout checks + 11 dashboard-period/category-edit/kind-switch/pagination checks, all against a seeded DB)
-- [ ] Supabase Row-Level Security policies (service-layer scoping is in place; RLS as defense-in-depth is not yet added)
-- [ ] Rate limiting on auth/import routes
+## Screenshots
 
-## Stack
+<!-- TODO: replace with real screenshots/GIFs before publishing.
+     Suggested set: Dashboard (desktop + mobile), Transaction quick-add,
+     the offline "Waiting to sync" badge going to "Synced", a Group split,
+     the Lending Contact Ledger, and the Sync Center. -->
 
-- **Next.js 15** (App Router) · React 19 · TypeScript · Tailwind CSS 4
-- **PostgreSQL** (Supabase in production) · **Prisma 6**
-- **Better Auth** (email + password, sessions in your own DB)
-- All money is **integer paise** (`BigInt` columns); `Intl.NumberFormat('en-IN')`
-  formatting at the edge only (₹1,23,456). Timezone: Asia/Kolkata.
+| Dashboard | Transactions | Lending |
+|---|---|---|
+| _screenshot placeholder_ | _screenshot placeholder_ | _screenshot placeholder_ |
 
-## Setup
+| Offline sync badge | Group split | Sync Center |
+|---|---|---|
+| _screenshot placeholder_ | _screenshot placeholder_ | _screenshot placeholder_ |
 
-**Prerequisites:** Node.js 20+, and a PostgreSQL 16 database reachable via a
-connection string (Docker, a native install, or Supabase all work).
+## Technology stack
+
+- **Next.js 15** (App Router) · **React 19** · **TypeScript** ·
+  **Tailwind CSS 4**
+- **PostgreSQL 16** (Supabase in production) · **Prisma 6**
+- **Better Auth** — email + password, sessions in your own database, no
+  third-party identity provider dependency
+- **Resend** — transactional email (password reset only; optional, see
+  [Environment variables](#environment-variables))
+- **Upstash Redis** — rate limiting (optional, fails open if unset)
+- **Vitest** (unit) + **Playwright** + **@axe-core/playwright** (E2E and
+  accessibility)
+- **ESLint 9** (flat config, `next/core-web-vitals` + `next/typescript`)
+- All money stored as **integer paise** (`BigInt` columns); formatting is
+  `Intl.NumberFormat('en-IN')` at the display edge only. Timezone:
+  **Asia/Kolkata**, everywhere.
+
+## Architecture
+
+Three strict layers — UI never touches Prisma directly; services never
+touch HTTP:
+
+```
+src/
+├─ app/                    # routes; (app)/ = authed shell, (auth)/ = sign-in/up
+│  ├─ actions.ts           # Server Actions: zod-validate → service → revalidate
+│  └─ api/                 # Better Auth handler, cron, offline-sync, export, import
+├─ components/
+│  ├─ shell/               # app chrome + shared primitives (modals, forms, ⌘K palette)
+│  ├─ dashboard/           # Finance Hub widgets
+│  ├─ lending/             # Lending module UI
+│  └─ shared/              # group/shared-expense UI
+├─ server/
+│  ├─ services/            # domain logic — one file per domain, Prisma lives here
+│  ├─ auth.ts / session.ts # Better Auth config + session helpers
+│  ├─ email.ts             # Resend integration
+│  ├─ rate-limit.ts        # Upstash-backed rate limiting
+│  └─ db.ts                # Prisma singleton
+├─ lib/                    # pure, framework-agnostic logic — money, dates, settlement,
+│  │                       #   search parser, the offline-sync client (lib/offline/),
+│  │                       #   the import pipeline (lib/import/) — heavily unit-tested
+└─ validators/              # zod schemas; money parsed to paise at this boundary
+prisma/schema.prisma        # one schema, every phase — additive only, never rewritten
+```
+
+Full explanation of each layer's responsibilities, the server-action-vs-
+service-layer boundary, and end-to-end data flow:
+[`docs/architecture.md`](docs/architecture.md).
+
+## Getting started
+
+**Prerequisites:** Node.js 20+, and a PostgreSQL 16 database reachable
+via a connection string (Docker, a native install, or Supabase all
+work).
 
 ```bash
 git clone https://github.com/DivyeshPatro/Expense_Tracker.git
@@ -93,82 +179,212 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` — see [Environment variables](#environment-variables) below
+for the full list; at minimum for local development you need
+`DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and
+`CRON_SECRET`.
 
 ```bash
-DATABASE_URL="postgresql://postgres:<password>@127.0.0.1:5432/ledgerly"
-BETTER_AUTH_SECRET="<generate with: openssl rand -hex 32>"
-BETTER_AUTH_URL="http://localhost:3000"
-CRON_SECRET="<any string>"
-```
-
-Then:
-
-```bash
-npx prisma migrate dev      # creates schema + split-sum DB trigger
-npm run db:seed             # demo user with 6 months of realistic data
+npx prisma migrate dev      # creates the schema + the split-sum DB trigger
+npm run db:seed             # demo user with months of realistic seeded data
 npm run dev                 # http://localhost:3000
 ```
 
-Sign in with the seeded demo account — **arjun@ledgerly.app / ledgerly-demo**
-(fictional, local-only) — or sign up fresh; new users get the 28 default
-categories, the merchant→category dictionary, and a starter Cash account
-automatically. If you're planning to keep using the app for real, sign up
-with your own account rather than continuing to use the demo login — the
-demo's 6 months of sample history exists to show the product off, not to be
-built on top of. (Each demo account's real opening balance is 0, materialized
-as a real "Opening balance" transaction dated just before the seeded window,
-so "Clear all transactions" in Settings correctly resets it to 0 rather than
-some balance-minus-seed-history number.)
+Sign in with the seeded demo account —
+**arjun@ledgerly.app / ledgerly-demo** (fictional, local-only) — or sign
+up fresh; new users get default categories, a merchant→category
+dictionary, and a starter Cash account automatically. If you're planning
+to actually use the app, sign up with your own account rather than
+building on top of the demo login — its sample history exists to
+demonstrate the product, not to be extended.
+
+## Environment variables
+
+Full reference with setup instructions for the two optional integrations:
+[`docs/deployment.md`](docs/deployment.md#environment-variables).
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Postgres connection string |
+| `BETTER_AUTH_SECRET` | yes | Session signing secret (`openssl rand -hex 32`) |
+| `BETTER_AUTH_URL` | yes | The app's own public URL |
+| `CRON_SECRET` | yes | Authorizes the daily cron route |
+| `RESEND_API_KEY` / `RESEND_FROM` | no | Password-reset email; degrades to server-side logging if unset |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | no | Rate limiting; fails open (no limiting) if unset |
+
+## Database setup & Prisma workflow
 
 ```bash
-npm test                    # unit tests: split rounding, settlement engine, parser, money
-npm run e2e:all             # all 5 browser suites, in order, from a fresh seed (needs `npm run build && npm start` + Chromium)
+npx prisma migrate dev --name <description>   # create + apply a new migration, local dev
+npx prisma migrate deploy                     # apply pending migrations, production — never generates new ones
+npx prisma generate                           # regenerate the Prisma Client after a schema change
+npm run db:seed                               # (re)seed the demo account
+npm run db:reset                              # drop, recreate, migrate, and reseed — local dev only, destructive
 ```
 
-`e2e:all` reseeds the demo account once, then runs `e2e` → `e2e:import` → `e2e:monito` → `e2e:large-import` → `e2e:perf` in that
-order — each suite after the first depends on state left behind by the ones before it (e.g. `e2e:import` clears the seeded
-transactions before running its own import). Each suite is otherwise self-contained: `e2e:large-import` undoes its own
-~1500-2900-row import at the end so `e2e:perf`'s own import of the same fixture doesn't see every row as a duplicate. Run
-any single suite on its own with `npm run e2e`, `npm run e2e:import`, `npm run e2e:monito`, `npm run e2e:large-import`, or
-`npm run e2e:perf` — but note it'll see whatever state the DB is already in, so `npm run db:seed` first if in doubt.
+The schema is one file (`prisma/schema.prisma`) spanning every product
+phase — every migration to date has been additive (new tables/columns),
+never destructive. A deferred Postgres constraint trigger enforces
+`Σ ExpenseSplit.owedAmount = Transaction.amount` at the database level,
+not just in application code.
 
-## Architecture
+## Running tests
 
-Three strict layers (UI never touches Prisma; services never touch HTTP):
-
-```
-src/
-├─ app/                   # routes; (app)/ = authed shell, (auth)/ = sign-in/up
-│  ├─ actions.ts          # server actions: zod-validate → service → revalidate
-│  └─ api/                # Better Auth handler + cron route
-├─ components/shell/      # app chrome: sidebar, modals, ⌘K palette, FAB, toasts
-├─ server/
-│  ├─ services/           # domain logic (transactions, budgets, bills, shared, …)
-│  ├─ auth.ts             # Better Auth config (+ per-user seeding on signup)
-│  └─ db.ts               # Prisma singleton
-├─ lib/                   # pure logic: money (paise), dates (IST), settlement,
-│  │                      #   search-parser, tx-display — all unit-testable
-└─ validators/            # zod schemas, money parsed to paise at the boundary
-prisma/schema.prisma      # full schema, all 3 phases — migrate once
+```bash
+npm test                    # unit tests (Vitest) — pure logic, no database
+npm run e2e:all              # every E2E suite, in order, from a fresh seed
+npm run e2e                  # or run a single suite — see package.json for the full list
 ```
 
-Key invariants, enforced in code **and** the database:
+`e2e:all` reseeds the demo account once, then runs every `e2e:*` script
+in sequence — several suites depend on state left behind by earlier ones
+(see the script comments), so don't cherry-pick out of order without
+reseeding first. Run against a production build
+(`npm run build && npm start`) rather than `next dev` when timing matters
+— dev mode compiles routes on first hit, which skews anything
+performance-sensitive.
 
-- Every mutation runs in one DB transaction that updates account balances and
-  appends an `AuditLog` row.
-- `Σ ExpenseSplit.owedAmount = Transaction.amount` via a deferred Postgres
-  constraint trigger (`prisma/migrations/*_split_sum_constraint`).
-- Budget notifications are exactly-once per period via a unique dedupe key.
-- The recurring cron is idempotent: `nextRunAt` advances atomically with the
-  materialized row.
-- The daily cron also reconciles every user's account balances against their
-  ledger (`reconcileAll`) and logs any drift — a pre-existing check that
-  previously existed in code but was never actually invoked.
+## Running accessibility tests
 
-## Deployment (Vercel + Supabase)
+```bash
+npm run e2e:accessibility
+```
 
-1. Create a Supabase project; put the **pooled** connection string in `DATABASE_URL`.
-2. `npx prisma migrate deploy`
-3. Set `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (your domain) and `CRON_SECRET`
-   in Vercel env; `vercel.json` schedules the daily job at 00:30 IST.
+Runs axe-core (`@axe-core/playwright`) against sign-in, dashboard,
+transactions, lending, analytics, and an open modal. Gates on structural
+violations (missing accessible names, broken landmarks, keyboard
+reachability); color-contrast findings are reported but don't fail the
+run — see the script's own header comment for why, and
+[`docs/finance-hub.md`](docs/finance-hub.md) /
+[`docs/architecture.md`](docs/architecture.md) for the shared-component
+strategy (one modal system, one focus trap) this suite is guarding.
+
+## Linting
+
+```bash
+npm run lint
+```
+
+ESLint 9, flat config (`eslint.config.mjs`), `next/core-web-vitals` +
+`next/typescript`. `.next/`, `node_modules/`, `project/` (design-doc
+tooling, not app source), and `prisma/migrations/` are excluded.
+
+## Build process
+
+```bash
+npm ci
+npx prisma generate
+npm run build
+```
+
+`next build` needs no live database connection — every DB-backed route
+is force-dynamic (session checks read cookies, which opts a route out of
+static generation), so nothing queries Postgres at build time.
+`DATABASE_URL` must still be a syntactically valid connection string
+(Prisma validates its shape at client construction) even without a real
+database behind it — this is how CI builds the app without provisioning
+Postgres.
+
+## Deployment
+
+Reference target: **Vercel + Supabase**. Full guide, including the two
+optional integrations' setup steps, migration/rollback procedure, and
+monitoring recommendations: [`docs/deployment.md`](docs/deployment.md).
+
+```bash
+npx prisma migrate deploy
+# set every variable from the table above in your host's environment config
+```
+
+`vercel.json` schedules the daily cron (`/api/cron/daily` — materializes
+recurring transactions/bills, reconciles account balances) at 00:30 IST.
+
+Before every release, work through
+[`docs/release-checklist.md`](docs/release-checklist.md).
+
+## CI pipeline
+
+`.github/workflows/ci.yml` runs on every PR against `main` and every push
+to `main`:
+
+```
+checkout → npm ci → prisma generate → typecheck → lint → unit tests → build
+```
+
+No database service container is needed (see [Build process](#build-process)
+above). E2E and accessibility suites are **not** part of automated CI
+today — they're run manually before a release; see
+[`docs/deployment.md`](docs/deployment.md#ci-pipeline) for why and what
+it would take to change that.
+
+## Folder structure
+
+```
+Expense_Tracker/
+├── .github/workflows/     # CI
+├── docs/                  # architecture, subsystem deep-dives, ADRs, ops guides
+│   └── adr/                  # Architecture Decision Records
+├── project/                # original PRD/architecture/RFC specs — source of truth for intent
+├── prisma/                 # schema, migrations, seed
+├── scripts/                 # Playwright E2E drivers, one file per feature area
+├── e2e/fixtures/            # sample import files used by import E2E tests
+├── src/
+│   ├── app/                    # routes, Server Actions, API route handlers
+│   ├── components/             # shell (chrome + shared primitives), dashboard, lending, shared
+│   ├── server/                  # auth, session, email, rate-limit, db, services/
+│   ├── lib/                     # pure logic — money, dates, settlement, search, offline/, import/
+│   └── validators/              # zod schemas
+├── CONTRIBUTING.md
+├── CHANGELOG.md
+└── README.md                (this file)
+```
+
+Full breakdown of what each directory owns (and, just as importantly,
+what it never does): [`docs/architecture.md`](docs/architecture.md#module-boundaries).
+
+## Documentation
+
+| Doc | Covers |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | layers, module boundaries, data flow |
+| [`docs/offline-sync.md`](docs/offline-sync.md) | Universal Outbox, Intent idempotency, conflict resolution |
+| [`docs/lending.md`](docs/lending.md) | the GAVE/GOT ledger, FIFO settlement, card billing |
+| [`docs/shared-expenses.md`](docs/shared-expenses.md) | groups, splits, authorization, collaboration |
+| [`docs/finance-hub.md`](docs/finance-hub.md) | dashboard composition, activity timeline, search |
+| [`docs/deployment.md`](docs/deployment.md) | env vars, Resend/Upstash setup, CI, rollback, monitoring |
+| [`docs/backup.md`](docs/backup.md) | what backup/restore capability actually exists today |
+| [`docs/release-checklist.md`](docs/release-checklist.md) | the pre-release gate |
+| [`docs/adr/`](docs/adr/) | why, not how — the decisions that had a real alternative |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | conventions, testing, commit style, branch/review process |
+| [`CHANGELOG.md`](CHANGELOG.md) | release history |
+
+## Roadmap
+
+Not yet built, tracked honestly rather than implied as done:
+
+- Receipt upload/view/replace/delete (Supabase Storage).
+- True per-period export (today's export is always the full ledger).
+- Intent-table pruning cron (30-day retention is designed for, not yet
+  scheduled — see [`docs/offline-sync.md`](docs/offline-sync.md)).
+- Background Sync API / offline read snapshots (today's offline support
+  is write-queue-only, foreground-triggered — see
+  [`docs/offline-sync.md`](docs/offline-sync.md)).
+- Discoverability for a non-owner to find another group member's
+  transaction from a list view (currently reachable only via direct
+  link/search once you know it exists).
+- Group ownership transfer.
+- Supabase Row-Level Security as defense-in-depth (service-layer
+  authorization is enforced today; RLS would be a second layer).
+- An automated backup job independent of the hosting provider's own
+  backups, and a restore path for the full JSON export — see
+  [`docs/backup.md`](docs/backup.md).
+- E2E/accessibility suites wired into CI (currently manual, pre-release).
+
+## License
+
+No license is currently declared for this repository (no `LICENSE` file,
+no `license` field in `package.json`) — under default copyright, that
+means all rights are reserved by the author. If you intend to open-source
+this project, choosing and adding a license (MIT, Apache-2.0, or similar)
+is a deliberate decision for the repository owner to make explicitly,
+not a default to assume.
