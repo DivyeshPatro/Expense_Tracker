@@ -40,7 +40,7 @@ export function parseFlexibleDate(raw: unknown): string | null {
   // DD/MM/YYYY or DD-MM-YYYY (default Indian day-first; swap if day component > 12 and month doesn't fit)
   m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (m) {
-    let [, a, b, y] = m;
+    const [, a, b, y] = m;
     let year = +y;
     if (year < 100) year += year < 50 ? 2000 : 1900;
     let day = +a;
