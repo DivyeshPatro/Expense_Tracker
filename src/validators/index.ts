@@ -2,16 +2,22 @@
 // All money enters as rupee strings and is parsed to integer paise here, at the boundary.
 
 import { z } from "zod";
+import { toPaise } from "@/lib/money";
 
 export const paiseFromRupees = z
   .union([z.string(), z.number()])
   .transform((v, ctx) => {
-    const n = typeof v === "string" ? Number(String(v).replace(/[₹,\s]/g, "")) : v;
+    let n: number;
+    try {
+      n = toPaise(v);
+    } catch {
+      n = NaN;
+    }
     if (!Number.isFinite(n) || n <= 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid amount" });
       return z.NEVER;
     }
-    return Math.round(n * 100);
+    return n;
   });
 
 export const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date");
@@ -116,12 +122,19 @@ export const accountSchema = z.object({
   openingBalance: z
     .union([z.string(), z.number()])
     .transform((v, ctx) => {
-      const n = typeof v === "string" ? Number(String(v).replace(/[₹,\s]/g, "") || 0) : v;
+      // v === "" -> Number("") === 0, same as toPaise's own behavior, so
+      // this needs no special-casing beyond what toPaise already does.
+      let n: number;
+      try {
+        n = toPaise(v);
+      } catch {
+        n = NaN;
+      }
       if (!Number.isFinite(n)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid opening balance" });
         return z.NEVER;
       }
-      return Math.round(n * 100); // may be negative (credit card)
+      return n; // may be negative (credit card)
     }),
   bankName: z.string().trim().max(60).optional(),
   cardNetwork: z.string().trim().max(30).optional(),
