@@ -571,6 +571,16 @@ export interface LoanDetailView {
   remainingAmount: number; // GAVE only, 0 for GOT
   status: LoanStatus | null; // null for GOT — repayments aren't themselves "statused"
   relatedAllocations: RelatedAllocationRow[];
+  // The contact's overall running balance (Σ GAVE − Σ GOT, same sign
+  // convention as computeLoanBalances) immediately before and after this
+  // specific entry — objective: "instead of only showing the current
+  // balance, also show how it changed." Computed here rather than passed
+  // as a prefill from whichever screen opened this modal, since Loan
+  // Detail is reachable from several entry points (contact ledger,
+  // Reminders, Reports' overdue/top-borrowers lists) that don't all have
+  // the contact's full entry history already loaded client-side.
+  balanceBeforePaise: number;
+  balanceAfterPaise: number;
 }
 
 /** Priority 2 (Loan Detail Experience) — full drill-down for a single loan
@@ -584,6 +594,28 @@ export async function getLoanDetail(userId: string, loanEntryId: string): Promis
   });
   if (!entry) throw new Error("Loan entry not found");
 
+  // Same accumulation the client does in contact-ledger.tsx's per-row
+  // "balance after this" line (Σ GAVE − Σ GOT, chronological order) — kept
+  // here as a plain loop rather than a shared lib/lending.ts export, since
+  // this is its only consumer; see the codebase's own convention against
+  // introducing an abstraction before a second one exists.
+  const contactEntries = await prisma.loanEntry.findMany({
+    where: { userId, participantId: entry.participantId, deletedAt: null },
+    select: { id: true, kind: true, amount: true },
+    orderBy: { occurredAt: "asc" },
+  });
+  let running = 0;
+  let balanceBeforePaise = 0;
+  let balanceAfterPaise = 0;
+  for (const e of contactEntries) {
+    const before = running;
+    running += e.kind === "GAVE" ? Number(e.amount) : -Number(e.amount);
+    if (e.id === entry.id) {
+      balanceBeforePaise = before;
+      balanceAfterPaise = running;
+    }
+  }
+
   const base = {
     id: entry.id,
     participantId: entry.participantId,
@@ -596,6 +628,8 @@ export async function getLoanDetail(userId: string, loanEntryId: string): Promis
     occurredAt: toYMD(entry.occurredAt),
     createdAt: entry.createdAt.toISOString(),
     version: entry.version,
+    balanceBeforePaise,
+    balanceAfterPaise,
   };
 
   if (entry.kind === "GAVE") {

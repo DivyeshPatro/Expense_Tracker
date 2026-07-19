@@ -4,6 +4,8 @@
 // (src/server/services/lending.ts) — same split as settlement.ts/shared.ts —
 // so the arithmetic itself is unit-testable without a database.
 
+import { formatPaise } from "./money";
+
 export interface LoanEntryForBalance {
   participantId: string;
   kind: "GAVE" | "GOT";
@@ -114,4 +116,15 @@ export function computeContactSummary(entries: LoanEntryForSummary[], net: numbe
     firstTransactionYmd: firstYmd,
     lastTransactionYmd: lastYmd,
   };
+}
+
+/** "Rohan owes you ₹500" / "You owe Rohan ₹100" / "Settled up" — the one
+ * phrasing used everywhere a running or resulting balance needs to be
+ * stated in plain language (contact ledger row, Loan Detail's balance
+ * visualization). Same >100/<-100 paise dust threshold as the contact
+ * balance hero, so a per-entry line never disagrees with the header. */
+export function balanceAfterLabel(balancePaise: number, contactName: string): { text: string; color: string } {
+  if (balancePaise > 100) return { text: `${contactName} owes you ${formatPaise(balancePaise)}`, color: "var(--green)" };
+  if (balancePaise < -100) return { text: `You owe ${contactName} ${formatPaise(-balancePaise)}`, color: "var(--red)" };
+  return { text: "Settled up", color: "var(--mut2)" };
 }

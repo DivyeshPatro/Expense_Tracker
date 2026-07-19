@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { loanDetailAction } from "@/app/actions";
 import { friendlyDay } from "@/lib/dates";
+import { balanceAfterLabel } from "@/lib/lending";
 import type { LoanStatus } from "@/lib/loan-settlement";
 import { formatPaise } from "@/lib/money";
 import type { LoanDetailView } from "@/server/services/lending";
@@ -77,6 +78,8 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
         <DetailStat label="Due Date" value={detail.dueDate ? friendlyDay(detail.dueDate) : "—"} />
       </div>
 
+      <BalanceImpact before={detail.balanceBeforePaise} after={detail.balanceAfterPaise} participantName={detail.participantName} />
+
       {(detail.reason || detail.notes) && (
         <div className="flex flex-col gap-2">
           {detail.reason && <Field label="Reason" value={detail.reason} />}
@@ -137,6 +140,8 @@ function RepaymentDetail({ detail, goAccounts }: { detail: LoanDetailView; goAcc
         <DetailStat label="Received" value={friendlyDay(detail.occurredAt)} />
       </div>
 
+      <BalanceImpact before={detail.balanceBeforePaise} after={detail.balanceAfterPaise} participantName={detail.participantName} />
+
       {(detail.reason || detail.notes) && (
         <div className="flex flex-col gap-2">
           {detail.reason && <Field label="Reason" value={detail.reason} />}
@@ -161,6 +166,25 @@ function RepaymentDetail({ detail, goAccounts }: { detail: LoanDetailView; goAcc
             <div className="text-[13px] font-bold">{formatPaise(a.amount)}</div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Objective: "instead of only showing the current balance, also show how
+ * it changed" — a before → after visual, plus the plain-language result
+ * (the same phrasing the contact ledger's per-row line uses), so a user
+ * never has to do the arithmetic themselves. */
+function BalanceImpact({ before, after, participantName }: { before: number; after: number; participantName: string }) {
+  const result = balanceAfterLabel(after, participantName);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="label-caps">Balance with {participantName}</div>
+      <div className="flex flex-col items-center gap-1 bg-accsoft rounded-[10px] px-3.5 py-3.5">
+        <div className="text-[15px] font-bold text-mut2">{formatPaise(Math.abs(before))}</div>
+        <div className="text-[15px] text-mut2 leading-none" aria-hidden="true">↓</div>
+        <div className="text-[19px] font-extrabold" style={{ color: result.color }}>{formatPaise(Math.abs(after))}</div>
+        <div className="text-[12px] font-semibold mt-0.5" style={{ color: result.color }}>{result.text}</div>
       </div>
     </div>
   );

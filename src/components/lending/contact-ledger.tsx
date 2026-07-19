@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryAction, updateParticipantDetailsAction } from "@/app/actions";
 import { friendlyDay } from "@/lib/dates";
-import { computeContactSummary, type ContactSummary } from "@/lib/lending";
+import { balanceAfterLabel, computeContactSummary, type ContactSummary } from "@/lib/lending";
 import { formatPaise } from "@/lib/money";
 import { DateField } from "@/components/shell/date-field";
 import { EmptyState } from "@/components/shell/empty-state";
@@ -55,6 +55,22 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   // the same order every render — Rules of Hooks — and guard internally
   // against entries still being undefined (initial load / route transition)
   const summary = useMemo<ContactSummary | null>(() => (entries ? computeContactSummary(entries, net) : null), [entries, net]);
+  // Running balance as of each entry (objective: "the user should never have
+  // to calculate balances mentally"). `entries` is already the full,
+  // unbounded per-contact history (see the load-time comment on
+  // TIMELINE_PAGE_SIZE), sorted newest-first — walk it in chronological
+  // (oldest-first) order accumulating Σ GAVE − Σ GOT, the same sign
+  // convention `net` itself already uses, so "balance after the very last
+  // (newest) entry" always equals `net` exactly.
+  const balanceAfterById = useMemo(() => {
+    const map = new Map<string, number>();
+    let running = 0;
+    for (const e of [...(entries ?? [])].reverse()) {
+      running += e.kind === "GAVE" ? e.amount : -e.amount;
+      map.set(e.id, running);
+    }
+    return map;
+  }, [entries]);
   const visibleEntries = useMemo(() => (entries ?? []).slice(0, visibleCount), [entries, visibleCount]);
   const groups = useMemo(() => {
     const g: { label: string; items: LoanEntryRow[] }[] = [];
@@ -184,6 +200,8 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
               <EntryRow
                 key={e.id}
                 entry={e}
+                contactName={name}
+                balanceAfter={balanceAfterById.get(e.id) ?? 0}
                 onEdit={() => setEditingId(e.id)}
                 onDeleted={() => setEntries((es) => es?.filter((x) => x.id !== e.id))}
                 onRestored={() => void load()}
@@ -260,11 +278,15 @@ function ContactLedgerSkeleton() {
 
 function EntryRow({
   entry,
+  contactName,
+  balanceAfter,
   onEdit,
   onDeleted,
   onRestored,
 }: {
   entry: LoanEntryRow;
+  contactName: string;
+  balanceAfter: number;
   onEdit: () => void;
   onDeleted: () => void;
   onRestored: () => void;
@@ -342,6 +364,9 @@ function EntryRow({
             ) : (
               "Untracked / cash"
             )}
+          </div>
+          <div className="text-[11px] font-semibold truncate" style={{ color: balanceAfterLabel(balanceAfter, contactName).color }}>
+            After this: {balanceAfterLabel(balanceAfter, contactName).text}
           </div>
         </div>
       </button>
