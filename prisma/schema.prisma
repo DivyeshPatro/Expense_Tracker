@@ -341,6 +341,9 @@ model Receipt {
   mimeType    String
   sizeBytes   Int
   uploadedAt  DateTime    @default(now())
+
+  @@index([txId])
+  @@index([userId])
 }
 
 // ───────────────────────── Phase 2 — Shared ─────────────────────────
@@ -542,6 +545,7 @@ model LoanAllocation {
   createdAt   DateTime  @default(now())
 
   @@index([userId, gaveEntryId])
+  @@index([gaveEntryId])
   @@index([gotEntryId])
 }
 
