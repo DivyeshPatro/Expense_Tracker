@@ -10,6 +10,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { toYMD } from "@/lib/dates";
 import { getDeviceAddedAt, getDeviceName, syncLogList, type OutboxIntent, type SyncLogEntry } from "@/lib/offline/db";
 import { intentLabel, useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
@@ -91,7 +92,7 @@ export function SyncCenter() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `ledgerly-sync-log-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `ledgerly-sync-log-${toYMD(new Date())}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }

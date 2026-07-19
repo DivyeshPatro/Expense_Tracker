@@ -16,7 +16,7 @@
 
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
-import { currentMonthKey, istNoon, monthRange, shiftMonthKey } from "@/lib/dates";
+import { currentMonthKey, istNoon, monthRange, shiftMonthKey, toYMD } from "@/lib/dates";
 import { computeLoanBalances } from "@/lib/lending";
 import { allocateFifo, computeLoanStatus, validateManualAllocation, type LoanStatus, type OpenLoan } from "@/lib/loan-settlement";
 import {
@@ -214,7 +214,7 @@ async function loadOpenLoans(
     id: g.id,
     amount: Number(g.amount),
     settledAmount: settledByLoan.get(g.id) ?? 0,
-    occurredAt: g.occurredAt.toISOString().slice(0, 10),
+    occurredAt: toYMD(g.occurredAt),
     reason: g.reason,
     dueDate: g.dueDate,
   }));
@@ -402,8 +402,8 @@ export async function listLoanEntries(userId: string, opts: { participantId?: st
     accountName: e.account?.name ?? null,
     reason: e.reason,
     notes: e.notes,
-    dueDate: e.dueDate ? e.dueDate.toISOString().slice(0, 10) : null,
-    ymd: e.occurredAt.toISOString().slice(0, 10),
+    dueDate: e.dueDate ? toYMD(e.dueDate) : null,
+    ymd: toYMD(e.occurredAt),
     version: e.version,
   }));
 }
@@ -443,7 +443,7 @@ export const lendingBalances = cache(async (userId: string): Promise<LendingPart
       kind: e.kind,
       amount: Number(e.amount),
       dueDate: e.dueDate,
-      ymd: e.occurredAt.toISOString().slice(0, 10),
+      ymd: toYMD(e.occurredAt),
     }))
   );
 
@@ -538,7 +538,7 @@ export async function openLoansForContact(userId: string, participantId: string)
         remainingAmount,
         occurredAt: l.occurredAt,
         reason: l.reason,
-        dueDate: l.dueDate ? l.dueDate.toISOString().slice(0, 10) : null,
+        dueDate: l.dueDate ? toYMD(l.dueDate) : null,
         status,
       };
     })
@@ -593,7 +593,7 @@ export async function getLoanDetail(userId: string, loanEntryId: string): Promis
     accountName: entry.account?.name ?? null,
     reason: entry.reason,
     notes: entry.notes,
-    occurredAt: entry.occurredAt.toISOString().slice(0, 10),
+    occurredAt: toYMD(entry.occurredAt),
     createdAt: entry.createdAt.toISOString(),
     version: entry.version,
   };
@@ -609,14 +609,14 @@ export async function getLoanDetail(userId: string, loanEntryId: string): Promis
     return {
       ...base,
       kind: "GAVE",
-      dueDate: entry.dueDate ? entry.dueDate.toISOString().slice(0, 10) : null,
+      dueDate: entry.dueDate ? toYMD(entry.dueDate) : null,
       settledAmount,
       remainingAmount,
       status,
       relatedAllocations: allocations.map((a) => ({
         loanEntryId: a.gotEntry.id,
         amount: Number(a.amount),
-        ymd: a.gotEntry.occurredAt.toISOString().slice(0, 10),
+        ymd: toYMD(a.gotEntry.occurredAt),
         reason: a.gotEntry.reason,
       })),
     };
@@ -637,7 +637,7 @@ export async function getLoanDetail(userId: string, loanEntryId: string): Promis
     relatedAllocations: allocations.map((a) => ({
       loanEntryId: a.gaveEntry.id,
       amount: Number(a.amount),
-      ymd: a.gaveEntry.occurredAt.toISOString().slice(0, 10),
+      ymd: toYMD(a.gaveEntry.occurredAt),
       reason: a.gaveEntry.reason,
     })),
   };
@@ -701,8 +701,8 @@ const allGaveEntriesData = cache(async (userId: string): Promise<GaveEntryWithSe
       amount,
       settledAmount,
       remainingAmount: Math.max(0, amount - settledAmount),
-      dueDate: g.dueDate ? g.dueDate.toISOString().slice(0, 10) : null,
-      occurredAt: g.occurredAt.toISOString().slice(0, 10),
+      dueDate: g.dueDate ? toYMD(g.dueDate) : null,
+      occurredAt: toYMD(g.occurredAt),
       accountId: g.accountId,
       accountName: g.account?.name ?? null,
       accountIcon: g.account?.icon ?? null,
@@ -813,7 +813,7 @@ export async function lendingReportsData(userId: string, months = 6): Promise<Le
   const totalRecovered = sumByKind(allTimeTotals, "GOT");
   const carryIn = sumByKind(carryInTotals, "GAVE") - sumByKind(carryInTotals, "GOT");
 
-  const entries: LoanEntryForTrend[] = windowEntries.map((e) => ({ kind: e.kind, amount: Number(e.amount), ymd: e.occurredAt.toISOString().slice(0, 10) }));
+  const entries: LoanEntryForTrend[] = windowEntries.map((e) => ({ kind: e.kind, amount: Number(e.amount), ymd: toYMD(e.occurredAt) }));
 
   const cardAccountsSeen = new Map<string, { id: string; name: string; icon: string }>();
   for (const g of gaveData) {

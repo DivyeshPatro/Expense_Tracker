@@ -3,7 +3,7 @@
 // balance = openingBalance + Σ ledger always holds (PRD §4.1 AC).
 
 import { splitByWeights, splitEqual, splitExact, type SplitShare } from "@/lib/money";
-import { istNoon } from "@/lib/dates";
+import { istNoon, toYMD } from "@/lib/dates";
 import { Prisma, type GroupRole, type TxType } from "@prisma/client";
 import { prisma } from "../db";
 import { assertCanCreateInGroup, assertCanRead, assertCanWrite, resolveGroupRole, roleAtLeast } from "./authorization";
@@ -289,7 +289,7 @@ async function checkOverride(
     amount: Number(old.amount),
     merchant: old.merchant,
     categoryName: category?.name ?? null,
-    ymd: old.occurredAt.toISOString().slice(0, 10),
+    ymd: toYMD(old.occurredAt),
     notes: old.notes,
   });
 }
@@ -513,7 +513,7 @@ export async function getTransactionDetail(actingUserId: string, id: string): Pr
     categoryName: t.category?.name ?? null,
     categoryIcon: t.category?.icon ?? null,
     merchant: t.merchant,
-    ymd: t.occurredAt.toISOString().slice(0, 10),
+    ymd: toYMD(t.occurredAt),
     notes: t.notes,
     paidByParticipantId: t.paidByParticipantId,
     isRecurring: t.isRecurring,
