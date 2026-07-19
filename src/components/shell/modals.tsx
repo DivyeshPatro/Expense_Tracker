@@ -14,6 +14,7 @@ import {
   saveBudgetAction,
   settleAction,
   updateAccountCardDetailsAction,
+  updateParticipantDetailsAction,
 } from "@/app/actions";
 import { friendlyDay, todayYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
@@ -406,6 +407,8 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
 
 // ─────────── Lending (Phase 1): "You Gave" / "You Got" ───────────
 
+const NEW_CONTACT = "__new__";
+
 function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
   const { createViaOutbox } = useOffline();
@@ -427,8 +430,28 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
   const [allocationAmounts, setAllocationAmounts] = useState<Record<string, string>>(() =>
     prefill?.targetLoanEntryId ? { [prefill.targetLoanEntryId]: prefill.targetLoanRemainingRupees ?? "" } : {}
   );
+  // "+ New Contact" (objective: never leave the lending flow just to add a
+  // contact). refData is loaded once at layout mount and isn't updated by a
+  // server action's revalidatePath within the same client session, so a
+  // contact created here wouldn't appear in refData.participants until the
+  // next full navigation — tracked locally instead and merged into the
+  // dropdown's options, which is all this form actually needs.
+  const [justCreated, setJustCreated] = useState<{ id: string; name: string }[]>([]);
 
-  const participantName = refData.participants.find((p) => p.id === participantId)?.name ?? "";
+  const allParticipants = [...refData.participants, ...justCreated.map((p) => ({ ...p, initial: p.name.charAt(0).toUpperCase(), color: "var(--acc)" }))];
+  const participantName = allParticipants.find((p) => p.id === participantId)?.name ?? "";
+
+  if (participantId === NEW_CONTACT) {
+    return (
+      <NewContactInline
+        onCreated={(p) => {
+          setJustCreated((list) => [...list, p]);
+          setParticipantId(p.id);
+        }}
+        onCancel={() => setParticipantId(refData.participants[0]?.id ?? "")}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -450,10 +473,11 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
       </Field>
       <Field label="CONTACT">
         <select className="field" value={participantId} onChange={(e) => setParticipantId(e.target.value)}>
-          {refData.participants.length === 0 && <option value="">Add a friend first</option>}
-          {refData.participants.map((p) => (
+          {allParticipants.length === 0 && <option value="">Add a friend first</option>}
+          {allParticipants.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
+          <option value={NEW_CONTACT}>+ New Contact</option>
         </select>
       </Field>
       {kind === "GOT" && participantId && (
@@ -530,6 +554,74 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
         }
       >
         {kind === "GAVE" ? "Record You Gave" : "Record You Got"}
+      </SubmitButton>
+    </div>
+  );
+}
+
+/** Inline "+ New Contact" (objective: never leave the lending flow just to
+ * add a contact). Two existing actions composed, not a new service:
+ * addParticipantAction (name only — matches FriendForm's own contract)
+ * followed by updateParticipantDetailsAction only if an optional field was
+ * actually filled in, so a bare-name contact doesn't trigger a pointless
+ * second write. */
+function NewContactInline({ onCreated, onCancel }: { onCreated: (p: { id: string; name: string }) => void; onCancel: () => void }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [photo, setPhoto] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function create() {
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await addParticipantAction({ displayName: name.trim() });
+    if (!res.ok || !res.participantId) {
+      setBusy(false);
+      setError(res.ok ? "Something went wrong" : res.error);
+      return;
+    }
+    if (phone.trim() || photo.trim() || notes.trim()) {
+      await updateParticipantDetailsAction({
+        participantId: res.participantId,
+        displayName: name.trim(),
+        phone: phone.trim() || null,
+        photo: photo.trim() || null,
+        notes: notes.trim() || null,
+      });
+    }
+    setBusy(false);
+    onCreated({ id: res.participantId, name: name.trim() });
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[13.5px] font-bold">New contact</div>
+        <button type="button" onClick={onCancel} className="text-[11.5px] font-semibold text-mut2 bg-transparent border-none cursor-pointer hover:text-ink">
+          Cancel
+        </button>
+      </div>
+      <Field label="NAME">
+        <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rohan" autoFocus />
+      </Field>
+      <Field label="PHONE (OPTIONAL)">
+        <input className="field" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" />
+      </Field>
+      <Field label="PHOTO URL (OPTIONAL)">
+        <input className="field" value={photo} onChange={(e) => setPhoto(e.target.value)} placeholder="https://…" />
+      </Field>
+      <Field label="NOTES (OPTIONAL)">
+        <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+      </Field>
+      <ErrorNote error={error} />
+      <SubmitButton busy={busy} onClick={create}>
+        Create & continue
       </SubmitButton>
     </div>
   );

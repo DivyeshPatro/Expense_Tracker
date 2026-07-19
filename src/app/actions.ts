@@ -298,13 +298,13 @@ export async function updateAccountCardDetailsAction(input: unknown): Promise<Ac
   }
 }
 
-export async function addParticipantAction(input: unknown): Promise<ActionResult> {
+export async function addParticipantAction(input: unknown): Promise<ActionResult & { participantId?: string }> {
   try {
     const user = await requireUser();
     const data = participantSchema.parse(input);
-    await addParticipant(user.id, data.displayName);
+    const participant = await addParticipant(user.id, data.displayName);
     refresh();
-    return { ok: true };
+    return { ok: true, participantId: participant.id };
   } catch (e) {
     return fail(e);
   }
