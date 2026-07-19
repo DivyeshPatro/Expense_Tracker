@@ -3,7 +3,7 @@
 // Modal forms, matching the prototype: centered dialog on desktop, bottom sheet
 // on mobile. Amount + category + account is enough to log an expense (≤3 interactions).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   addExpenseAction,
   addParticipantAction,
@@ -29,6 +29,7 @@ import { PendingDetailSheet } from "./pending-detail";
 import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
 import { TransactionDetailSheet } from "./transaction-detail";
 import { useUI, type ModalPrefill } from "./ui-context";
+import { useFocusTrap } from "./use-focus-trap";
 
 const TITLES: Record<string, string> = {
   exp: "Add expense",
@@ -50,12 +51,22 @@ const TITLES: Record<string, string> = {
 
 export function Modals() {
   const { modal, closeModal } = useUI();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, !!modal);
+  useEffect(() => {
+    if (modal) panelRef.current?.focus();
+  }, [modal]);
   if (!modal) return null;
   return (
     <div onClick={closeModal} className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-4" style={{ background: "var(--ov)" }}>
       <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={TITLES[modal.type]}
         onClick={(e) => e.stopPropagation()}
-        className="w-full md:w-[min(460px,100%)] max-h-[92vh] md:max-h-[88vh] overflow-auto bg-card rounded-t-[18px] rounded-b-none md:rounded-2xl p-[22px] box-border flex flex-col gap-[13px]"
+        className="w-full md:w-[min(460px,100%)] max-h-[92vh] md:max-h-[88vh] overflow-auto bg-card rounded-t-[18px] rounded-b-none md:rounded-2xl p-[22px] box-border flex flex-col gap-[13px] outline-none"
         style={{ boxShadow: "var(--shLg)", animation: "rise .22s ease", paddingBottom: "calc(22px + env(safe-area-inset-bottom))" }}
       >
         <div className="flex justify-between items-center">

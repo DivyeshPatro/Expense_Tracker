@@ -29,7 +29,8 @@
     "e2e:lending": "tsx scripts/e2e-lending.ts",
     "e2e:lending-settlement": "tsx scripts/e2e-lending-settlement.ts",
     "e2e:finance-hub": "tsx scripts/e2e-finance-hub.ts",
-    "e2e:all": "npm run db:seed && npm run e2e && npm run e2e:tx-detail && npm run e2e:mobile-nav && npm run e2e:analytics && npm run e2e:dashboard && npm run e2e:activity && npm run e2e:import && npm run e2e:monito && npm run e2e:large-import && npm run e2e:perf && npm run e2e:offline && npm run e2e:collab && npm run e2e:audit-phaseA && npm run e2e:group-expenses && npm run e2e:datepicker && npm run e2e:lending && npm run e2e:lending-settlement && npm run e2e:finance-hub"
+    "e2e:accessibility": "tsx scripts/e2e-accessibility.ts",
+    "e2e:all": "npm run db:seed && npm run e2e && npm run e2e:tx-detail && npm run e2e:mobile-nav && npm run e2e:analytics && npm run e2e:dashboard && npm run e2e:activity && npm run e2e:import && npm run e2e:monito && npm run e2e:large-import && npm run e2e:perf && npm run e2e:offline && npm run e2e:collab && npm run e2e:audit-phaseA && npm run e2e:group-expenses && npm run e2e:datepicker && npm run e2e:lending && npm run e2e:lending-settlement && npm run e2e:finance-hub && npm run e2e:accessibility"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -47,6 +48,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@tailwindcss/postcss": "^4.1.0",
     "@types/node": "^22",
     "@types/react": "^19",

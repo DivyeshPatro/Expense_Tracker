@@ -129,7 +129,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
                   compress into unreadable labels — the card scrolls
                   horizontally instead, the audit's recommended fix. Both rows
                   live in the same scroll container so they always stay in sync. */}
-              <div className="overflow-x-auto mt-4">
+              <div className="overflow-x-auto mt-4" tabIndex={0} role="region" aria-label="Monthly spending chart, scrollable">
                 <div className="flex items-end gap-3 h-[130px] w-max">
                   {barAggs.map((a, i) => (
                     <div key={barMonthKeys[i]} className="w-[54px] flex-none flex flex-col items-center gap-1.5 h-full justify-end">

@@ -15,6 +15,7 @@ import { OfflineProvider, useOffline } from "./offline-context";
 import { NotificationBell } from "./notifications";
 import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type RefData } from "./ui-context";
+import { useFocusTrap } from "./use-focus-trap";
 
 const NAV = [
   { href: "/dashboard", icon: "◧", label: "Dashboard" },
@@ -97,12 +98,18 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
 
   return (
     <div className="flex min-h-screen">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-acc focus:text-white focus:text-[13px] focus:font-bold"
+      >
+        Skip to content
+      </a>
       <Sidebar badge={badge} userName={refData.userName} />
       <div className="flex-1 min-w-0 flex flex-col">
         {/* top bar: kept outside the content Suspense boundary so the nav, search,
             and period picker stay immediately interactive while a slower-loading
             page (e.g. Analytics) is still streaming in — see period-picker.tsx */}
-        <div className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3 print:hidden">
+        <header className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3 print:hidden">
         <div className="flex items-center gap-2.5">
           <div className="md:hidden w-[26px] h-[26px] rounded-lg bg-acc grid place-items-center text-white font-extrabold text-[13px]">₹</div>
           <h1 className="text-base font-bold tracking-tight flex-1 m-0">{title}</h1>
@@ -130,12 +137,12 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
           </button>
         </div>
         <HeaderPeriodPicker />
-        </div>
+        </header>
         <AuthExpiredBanner />
         {/* content */}
-        <div className="flex-1 box-border w-full max-w-[1180px] mx-auto px-[clamp(14px,2.5vw,28px)] py-[clamp(14px,2.5vw,28px)] pb-[120px]">
+        <main id="main-content" className="flex-1 box-border w-full max-w-[1180px] mx-auto px-[clamp(14px,2.5vw,28px)] py-[clamp(14px,2.5vw,28px)] pb-[120px]">
           <Suspense fallback={null}>{children}</Suspense>
-        </div>
+        </main>
       </div>
       <BottomNav badge={badge} />
       <Fab />
@@ -350,6 +357,7 @@ function QuickAddSheet({ close }: { close: () => void }) {
   const { openModal } = useUI();
   const panelRef = useRef<HTMLDivElement>(null);
   useEscapeToClose(close);
+  useFocusTrap(panelRef, true);
   useEffect(() => panelRef.current?.focus(), []);
   const items = [
     { icon: "🧾", label: "Expense", act: () => openModal("exp") },
@@ -393,6 +401,7 @@ function MoreSheet({ close, params, badge }: { close: () => void; params: string
   const panelRef = useRef<HTMLDivElement>(null);
   const { pending, needsAttention } = useOffline();
   useEscapeToClose(close);
+  useFocusTrap(panelRef, true);
   useEffect(() => panelRef.current?.focus(), []);
   const items = [
     { href: "/shared", icon: "◫", label: "Shared" },
@@ -523,23 +532,30 @@ function Fab() {
 
 function Toast() {
   const { toast, dismissToast } = useUI();
-  if (!toast) return null;
+  // The aria-live region itself has to be in the DOM *before* its content
+  // changes for screen readers to reliably announce it — a live region that
+  // only mounts once a toast exists misses that toast's own announcement.
+  // So this wrapper is always rendered; only the message inside is conditional.
   return (
-    <div
-      className="fixed bottom-[90px] left-1/2 -translate-x-1/2 px-[17px] py-[11px] rounded-[10px] z-[80] flex items-center gap-3.5 text-[13px] font-semibold whitespace-nowrap"
-      style={{ background: "var(--ink)", color: "var(--bg)", boxShadow: "var(--shLg)", animation: "rise .2s ease" }}
-    >
-      {toast.msg}
-      {toast.undo && (
-        <button
-          onClick={() => {
-            toast.undo!();
-            dismissToast();
-          }}
-          className="text-[#7fb0ff] cursor-pointer font-bold bg-transparent border-none text-[13px]"
+    <div aria-live="polite" role="status" className="fixed bottom-[90px] left-1/2 -translate-x-1/2 z-[80]">
+      {toast && (
+        <div
+          className="px-[17px] py-[11px] rounded-[10px] flex items-center gap-3.5 text-[13px] font-semibold whitespace-nowrap"
+          style={{ background: "var(--ink)", color: "var(--bg)", boxShadow: "var(--shLg)", animation: "rise .2s ease" }}
         >
-          Undo
-        </button>
+          {toast.msg}
+          {toast.undo && (
+            <button
+              onClick={() => {
+                toast.undo!();
+                dismissToast();
+              }}
+              className="text-[#7fb0ff] cursor-pointer font-bold bg-transparent border-none text-[13px]"
+            >
+              Undo
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

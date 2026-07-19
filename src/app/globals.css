@@ -6,8 +6,11 @@
   --side: #fbfcfd;
   --card: #ffffff;
   --ink: #16181d;
-  --mut: #7a8091;
-  --mut2: #9aa0ae;
+  /* Phase B a11y audit: both darkened to clear WCAG AA's 4.5:1 minimum against
+     --bg/--side/--card (all near-white) — the originals measured 3.68-3.94:1
+     and 2.44-2.62:1 respectively, real axe-core findings across every page. */
+  --mut: #5c6473;
+  --mut2: #697080;
   --line: rgba(22, 24, 29, 0.07);
   --line2: rgba(22, 24, 29, 0.14);
   --acc: #2a63f6;
@@ -32,8 +35,9 @@
   --side: #13161b;
   --card: #191d24;
   --ink: #eceef2;
+  /* --mut already clears AA here (6.4-7.2:1); --mut2 didn't (3.4-3.8:1). */
   --mut: #98a0b0;
-  --mut2: #69707f;
+  --mut2: #838a99;
   --line: rgba(255, 255, 255, 0.07);
   --line2: rgba(255, 255, 255, 0.15);
   --acc: #4d7ef8;

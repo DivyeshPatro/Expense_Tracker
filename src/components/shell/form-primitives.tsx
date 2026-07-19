@@ -46,11 +46,18 @@ export function useSubmit() {
 }
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  // An implicit <label> (wrapping its control) rather than a plain <div> —
+  // every form across the app uses this, and axe-core's select-name/
+  // label finding on the expense form's selects was really this component,
+  // not a one-off. Browsers only forward the label's click-to-focus
+  // behavior to the first labelable control, so Fields that also nest a
+  // non-form element (e.g. a "Clear" button next to a DateField) are
+  // unaffected — buttons handle their own clicks regardless.
   return (
-    <div className="flex-1 min-w-[130px]">
+    <label className="flex-1 min-w-[130px] block">
       <div className="label-caps">{label}</div>
       {children}
-    </div>
+    </label>
   );
 }
 
