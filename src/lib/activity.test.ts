@@ -368,6 +368,6 @@ describe("budget-exceeded notification events", () => {
 
   it("other kinds and malformed payloads are skipped", () => {
     expect(presentNotificationRow({ id: "n2", kind: "BUDGET_WARNING", payload: {}, createdAt: "2026-07-16T10:00:00.000Z" })).toBeNull();
-    expect(presentNotificationRow({ id: "n3", kind: "BUDGET_EXCEEDED", payload: "garbage", createdAt: "2026-07-16T10:00:00.000Z" })).not.toThrow;
+    expect(presentNotificationRow({ id: "n3", kind: "BUDGET_EXCEEDED", payload: "garbage", createdAt: "2026-07-16T10:00:00.000Z" })).toBeNull();
   });
 });

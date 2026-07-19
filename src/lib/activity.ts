@@ -648,6 +648,13 @@ export function presentAuditRow(row: AuditRowInput, maps: LabelMaps): TimelineEv
  * (the only notification-sourced kind in the catalog). Same defensive rules. */
 export function presentNotificationRow(n: { id: string; kind: string; payload: unknown; createdAt: string }): TimelineEvent | null {
   if (n.kind !== "BUDGET_EXCEEDED") return null;
+  // asSnap's own fallback ({} for any non-object) is the right default
+  // everywhere else in this file — a legitimately-absent before/after
+  // shouldn't crash a whole audit row. But a truly malformed payload here
+  // (e.g. a bare string, not even an object) shouldn't get asSnap'd into an
+  // empty object and silently produce a "Budget budget exceeded" event with
+  // placeholder text — that's worse than showing nothing.
+  if (!n.payload || typeof n.payload !== "object") return null;
   try {
     const p = asSnap(n.payload);
     const category = str(p.category) ?? "Budget";
