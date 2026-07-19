@@ -77,8 +77,8 @@ export function Modals() {
           </button>
         </div>
         {modal.type === "exp" && <ExpenseForm prefill={modal.prefill} />}
-        {modal.type === "inc" && <IncomeForm />}
-        {modal.type === "tr" && <TransferForm />}
+        {modal.type === "inc" && <IncomeForm prefill={modal.prefill} />}
+        {modal.type === "tr" && <TransferForm prefill={modal.prefill} />}
         {modal.type === "settle" && <SettleForm prefill={modal.prefill} />}
         {modal.type === "budget" && <BudgetForm />}
         {modal.type === "account" && <AccountForm />}
@@ -102,15 +102,15 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
   const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
-  const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState(refData.accounts[0]?.id ?? "");
+  const [amount, setAmount] = useState(prefill?.dupAmountRupees ?? "");
+  const [accountId, setAccountId] = useState(prefill?.dupAccountId ?? refData.accounts[0]?.id ?? "");
   const [categoryId, setCategoryId] = useState(
-    () => (refData.expenseCategories.find((c) => c.name === "Food") ?? refData.expenseCategories[0])?.id ?? ""
+    () => prefill?.dupCategoryId ?? (refData.expenseCategories.find((c) => c.name === "Food") ?? refData.expenseCategories[0])?.id ?? ""
   );
-  const [merchant, setMerchant] = useState("");
+  const [merchant, setMerchant] = useState(prefill?.dupMerchant ?? "");
   const [date, setDate] = useState(todayYMD());
-  const [notes, setNotes] = useState("");
-  const [groupId, setGroupId] = useState(""); // "" = personal — collaboration-architecture-rfc §2/§4 (migration step 4)
+  const [notes, setNotes] = useState(prefill?.dupNotes ?? "");
+  const [groupId, setGroupId] = useState(prefill?.dupGroupId ?? ""); // "" = personal — collaboration-architecture-rfc §2/§4 (migration step 4)
   const [split, setSplit] = useState(!!prefill?.split);
   const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">("EQUAL");
   const [parts, setParts] = useState<Record<string, boolean>>(() =>
@@ -234,18 +234,18 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
 
 // ─────────── Income ───────────
 
-function IncomeForm() {
+function IncomeForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
   const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
-  const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState(refData.accounts[0]?.id ?? "");
+  const [amount, setAmount] = useState(prefill?.dupAmountRupees ?? "");
+  const [accountId, setAccountId] = useState(prefill?.dupAccountId ?? refData.accounts[0]?.id ?? "");
   const [categoryId, setCategoryId] = useState(
-    () => (refData.incomeCategories.find((c) => c.name === "Salary") ?? refData.incomeCategories[0])?.id ?? ""
+    () => prefill?.dupCategoryId ?? (refData.incomeCategories.find((c) => c.name === "Salary") ?? refData.incomeCategories[0])?.id ?? ""
   );
-  const [merchant, setMerchant] = useState("");
+  const [merchant, setMerchant] = useState(prefill?.dupMerchant ?? "");
   const [date, setDate] = useState(todayYMD());
-  const [groupId, setGroupId] = useState("");
+  const [groupId, setGroupId] = useState(prefill?.dupGroupId ?? "");
   return (
     <div className="flex flex-col gap-3">
       <Field label="AMOUNT (₹)">
@@ -304,15 +304,15 @@ function IncomeForm() {
 
 // ─────────── Transfer ───────────
 
-function TransferForm() {
+function TransferForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
   const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
-  const [amount, setAmount] = useState("");
-  const [from, setFrom] = useState(refData.accounts[0]?.id ?? "");
-  const [to, setTo] = useState(refData.accounts[1]?.id ?? refData.accounts[0]?.id ?? "");
+  const [amount, setAmount] = useState(prefill?.dupAmountRupees ?? "");
+  const [from, setFrom] = useState(prefill?.dupAccountId ?? refData.accounts[0]?.id ?? "");
+  const [to, setTo] = useState(prefill?.dupToAccountId ?? refData.accounts[1]?.id ?? refData.accounts[0]?.id ?? "");
   const [date, setDate] = useState(todayYMD());
-  const [groupId, setGroupId] = useState("");
+  const [groupId, setGroupId] = useState(prefill?.dupGroupId ?? "");
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2.5 flex-wrap">
@@ -415,12 +415,12 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
   const { run, busy, error } = useSubmit();
   const [kind, setKind] = useState<"GAVE" | "GOT">(prefill?.loanKind ?? "GAVE");
   const [participantId, setParticipantId] = useState(prefill?.participantId ?? refData.participants[0]?.id ?? "");
-  const [amount, setAmount] = useState(prefill?.targetLoanRemainingRupees ?? "");
-  const [accountId, setAccountId] = useState("");
+  const [amount, setAmount] = useState(prefill?.dupAmountRupees ?? prefill?.targetLoanRemainingRupees ?? "");
+  const [accountId, setAccountId] = useState(prefill?.dupAccountId ?? "");
   const [date, setDate] = useState(todayYMD());
-  const [dueDate, setDueDate] = useState("");
-  const [reason, setReason] = useState("");
-  const [notes, setNotes] = useState("");
+  const [dueDate, setDueDate] = useState(prefill?.dupDueDate ?? "");
+  const [reason, setReason] = useState(prefill?.dupMerchant ?? "");
+  const [notes, setNotes] = useState(prefill?.dupNotes ?? "");
   // lending-module-phase2: manual settlement allocation, GOT entries only.
   // "auto" ⇒ send no allocations, server FIFO-allocates. "custom" ⇒ send
   // exactly what's in allocationAmounts. Arriving here via "Record

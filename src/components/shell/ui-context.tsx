@@ -32,6 +32,20 @@ export interface ModalPrefill {
   accountId?: string; // lending-module-phase2 (card vault edit)
   targetLoanEntryId?: string; // lending-module-phase2: "Record Repayment" from Loan Detail — pre-allocates 100% to this loan
   targetLoanRemainingRupees?: string;
+  // Duplicate-from-existing (Phase 2.9): one shared shape read by
+  // ExpenseForm/IncomeForm/TransferForm/LendingEntryForm as create-form
+  // initial state — each form only reads the fields relevant to it and
+  // ignores the rest. Date is deliberately NOT carried — a duplicate
+  // defaults to today, matching "repeat this" intent; the user can still
+  // change it like any other field.
+  dupAmountRupees?: string;
+  dupAccountId?: string | null;
+  dupToAccountId?: string | null; // transfer only
+  dupCategoryId?: string | null;
+  dupMerchant?: string; // transaction merchant, or a lending entry's reason — same "what/who was this for" concept
+  dupNotes?: string;
+  dupGroupId?: string | null; // transaction only
+  dupDueDate?: string | null; // GAVE lending entries only
 }
 
 export interface RefData {

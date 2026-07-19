@@ -394,7 +394,7 @@ function EntryRow({
   );
 }
 
-function EditEntryForm({ entry, onDone, onCancel }: { entry: LoanEntryRow; onDone: () => void; onCancel: () => void }) {
+export function EditEntryForm({ entry, onDone, onCancel }: { entry: LoanEntryRow; onDone: () => void; onCancel: () => void }) {
   const { refData } = useUI();
   const { enqueueMutation } = useOffline();
   const [kind, setKind] = useState<"GAVE" | "GOT">(entry.kind);

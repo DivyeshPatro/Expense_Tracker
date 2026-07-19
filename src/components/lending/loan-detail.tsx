@@ -7,14 +7,16 @@
 // `detail.kind`, rather than two components duplicating the fetch/skeleton
 // scaffolding.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { loanDetailAction } from "@/app/actions";
+import { loanDetailAction, undoDeleteLoanEntryAction } from "@/app/actions";
 import { friendlyDay } from "@/lib/dates";
 import { balanceAfterLabel } from "@/lib/lending";
 import type { LoanStatus } from "@/lib/loan-settlement";
 import { formatPaise } from "@/lib/money";
 import type { LoanDetailView } from "@/server/services/lending";
+import { EditEntryForm } from "./contact-ledger";
+import { useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 import { EmptyState } from "@/components/shell/empty-state";
 
@@ -26,9 +28,13 @@ const STATUS_META: Record<LoanStatus, { label: string; color: string; bg: string
 };
 
 export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
-  const { openModal, closeModal } = useUI();
+  const { openModal, closeModal, showToast } = useUI();
+  const { enqueueMutation, cancelPending } = useOffline();
   const router = useRouter();
   const [detail, setDetail] = useState<LoanDetailView | null | undefined>(undefined);
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   // Phase 2.5 cross-navigation: funding source → Accounts page (close the
   // modal first so the destination isn't rendered underneath it)
   const goAccounts = () => {
@@ -51,7 +57,88 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
   if (detail === undefined) return <LoanDetailSkeleton />;
   if (detail === null) return <EmptyState icon="🤝" title="This entry could not be found" detail="It may have been deleted." />;
 
-  if (detail.kind === "GOT") return <RepaymentDetail detail={detail} goAccounts={goAccounts} />;
+  if (editing) {
+    return (
+      <EditEntryForm
+        entry={{
+          id: detail.id,
+          participantId: detail.participantId,
+          participantName: detail.participantName,
+          kind: detail.kind,
+          amount: detail.amount,
+          accountId: detail.accountId,
+          accountName: detail.accountName,
+          reason: detail.reason,
+          notes: detail.notes,
+          dueDate: detail.dueDate,
+          ymd: detail.occurredAt.slice(0, 10),
+          version: detail.version,
+        }}
+        onDone={() => {
+          setEditing(false);
+          void load();
+        }}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
+
+  async function handleDelete() {
+    if (!detail) return;
+    setDeleteBusy(true);
+    const res = await enqueueMutation(
+      "loan.delete",
+      detail.id,
+      { amount: String(detail.amount / 100), kind: detail.kind, participantName: detail.participantName },
+      detail.version
+    );
+    setDeleteBusy(false);
+    if (!res.ok) {
+      showToast(res.error);
+      return;
+    }
+    closeModal();
+    const intentId = res.intentId;
+    showToast("Entry deleted", async () => {
+      const restoredLocally = intentId ? await cancelPending(intentId) : null;
+      if (restoredLocally) {
+        showToast("Restored");
+        router.refresh();
+        return;
+      }
+      const undo = await undoDeleteLoanEntryAction(detail.id);
+      showToast(undo.ok ? "Restored" : "Could not restore");
+      router.refresh();
+    });
+  }
+
+  function handleDuplicate() {
+    if (!detail) return;
+    closeModal();
+    openModal("lendingEntry", {
+      participantId: detail.participantId,
+      participantName: detail.participantName,
+      loanKind: detail.kind,
+      dupAmountRupees: String(detail.amount / 100),
+      dupAccountId: detail.accountId,
+      dupMerchant: detail.reason ?? undefined,
+      dupNotes: detail.notes ?? undefined,
+      dupDueDate: detail.kind === "GAVE" ? detail.dueDate : undefined,
+    });
+  }
+
+  const actions = (
+    <EntryActionsRow
+      onEdit={() => setEditing(true)}
+      onDuplicate={handleDuplicate}
+      confirmingDelete={confirmingDelete}
+      setConfirmingDelete={setConfirmingDelete}
+      onDelete={handleDelete}
+      deleteBusy={deleteBusy}
+    />
+  );
+
+  if (detail.kind === "GOT") return <RepaymentDetail detail={detail} goAccounts={goAccounts} actions={actions} />;
 
   const status = detail.status ?? "OPEN";
   const meta = STATUS_META[status];
@@ -123,11 +210,21 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
           Record Repayment
         </button>
       )}
+
+      {actions}
     </div>
   );
 }
 
-function RepaymentDetail({ detail, goAccounts }: { detail: LoanDetailView; goAccounts: () => void }) {
+function RepaymentDetail({
+  detail,
+  goAccounts,
+  actions,
+}: {
+  detail: LoanDetailView;
+  goAccounts: () => void;
+  actions: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .2s ease" }}>
       <div>
@@ -167,6 +264,69 @@ function RepaymentDetail({ detail, goAccounts }: { detail: LoanDetailView; goAcc
           </div>
         ))}
       </div>
+
+      {actions}
+    </div>
+  );
+}
+
+function EntryActionsRow({
+  onEdit,
+  onDuplicate,
+  confirmingDelete,
+  setConfirmingDelete,
+  onDelete,
+  deleteBusy,
+}: {
+  onEdit: () => void;
+  onDuplicate: () => void;
+  confirmingDelete: boolean;
+  setConfirmingDelete: (v: boolean) => void;
+  onDelete: () => void;
+  deleteBusy: boolean;
+}) {
+  if (confirmingDelete) {
+    return (
+      <div className="flex items-center gap-2.5 bg-redsoft rounded-[10px] px-3.5 py-3">
+        <span className="flex-1 text-[13px] font-semibold text-red">Delete this entry?</span>
+        <button
+          onClick={() => setConfirmingDelete(false)}
+          className="px-3 py-1.5 rounded-lg border border-line2 text-[12px] font-semibold cursor-pointer bg-card"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onDelete}
+          disabled={deleteBusy}
+          className="px-3 py-1.5 rounded-lg text-[12px] font-bold cursor-pointer border-none text-white disabled:opacity-60"
+          style={{ background: "var(--red)" }}
+        >
+          {deleteBusy ? "…" : "Delete"}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex gap-2.5">
+      <button
+        onClick={onEdit}
+        className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft"
+      >
+        Edit
+      </button>
+      <button
+        onClick={onDuplicate}
+        className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft"
+      >
+        Duplicate
+      </button>
+      <button
+        onClick={() => setConfirmingDelete(true)}
+        className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
+        style={{ background: "var(--red)" }}
+      >
+        Delete
+      </button>
     </div>
   );
 }

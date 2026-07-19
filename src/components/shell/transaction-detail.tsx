@@ -315,6 +315,24 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
               Edit
             </button>
           )}
+          <button
+            onClick={() => {
+              closeModal();
+              const modalType = detail.type === "EXPENSE" ? "exp" : detail.type === "INCOME" ? "inc" : "tr";
+              openModal(modalType, {
+                dupAmountRupees: String(detail.amount / 100),
+                dupAccountId: detail.accountId,
+                dupToAccountId: detail.toAccountId,
+                dupCategoryId: detail.categoryId,
+                dupMerchant: detail.merchant,
+                dupNotes: detail.notes ?? undefined,
+                dupGroupId: detail.groupId,
+              });
+            }}
+            className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft"
+          >
+            Duplicate
+          </button>
           {detail.canDelete ? (
             <button
               onClick={() => setConfirmingDelete(true)}
