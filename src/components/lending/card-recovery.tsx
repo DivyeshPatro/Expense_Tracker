@@ -57,9 +57,9 @@ export function CardRecoveryDashboard({ cards }: { cards: CardRecoverySummary[] 
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-x-3 gap-y-2 bg-accsoft rounded-[10px] px-3 py-2.5">
-              <Stat label="Lent" value={formatPaise(c.lentThisCycle)} />
-              <Stat label="Recovered" value={formatPaise(c.recoveredThisCycle)} />
+            <div className="grid grid-cols-3 gap-x-4 gap-y-2.5 bg-accsoft rounded-[10px] px-3.5 py-3">
+              <Stat label="Given" value={formatPaise(c.lentThisCycle)} />
+              <Stat label="Received" value={formatPaise(c.recoveredThisCycle)} />
               <Stat label="Outstanding" value={formatPaise(c.outstandingThisCycle)} valueColor={c.outstandingThisCycle > 0 ? "var(--red)" : undefined} />
             </div>
 

@@ -85,9 +85,9 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
       )}
 
       <div className="flex flex-col gap-1">
-        <div className="label-caps">Settlement History</div>
+        <div className="label-caps">Payment History</div>
         {detail.relatedAllocations.length === 0 && (
-          <div className="text-[12.5px] text-mut2 py-2">No repayments applied to this loan yet.</div>
+          <div className="text-[12.5px] text-mut2 py-2">No money received against this yet.</div>
         )}
         {detail.relatedAllocations.map((a, i) => (
           <div key={`${a.loanEntryId}-${i}`} className="flex items-center gap-2.5 py-[9px] border-b border-line last:border-b-0">
@@ -95,7 +95,7 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
               💰
             </span>
             <div className="flex-1 min-w-0">
-              <div className="text-[12.5px] font-semibold truncate">{a.reason || "Repayment"}</div>
+              <div className="text-[12.5px] font-semibold truncate">{a.reason || "Money received"}</div>
               <div className="text-[11px] text-mut2">{friendlyDay(a.ymd)}</div>
             </div>
             <div className="text-[13px] font-bold text-green">{formatPaise(a.amount)}</div>

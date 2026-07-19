@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { formatPaise } from "@/lib/money";
+import { EmptyState } from "@/components/shell/empty-state";
 
 export interface CategoryRow {
   id: string | null;
@@ -78,7 +79,14 @@ export function CategoryBreakdown({
             <div key={c.name}>{content}</div>
           );
         })}
-        {rows.length === 0 && <div className="text-[12px] text-mut2">No {tab === "EXPENSE" ? "expenses" : "income"} in this period.</div>}
+        {rows.length === 0 && (
+          <EmptyState
+            icon="📊"
+            title={`No ${tab === "EXPENSE" ? "expenses" : "income"} in this period`}
+            detail="Try a different date range or category."
+            compact
+          />
+        )}
       </div>
     </section>
   );

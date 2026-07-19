@@ -205,13 +205,18 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
 }
 
 function ContactSummaryCard({ summary }: { summary: ContactSummary }) {
+  // Friendlier, non-jargon labels for a non-technical audience — outstandingLoanCount
+  // is a plain count (how many entries are still open), not an amount, so it
+  // keeps a count-shaped label ("Pending Entries") rather than "Pending to
+  // Receive", which would misleadingly read as a rupee figure next to the
+  // other currency stats in this same grid.
   const stats: { label: string; value: string }[] = [
-    { label: "Outstanding Loans", value: String(summary.outstandingLoanCount) },
-    { label: "Total Lent", value: formatPaise(summary.totalLent) },
-    { label: "Average Loan", value: summary.averageLoan > 0 ? formatPaise(summary.averageLoan) : "—" },
-    { label: "Largest Loan", value: summary.largestLoan > 0 ? formatPaise(summary.largestLoan) : "—" },
-    { label: "Total Recovered", value: formatPaise(summary.totalRecovered) },
-    { label: "Recovery Rate", value: summary.totalLent > 0 ? `${summary.recoveryPercentage}%` : "—" },
+    { label: "Pending Entries", value: String(summary.outstandingLoanCount) },
+    { label: "Total Given", value: formatPaise(summary.totalLent) },
+    { label: "Average Given", value: summary.averageLoan > 0 ? formatPaise(summary.averageLoan) : "—" },
+    { label: "Largest Given", value: summary.largestLoan > 0 ? formatPaise(summary.largestLoan) : "—" },
+    { label: "Total Received", value: formatPaise(summary.totalRecovered) },
+    { label: "Received So Far", value: summary.totalLent > 0 ? `${summary.recoveryPercentage}%` : "—" },
     { label: "Last Transaction", value: summary.lastTransactionYmd ? friendlyDay(summary.lastTransactionYmd) : "—" },
     { label: "First Transaction", value: summary.firstTransactionYmd ? friendlyDay(summary.firstTransactionYmd) : "—" },
   ];

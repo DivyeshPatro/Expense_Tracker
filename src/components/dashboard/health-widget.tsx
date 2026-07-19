@@ -57,7 +57,7 @@ export function HealthWidget({ data }: { data: HealthData }) {
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 bg-accsoft rounded-[10px] px-3.5 py-3">
         <HealthStat label="Net Position" value={`${data.netPosition < 0 ? "−" : ""}${formatPaise(data.netPosition)}`} valueColor={data.netPosition < 0 ? "var(--red)" : "var(--green)"} href="/accounts" />
-        <HealthStat label="Outstanding Loans" value={formatPaise(data.outstandingLoans)} href="/lending" />
+        <HealthStat label="Pending to Receive" value={formatPaise(data.outstandingLoans)} href="/lending" />
         <HealthStat
           label="Upcoming Bills"
           value={data.upcomingBillCount === 0 ? "None" : String(data.upcomingBillCount)}

@@ -36,7 +36,7 @@ export function LendingReports({ data }: { data: LendingReportsData }) {
       <div className="flex flex-wrap gap-3.5 flex-[1_1_100%]">
         <StatCard label="RECEIVABLE" value={<span className="text-green">{formatPaise(data.receivable)}</span>} />
         <StatCard label="PAYABLE" value={<span className="text-red">{formatPaise(data.payable)}</span>} />
-        <StatCard label="RECOVERY RATE" value={`${data.recoveryRatePercent}%`} />
+        <StatCard label="RECEIVED SO FAR" value={`${data.recoveryRatePercent}%`} />
       </div>
 
       <section className="card flex-[1.4_1_320px] p-[var(--pad)]">
@@ -53,8 +53,8 @@ export function LendingReports({ data }: { data: LendingReportsData }) {
       </section>
 
       <section className="card flex-[1.4_1_320px] min-w-0 p-[var(--pad)]">
-        <h2 className="text-[13.5px] font-bold m-0">Monthly lending vs recoveries</h2>
-        <div className="overflow-x-auto mt-4">
+        <h2 className="text-[13.5px] font-bold m-0">Given vs received, by month</h2>
+        <div className="overflow-x-auto mt-4" tabIndex={0} role="region" aria-label="Monthly lending vs receipts chart, scrollable">
           <div className="flex items-end gap-3 h-[130px] w-max">
             {data.monthKeys.map((k, i) => (
               <div key={k} className="w-[60px] flex-none flex flex-col items-center gap-1.5 h-full justify-end">
@@ -72,8 +72,8 @@ export function LendingReports({ data }: { data: LendingReportsData }) {
           </div>
         </div>
         <div className="flex gap-4 mt-2.5 text-[11px] text-mut2">
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-acc" /> Lent</div>
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-green" /> Recovered</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-acc" /> Given</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-green" /> Received</div>
         </div>
       </section>
 

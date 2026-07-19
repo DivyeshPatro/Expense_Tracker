@@ -118,6 +118,31 @@
   box-shadow: var(--sh);
 }
 
+/* Thin, theme-colored scrollbars everywhere — the browser default (a wide
+   gray bar) reads as a rendering glitch against this app's otherwise
+   fully-themed surfaces, especially on the horizontally-scrollable charts
+   and the mobile hub strip. Firefox uses the two-value shorthand; WebKit/
+   Blink (Chrome, Edge, Safari) need the pseudo-elements. Both branches are
+   themed for light/dark since `--line2`/`--mut2` already flip per theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line2);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--mut2);
+}
+
 @utility field {
   width: 100%;
   box-sizing: border-box;

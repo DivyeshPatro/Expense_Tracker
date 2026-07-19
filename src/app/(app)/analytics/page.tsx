@@ -1,3 +1,4 @@
+import { EmptyState } from "@/components/shell/empty-state";
 import { StatCard } from "@/components/shell/stat-card";
 import { currentMonthKey, daysBetweenYMD, monthName, shiftMonthKey, todayYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
@@ -160,7 +161,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
                 <div className="text-[12.5px] font-bold">{formatPaise(m.total)}</div>
               </div>
             ))}
-            {merchants.length === 0 && <div className="text-[12px] text-mut2">No expenses in this period.</div>}
+            {merchants.length === 0 && <EmptyState icon="🧾" title="No expenses in this period" detail="Try a different date range, or add your first expense." compact />}
           </section>
         }
       />
