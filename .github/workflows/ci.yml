@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Lint
+        run: npm run lint
+
       # Pure unit tests only (no service touches Prisma/the DB — verified),
       # so no Postgres service container is needed here.
       - name: Unit tests

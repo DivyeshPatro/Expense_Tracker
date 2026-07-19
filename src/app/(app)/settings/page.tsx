@@ -31,7 +31,7 @@ export default async function SettingsPage() {
 
       <section className="card p-6 flex flex-col gap-3">
         <h2 className="text-[13.5px] font-bold m-0">Categories</h2>
-        <div className="text-[12.5px] text-mut">Your defaults plus anything custom you've added.</div>
+        <div className="text-[12.5px] text-mut">Your defaults plus anything custom you&apos;ve added.</div>
         <Categories categories={categoryRows} />
       </section>
 

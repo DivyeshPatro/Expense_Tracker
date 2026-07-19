@@ -399,7 +399,7 @@ function NotAuthorizedCard({ queued }: { queued: OutboxIntent }) {
     <div className="flex flex-col gap-3.5">
       {recoveryHeader(queued)}
       <div className="text-[13px] font-semibold rounded-[10px] px-3.5 py-3 bg-redsoft text-red">
-        You're no longer part of <strong>{group}</strong>, so <strong>{intentLabel(queued)}</strong> couldn't be saved.
+        You&apos;re no longer part of <strong>{group}</strong>, so <strong>{intentLabel(queued)}</strong> couldn&apos;t be saved.
       </div>
       {/* rfc §8: "no guided fix exists, since re-gaining access requires being
           re-invited, which isn't something the failed edit can trigger itself" */}
@@ -433,7 +433,7 @@ function GroupDeletedCard({ queued }: { queued: OutboxIntent }) {
     <div className="flex flex-col gap-3.5">
       {recoveryHeader(queued)}
       <div className="text-[13px] font-semibold rounded-[10px] px-3.5 py-3 bg-redsoft text-red">
-        <strong>{group}</strong> was deleted, so this couldn't be saved.
+        <strong>{group}</strong> was deleted, so this couldn&apos;t be saved.
       </div>
       <button
         onClick={handleDiscard}
@@ -498,7 +498,7 @@ function ConflictCard({ queued }: { queued: OutboxIntent }) {
       </div>
 
       <div className="card p-[var(--pad)] flex flex-col gap-1.5">
-        <div className="text-[11px] font-bold text-mut2 tracking-[.06em] uppercase">{conflict.serverActorName}'s</div>
+        <div className="text-[11px] font-bold text-mut2 tracking-[.06em] uppercase">{conflict.serverActorName}&apos;s</div>
         <div className="text-[15px] font-extrabold">{formatPaise(conflict.amount)}</div>
         <div className="text-[13px] font-semibold">{conflict.merchant}</div>
         {conflict.categoryName && <div className="text-[12px] text-mut2">{conflict.categoryName}</div>}

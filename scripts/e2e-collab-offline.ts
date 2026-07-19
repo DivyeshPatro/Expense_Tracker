@@ -154,7 +154,6 @@ async function main() {
     }
 
     // ═══════════════════════ two different group members, version race → CONFLICT ═══════════════════════
-    let conflictTxId = "";
     let conflictIntentId = "";
     {
       const tx = await prisma.transaction.create({
@@ -162,7 +161,6 @@ async function main() {
       });
       await prisma.account.update({ where: { id: aliceAccount.id }, data: { balance: { decrement: 20000 } } });
       txIds.push(tx.id);
-      conflictTxId = tx.id;
 
       const { ctx: ctxBob, page: pageBob } = await newDevice(browser, bobCookies);
       await openTxByDeepLink(pageBob, tx.id); // Bob (MEMBER) reads it fine — captures version=1

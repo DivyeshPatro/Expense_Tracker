@@ -147,7 +147,7 @@ function RepaymentDetail({ detail, goAccounts }: { detail: LoanDetailView; goAcc
       <div className="flex flex-col gap-1">
         <div className="label-caps">Applied To</div>
         {detail.relatedAllocations.length === 0 && (
-          <div className="text-[12.5px] text-mut2 py-2">This repayment wasn't applied to any specific loan.</div>
+          <div className="text-[12.5px] text-mut2 py-2">This repayment wasn&apos;t applied to any specific loan.</div>
         )}
         {detail.relatedAllocations.map((a, i) => (
           <div key={`${a.loanEntryId}-${i}`} className="flex items-center gap-2.5 py-[9px] border-b border-line last:border-b-0">

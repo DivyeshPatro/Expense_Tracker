@@ -90,7 +90,7 @@ async function main() {
   const alice = await prisma.user.findFirstOrThrow({ where: { email: "arjun@ledgerly.app" } });
   const rohan = await prisma.participant.findFirstOrThrow({ where: { ownerId: alice.id, displayName: "Rohan" } });
   const karan = await prisma.participant.findFirstOrThrow({ where: { ownerId: alice.id, displayName: "Karan" } });
-  const priya = await prisma.participant.findFirstOrThrow({ where: { ownerId: alice.id, displayName: "Priya" } });
+  await prisma.participant.findFirstOrThrow({ where: { ownerId: alice.id, displayName: "Priya" } }); // precondition: seed data has Priya
 
   const txIds: string[] = [];
   const groupIds: string[] = [];

@@ -746,7 +746,7 @@ function AccountCardDetailsForm({ accountId }: { accountId: string }) {
   const [dueDay, setDueDay] = useState(account?.dueDay ? String(account.dueDay) : "");
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-[12.5px] text-mut2">{account?.name ?? "This card"}'s billing cycle drives Card Billing Intelligence's recovery guidance.</div>
+      <div className="text-[12.5px] text-mut2">{account?.name ?? "This card"}&apos;s billing cycle drives Card Billing Intelligence&apos;s recovery guidance.</div>
       <div className="flex gap-2.5 flex-wrap">
         <Field label="NETWORK">
           <input className="field" value={cardNetwork} onChange={(e) => setCardNetwork(e.target.value)} placeholder="e.g. Visa" autoFocus />

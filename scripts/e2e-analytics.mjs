@@ -40,7 +40,6 @@ try {
   ok("mobile Analytics page has no horizontal overflow", !overflow);
 
   // ═══════════ mobile: tab picker shows one section at a time ═══════════
-  const tabBar = mobile.getByRole("button", { name: "Trend", exact: true }).locator("..");
   ok("mobile tab picker (Trend/Categories/Merchants) is visible", await mobile.getByRole("button", { name: "Trend", exact: true }).isVisible());
 
   // default tab is Trend: Balance trend + Monthly spending visible, Categories/Merchants headings not laid out

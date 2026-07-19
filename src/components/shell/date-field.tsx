@@ -395,7 +395,7 @@ function DayPicker({
                     onClick={() => select(viewY, viewM, day)}
                     onFocus={() => setFocusDay(day)}
                     aria-current={isToday ? "date" : undefined}
-                    aria-selected={isSelected}
+                    aria-pressed={isSelected}
                     className="h-8 rounded-lg text-[12.5px] font-semibold cursor-pointer border-none grid place-items-center disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{
                       background: isSelected ? "var(--acc)" : "transparent",
@@ -576,7 +576,7 @@ function MonthPicker({
                     onClick={() => select(viewY, m)}
                     onFocus={() => setFocusMonth(m)}
                     aria-current={isCurrent ? "date" : undefined}
-                    aria-selected={isSelected}
+                    aria-pressed={isSelected}
                     className="h-9 rounded-lg text-[12.5px] font-semibold cursor-pointer border-none grid place-items-center disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{
                       background: isSelected ? "var(--acc)" : "transparent",

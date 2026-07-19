@@ -4,7 +4,7 @@
 // hybrid pattern established in e2e-group-expenses.ts / e2e-lending.ts.
 // Run: npx tsx scripts/e2e-finance-hub.ts
 import { randomUUID } from "node:crypto";
-import { chromium, type Page } from "playwright";
+import { chromium } from "playwright";
 import { prisma } from "../src/server/db";
 import { addExpense } from "../src/server/services/transactions";
 

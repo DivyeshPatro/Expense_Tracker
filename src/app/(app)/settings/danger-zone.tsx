@@ -21,7 +21,7 @@ export function DangerZone() {
       <div className="text-[12px] text-mut2 -mt-2">
         Deletes every transaction, split, settlement, bill and recurring rule, and resets account balances back to
         their opening balance. Accounts, categories, budgets, friends and lending records (money lent or borrowed)
-        stay as-is — that's a separate ledger. Use this before importing your real history over the demo data.
+        stay as-is — that&apos;s a separate ledger. Use this before importing your real history over the demo data.
       </div>
       <button
         onClick={() => setConfirmMode("delete")}

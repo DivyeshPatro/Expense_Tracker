@@ -264,7 +264,7 @@ function EntryRow({
   onDeleted: () => void;
   onRestored: () => void;
 }) {
-  const { enqueueMutation, cancelPending, restorePending } = useOffline();
+  const { enqueueMutation, cancelPending } = useOffline();
   const { showToast, openModal } = useUI();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
