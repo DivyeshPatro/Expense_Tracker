@@ -18,6 +18,7 @@
     "e2e:dashboard": "node scripts/e2e-dashboard.mjs",
     "e2e:activity": "node scripts/e2e-activity.mjs",
     "e2e:import": "node scripts/e2e-import.mjs",
+    "e2e:backup-restore": "node scripts/e2e-backup-restore.mjs",
     "e2e:monito": "node scripts/e2e-monito.mjs",
     "e2e:large-import": "node scripts/e2e-large-import.mjs",
     "e2e:perf": "node scripts/e2e-perf.mjs",

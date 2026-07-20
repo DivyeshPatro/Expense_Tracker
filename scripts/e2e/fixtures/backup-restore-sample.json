@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "exportedAt": "2026-07-20T12:00:00.000Z",
+  "user": { "name": "Restore Test", "email": "arjun@ledgerly.app", "currency": "INR" },
+  "accounts": [
+    { "id": "bak-acc-1", "name": "HDFC Savings", "type": "BANK", "openingBalance": 0, "balance": 0 }
+  ],
+  "categories": [],
+  "transactions": [
+    { "id": "bak-tx-1", "type": "EXPENSE", "amount": 15000, "accountId": null, "categoryId": null, "merchant": "ZZZ RestoreTest Expense 001", "occurredAt": "2026-07-20T12:00:00.000Z", "notes": "synthetic restore fixture" },
+    { "id": "bak-tx-2", "type": "INCOME", "amount": 50000, "accountId": null, "categoryId": null, "merchant": "ZZZ RestoreTest Income 002", "occurredAt": "2026-07-20T12:00:00.000Z", "notes": "synthetic restore fixture" }
+  ]
+}
