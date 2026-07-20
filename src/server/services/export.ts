@@ -69,7 +69,7 @@ export async function exportTransactionsXlsx(userId: string): Promise<Buffer> {
 }
 
 export async function exportFullJson(userId: string) {
-  const [user, accounts, categories, transactions, budgets, bills, participants, groups, settlements, recurringRules] = await Promise.all([
+  const [user, accounts, categories, transactions, budgets, bills, participants, groups, settlements, recurringRules, loanEntries, loanAllocations, tags] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, currency: true, createdAt: true } }),
     prisma.account.findMany({ where: { userId } }),
     prisma.category.findMany({ where: { userId } }),
@@ -80,11 +80,19 @@ export async function exportFullJson(userId: string) {
     prisma.group.findMany({ where: { createdById: userId }, include: { members: true } }),
     prisma.settlement.findMany({ where: { userId } }),
     prisma.recurringRule.findMany({ where: { userId } }),
+    prisma.loanEntry.findMany({ where: { userId, deletedAt: null } }),
+    prisma.loanAllocation.findMany({ where: { userId } }),
+    prisma.tag.findMany({ where: { userId } }),
   ]);
 
   return JSON.parse(
     JSON.stringify(
       {
+        // formatVersion: bump when the backup shape changes in a way the
+        // restore engine can't tolerate blindly. Restore currently reads only
+        // accounts/categories/transactions; the lending/budget/etc. arrays are
+        // carried for forward-completeness (a future restore version).
+        formatVersion: 1,
         exportedAt: new Date().toISOString(),
         user,
         accounts,
@@ -96,6 +104,9 @@ export async function exportFullJson(userId: string) {
         groups,
         settlements,
         recurringRules,
+        loanEntries,
+        loanAllocations,
+        tags,
       },
       (_k, v) => (typeof v === "bigint" ? Number(v) : v)
     )

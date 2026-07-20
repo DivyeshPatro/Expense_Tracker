@@ -19,6 +19,7 @@ import {
   undoImport,
   type CommitInput,
 } from "@/server/services/import";
+import { commitBackupRestore, previewBackupRestore } from "@/server/services/backup-restore";
 import { addParticipant, recordSettlement } from "@/server/services/shared";
 import {
   addLoanEntry,
@@ -478,6 +479,24 @@ export async function undoImportAction(batchId: string): Promise<ActionResult> {
     await undoImport(user.id, batchId);
     refresh();
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Backup (JSON) restore ───────────
+
+export async function previewBackupRestoreAction(json: unknown) {
+  const user = await requireUser();
+  return previewBackupRestore(user.id, json);
+}
+
+export async function commitBackupRestoreAction(json: unknown): Promise<ActionResult & { batchId?: string; imported?: number; skipped?: number }> {
+  try {
+    const user = await requireUser();
+    const result = await commitBackupRestore(user.id, json);
+    refresh();
+    return { ok: true, batchId: result.batchId, imported: result.imported, skipped: result.skipped };
   } catch (e) {
     return fail(e);
   }
