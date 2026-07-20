@@ -8,9 +8,11 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
+  commitBackupRestoreAction,
   commitImportAction,
   createCategoryAction,
   getSavedMappingAction,
+  previewBackupRestoreAction,
   previewImportAction,
 } from "@/app/actions";
 import type { ColumnMapping, PreviewRow, TargetField } from "@/lib/import/types";
@@ -18,7 +20,7 @@ import { emptyMapping, UNCATEGORIZED } from "@/lib/import/types";
 import { formatPaise } from "@/lib/money";
 import { useUI } from "@/components/shell/ui-context";
 
-type Step = "upload" | "mapping" | "resolve" | "preview";
+type Step = "upload" | "mapping" | "resolve" | "preview" | "backupPreview";
 
 const FIELD_LABELS: Record<TargetField, string> = {
   date: "Date",
@@ -76,8 +78,51 @@ export function ImportWizard() {
   // whichever account happens to be first in the list.
   const [defaultAccountId, setDefaultAccountId] = useState("");
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
+  // Backup (.json) restore — a parallel flow to the CSV wizard. The backup
+  // card on the upload step switches `preset` to "backup", which routes the
+  // chosen file through previewBackupRestoreAction instead of the sheet parser.
+  const [backupJson, setBackupJson] = useState<unknown>(null);
+  const [backupPreview, setBackupPreview] = useState<Awaited<ReturnType<typeof previewBackupRestoreAction>> | null>(null);
 
   const mapping = useMemo(() => columnFieldToMapping(assign, amountSign), [assign, amountSign]);
+
+  async function handleBackupUpload(file: File) {
+    setBusy(true);
+    setError(null);
+    try {
+      const text = await file.text();
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error("That file isn't valid JSON — was it exported from Ledgerly's Settings → Export?");
+      }
+      const result = await previewBackupRestoreAction(json);
+      setBackupJson(json);
+      setBackupPreview(result);
+      setFileName(file.name);
+      setStep("backupPreview");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't read this backup file");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commitBackup() {
+    if (!backupJson) return;
+    setBusy(true);
+    setError(null);
+    const res = await commitBackupRestoreAction(backupJson);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    showToast(`Restored ${res.imported} transaction${res.imported === 1 ? "" : "s"}`);
+    router.push("/transactions");
+    router.refresh();
+  }
 
   async function handleUpload(file: File) {
     setBusy(true);
@@ -210,7 +255,7 @@ export function ImportWizard() {
           </div>
           <div className="flex flex-col gap-2">
             <div className="label-caps">SOURCE FORMAT</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <SourceCard
                 icon="📄"
                 label="CSV / Excel"
@@ -225,10 +270,22 @@ export function ImportWizard() {
                 selected={preset === "khatabook"}
                 onClick={() => setPreset("khatabook")}
               />
+              <SourceCard
+                icon="💾"
+                label="Ledgerly Backup"
+                detail="Restore transactions from a .json file you exported from Ledgerly's Settings."
+                selected={preset === "backup"}
+                onClick={() => setPreset("backup")}
+              />
             </div>
             {preset === "khatabook" && (
               <div className="text-[12px] text-amber bg-ambersoft rounded-lg px-3 py-2">
                 ⚠ Khatabook tracks people you lent to — Ledgerly imports those rows as plain income/expense transactions, not as lending entries. Lending parties live in a separate area.
+              </div>
+            )}
+            {preset === "backup" && (
+              <div className="text-[12px] text-mut bg-accsoft rounded-lg px-3 py-2">
+                Additive only: every restored transaction lands as a new row. Accounts and categories that don&apos;t already exist (matched by name) are created fresh. Existing data is never overwritten. You can undo the whole restore in one go from Settings → Import history.
               </div>
             )}
           </div>
@@ -236,10 +293,19 @@ export function ImportWizard() {
             {busy ? "Reading…" : "Choose file"}
             <input
               type="file"
-              accept=".csv,.xlsx,.xls"
+              key={preset}
+              accept={preset === "backup" ? ".json" : ".csv,.xlsx,.xls"}
               className="hidden"
               disabled={busy}
-              onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                // A .json upload is always treated as a Ledgerly Backup even if
+                // the source card wasn't clicked first — Playwright bypasses the
+                // accept filter, and a user can switch source after picking a file.
+                if (preset === "backup" || f.name.toLowerCase().endsWith(".json")) void handleBackupUpload(f);
+                else void handleUpload(f);
+              }}
             />
           </label>
         </div>
@@ -405,6 +471,20 @@ export function ImportWizard() {
           onCommit={commit}
         />
       )}
+
+      {step === "backupPreview" && backupPreview && (
+        <BackupRestoreSummary
+          preview={backupPreview}
+          fileName={fileName}
+          busy={busy}
+          onBack={() => {
+            setBackupPreview(null);
+            setBackupJson(null);
+            setStep("upload");
+          }}
+          onCommit={commitBackup}
+        />
+      )}
     </div>
   );
 }
@@ -542,6 +622,147 @@ function PreviewTable({
           {busy ? "Importing…" : `Import ${toImport} transaction${toImport === 1 ? "" : "s"}`}
         </button>
       </div>
+    </div>
+  );
+}
+
+const UNSUPPORTED_LABELS: Record<string, string> = {
+  budgets: "Budgets",
+  bills: "Bills",
+  participants: "Lending participants",
+  groups: "Groups",
+  settlements: "Settlements",
+  recurringRules: "Recurring rules",
+  loanEntries: "Lending entries",
+  loanAllocations: "Loan allocations",
+  tags: "Tags",
+};
+
+const INVALID_REASON_LABELS: Record<string, string> = {
+  duplicate: "duplicate",
+  "missing or unsupported type": "missing or unsupported type",
+  "amount missing or not a positive number": "amount missing or not a positive number",
+  "merchant missing": "merchant missing",
+  "date missing or invalid": "date missing or invalid",
+  "referenced account missing": "referenced account missing",
+  "transfer destination account missing": "transfer destination account missing",
+  "transfer needs source and destination accounts": "transfer missing an account side",
+};
+
+function BackupRestoreSummary({
+  preview,
+  fileName,
+  busy,
+  onBack,
+  onCommit,
+}: {
+  preview: Awaited<ReturnType<typeof previewBackupRestoreAction>>;
+  fileName: string;
+  busy: boolean;
+  onBack: () => void;
+  onCommit: () => void;
+}) {
+  const toImport = preview.validTransactions;
+  const invalidBreakdown = preview.invalidBreakdown;
+  const hasInvalidReasons = Object.keys(invalidBreakdown).length > 0;
+  const unsupportedNames = preview.unsupported.map((k) => UNSUPPORTED_LABELS[k] ?? k);
+  return (
+    <div className="card p-6 flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <div className="text-[13.5px] font-bold">Restore from {fileName}</div>
+        {preview.formatVersion !== null && preview.formatVersion !== 1 && (
+          <div className="text-[12px] text-amber bg-ambersoft rounded-lg px-3 py-2">
+            ⚠ This backup was made with a newer format (v{preview.formatVersion}). Some fields may not restore — proceed only if you understand the risk.
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        <SummaryStat label="Transactions" value={preview.transactions} />
+        <SummaryStat label="Will restore" value={toImport} tone="green" />
+        <SummaryStat label="Duplicates skipped" value={preview.duplicateTransactions} tone="amber" />
+        <SummaryStat label="Invalid skipped" value={preview.invalidTransactions} tone="red" />
+        <SummaryStat label="New accounts" value={preview.newAccounts} />
+        <SummaryStat label="Matched accounts" value={preview.matchedAccounts} />
+        <SummaryStat label="New categories" value={preview.newCategories} />
+        <SummaryStat label="Matched categories" value={preview.matchedCategories} />
+      </div>
+
+      {hasInvalidReasons && (
+        <div className="text-[12px] text-red bg-redsoft rounded-lg px-3 py-2">
+          <span className="font-semibold">Invalid rows:</span>{" "}
+          {Object.entries(invalidBreakdown).map(([reason, count], i, arr) => (
+            <span key={reason}>
+              {count} {INVALID_REASON_LABELS[reason] ?? reason}{i < arr.length - 1 ? ", " : ""}
+            </span>
+          ))}
+          . The backup must contain a supported type, a positive amount, a merchant, a valid date, and all referenced accounts (including transfer destinations).
+        </div>
+      )}
+
+      {unsupportedNames.length > 0 && (
+        <div className="text-[12px] text-amber bg-ambersoft rounded-lg px-3 py-2">
+          <span className="font-semibold">Not restored:</span>{" "}
+          {unsupportedNames.join(", ")}. Only the transaction ledger, accounts, and categories are restored in this version.
+        </div>
+      )}
+
+      {(preview.earliest || preview.latest) && (
+        <div className="text-[12px] text-mut">
+          {preview.earliest && <span>From <b className="text-ink">{preview.earliest}</b></span>}
+          {preview.earliest && preview.latest && <span> · </span>}
+          {preview.latest && <span>to <b className="text-ink">{preview.latest}</b></span>}
+        </div>
+      )}
+
+      {preview.sample.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="label-caps">SAMPLE</div>
+          <div className="max-h-[180px] overflow-auto border border-line rounded-lg">
+            <table className="w-full text-[12px] border-collapse">
+              <thead className="sticky top-0 bg-card">
+                <tr className="border-b border-line text-left text-mut">
+                  <th className="py-1.5 px-2 font-semibold">Date</th>
+                  <th className="py-1.5 px-2 font-semibold">Type</th>
+                  <th className="py-1.5 px-2 font-semibold">Amount</th>
+                  <th className="py-1.5 px-2 font-semibold">Merchant</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.sample.map((r, i) => (
+                  <tr key={i} className="border-b border-line">
+                    <td className="py-1.5 px-2">{r.date ?? "—"}</td>
+                    <td className="py-1.5 px-2">{r.type ?? "—"}</td>
+                    <td className="py-1.5 px-2">{r.amount !== null ? formatPaise(r.amount) : "—"}</td>
+                    <td className="py-1.5 px-2 max-w-[160px] truncate">{r.merchant ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="text-[12px] text-mut bg-accsoft rounded-lg px-3 py-2.5">
+        Accounts &amp; categories are matched by name; only the missing ones are created. Budgets, bills, lending entries, settlements, recurring rules and tags from the backup aren&apos;t restored in this version — only the transaction ledger. You can undo the whole restore in one step from Settings → Import history.
+      </div>
+
+      <div className="flex gap-2 justify-end">
+        <button onClick={onBack} className="px-3.5 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold cursor-pointer">Back</button>
+        <button disabled={busy || toImport === 0} onClick={onCommit} className="btn-primary disabled:opacity-50">
+          {busy ? "Restoring…" : `Restore ${toImport} transaction${toImport === 1 ? "" : "s"}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SummaryStat({ label, value, tone }: { label: string; value: number; tone?: "green" | "amber" | "red" }) {
+  const color = tone === "green" ? "var(--green)" : tone === "amber" ? "var(--amber)" : tone === "red" ? "var(--red)" : "var(--ink)";
+  return (
+    <div className="bg-accsoft rounded-[10px] px-3 py-2.5">
+      <div className="text-[10px] font-semibold text-mut tracking-[.04em] uppercase">{label}</div>
+      <div className="text-[18px] font-extrabold mt-0.5" style={{ color }}>{value}</div>
     </div>
   );
 }
