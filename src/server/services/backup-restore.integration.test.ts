@@ -177,6 +177,30 @@ describe("commitBackupRestore integration", () => {
     expect(result.skipped).toBe(1);
   });
 
+  // Regression: a newly created account was seeded with the backup's exported
+  // CLOSING balance and then had every restored transaction replayed onto it,
+  // counting each one twice. balance must equal openingBalance + Σ restored ledger.
+  it("does not double-count the exported balance on a newly created account", async () => {
+    const backup = makeBackup({
+      accounts: [{ id: "a1", name: "Fresh Wallet", type: "CASH", openingBalance: 10_000, balance: 9_000 }],
+      transactions: [{ type: "EXPENSE", amount: 1_000, accountId: "a1", merchant: "Snacks", occurredAt: "2026-07-17" }],
+    });
+    await commitBackupRestore(userId, backup);
+    const acct = await prisma.account.findFirstOrThrow({ where: { userId, name: "Fresh Wallet" } });
+    expect(Number(acct.openingBalance)).toBe(10_000);
+    expect(Number(acct.balance)).toBe(9_000);
+  });
+
+  it("preserves a negative opening balance (credit card carrying a debt)", async () => {
+    const backup = makeBackup({
+      accounts: [{ id: "a1", name: "Amex Card", type: "CREDIT_CARD", openingBalance: -25_000, balance: -25_000 }],
+    });
+    await commitBackupRestore(userId, backup);
+    const acct = await prisma.account.findFirstOrThrow({ where: { userId, name: "Amex Card" } });
+    expect(Number(acct.openingBalance)).toBe(-25_000);
+    expect(Number(acct.balance)).toBe(-25_000);
+  });
+
   it("undo removes restored transactions and reverses balances", async () => {
     const before = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
     const backup = makeBackup({

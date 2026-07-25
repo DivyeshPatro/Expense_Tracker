@@ -123,6 +123,14 @@ function paiseFrom(v: unknown): number | null {
   return p > 0 ? p : null;
 }
 
+// Balances are NOT amounts: zero is legitimate and negative is meaningful
+// (a credit card carrying a debt). paiseFrom would collapse both to null and
+// silently zero out a restored card's opening position.
+function balancePaise(v: unknown): number | null {
+  const n = asNumber(v);
+  return n === null ? null : Math.round(n);
+}
+
 export function classifyTransactions(
   transactions: BackupTransaction[],
   accountIdMap: Map<string, string>,
@@ -325,8 +333,14 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
           name: a.name,
           type: a.type as Prisma.AccountCreateInput["type"],
           bankName: asString(a.bankName ?? undefined) ?? null,
-          openingBalance: paiseFrom(a.openingBalance) ?? 0,
-          balance: paiseFrom(a.balance) ?? paiseFrom(a.openingBalance) ?? 0,
+          // Seed at the account's OPENING position, never its exported closing
+          // balance: applyBalances below replays every restored transaction onto
+          // this account, so seeding with the closing balance (which already
+          // reflects those transactions) counted each one twice and silently
+          // corrupted the restored balance. schema.prisma states the invariant
+          // this restores: balance = openingBalance + Σ ledger.
+          openingBalance: balancePaise(a.openingBalance) ?? 0,
+          balance: balancePaise(a.openingBalance) ?? 0,
           color: asString(a.color ?? undefined) ?? null,
           icon: asString(a.icon ?? undefined) ?? null,
           isArchived: !!a.isArchived,
