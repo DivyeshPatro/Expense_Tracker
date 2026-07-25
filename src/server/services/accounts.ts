@@ -138,8 +138,145 @@ export async function createAccount(
   });
 }
 
-export async function archiveAccount(userId: string, id: string) {
-  await prisma.account.updateMany({ where: { id, userId }, data: { isArchived: true } });
+export interface ArchivedAccountView {
+  id: string;
+  name: string;
+  type: AccountType;
+  typeLabel: string;
+  icon: string;
+  color: string;
+  balance: number;
+  /** Live transactions still referencing it — what the archive is protecting. */
+  transactionCount: number;
+}
+
+/** Archived accounts, for the restore/history surface. Everything else in the app
+ * reads listAccounts/listAccountRows, which exclude them. */
+export async function listArchivedAccounts(userId: string): Promise<ArchivedAccountView[]> {
+  const accounts = await prisma.account.findMany({
+    where: { userId, isArchived: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (accounts.length === 0) return [];
+  const counts = await prisma.transaction.groupBy({
+    by: ["accountId"],
+    where: { userId, deletedAt: null, accountId: { in: accounts.map((a) => a.id) } },
+    _count: { _all: true },
+  });
+  const byId = new Map(counts.map((c) => [c.accountId, c._count._all]));
+  return accounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type,
+    typeLabel: ACCOUNT_TYPE_LABELS[a.type] ?? a.type,
+    icon: a.icon ?? "🏦",
+    color: a.color ?? "#2a63f6",
+    balance: Number(a.balance),
+    transactionCount: byId.get(a.id) ?? 0,
+  }));
+}
+
+/**
+ * Rename only. Type and opening balance are deliberately not editable: both feed
+ * the balance invariant (balance = openingBalance + Σ ledger) and changing either
+ * after transactions exist would silently invalidate every reported figure.
+ * Card Vault fields have their own editor, updateAccountCardDetails.
+ */
+export async function renameAccount(userId: string, id: string, name: string) {
+  const before = await prisma.account.findFirst({ where: { id, userId } });
+  if (!before) throw new Error("Account not found");
+  const after = await prisma.account.update({ where: { id }, data: { name } });
+  await audit(prisma, userId, "rename", "Account", id, { name: before.name }, { name: after.name });
+}
+
+/** Recurring rules whose template funds from this account. */
+async function rulesFundedBy(userId: string, accountId: string) {
+  const rules = await prisma.recurringRule.findMany({ where: { userId } });
+  return rules.filter((r) => (r.template as { accountId?: string } | null)?.accountId === accountId);
+}
+
+/**
+ * Archiving pauses any recurring rule funded by this account. Continuing to
+ * auto-create transactions against an account the user has just put away is
+ * exactly what they were trying to stop — and unlike deletion it stays
+ * reversible, since the rules are only paused, never removed.
+ */
+export async function archiveAccount(userId: string, id: string): Promise<{ pausedRules: number }> {
+  const account = await prisma.account.findFirst({ where: { id, userId } });
+  if (!account) throw new Error("Account not found");
+
+  const funded = (await rulesFundedBy(userId, id)).filter((r) => !r.isPaused);
+  await prisma.$transaction(async (db) => {
+    await db.account.update({ where: { id }, data: { isArchived: true } });
+    for (const r of funded) {
+      await db.recurringRule.update({ where: { id: r.id }, data: { isPaused: true } });
+    }
+    await audit(db, userId, "archive", "Account", id, { isArchived: false }, { isArchived: true, pausedRules: funded.length });
+  });
+  return { pausedRules: funded.length };
+}
+
+/**
+ * Restore. Recurring rules paused by archiving are deliberately NOT resumed:
+ * nothing records why a rule was paused, so auto-resuming would also restart
+ * rules the user had paused for their own reasons. The UI says they stay paused.
+ */
+export async function unarchiveAccount(userId: string, id: string) {
+  const account = await prisma.account.findFirst({ where: { id, userId } });
+  if (!account) throw new Error("Account not found");
+  await prisma.account.update({ where: { id }, data: { isArchived: false } });
+  await audit(prisma, userId, "unarchive", "Account", id, { isArchived: true }, { isArchived: false });
+}
+
+export interface AccountRemovalResult {
+  outcome: "deleted" | "archived";
+  /** Present when archived — what was still pointing at the account. */
+  reason?: string;
+  pausedRules: number;
+}
+
+/**
+ * Delete when the account is genuinely unused; archive when anything still
+ * refers to it.
+ *
+ * "Unused" is stricter than "no transactions". Budget and Bill cascade on
+ * account deletion, and a soft-deleted transaction is still restorable history —
+ * so a hard delete is only safe when nothing at all points here. Anything else
+ * archives, and says which kind of record stopped it, rather than quietly
+ * destroying a budget along with the account.
+ */
+export async function deleteOrArchiveAccount(userId: string, id: string): Promise<AccountRemovalResult> {
+  const account = await prisma.account.findFirst({ where: { id, userId } });
+  if (!account) throw new Error("Account not found");
+
+  const [fromTx, toTx, budgets, bills, loans, rules] = await Promise.all([
+    // Soft-deleted rows count: they can be restored, and they'd come back
+    // pointing at an account that no longer exists.
+    prisma.transaction.count({ where: { accountId: id } }),
+    prisma.transaction.count({ where: { toAccountId: id } }),
+    prisma.budget.count({ where: { accountId: id } }),
+    prisma.bill.count({ where: { accountId: id } }),
+    prisma.loanEntry.count({ where: { accountId: id } }),
+    rulesFundedBy(userId, id),
+  ]);
+
+  const blockers: string[] = [];
+  if (fromTx + toTx > 0) blockers.push(`${fromTx + toTx} transaction${fromTx + toTx === 1 ? "" : "s"}`);
+  if (budgets > 0) blockers.push(`${budgets} budget${budgets === 1 ? "" : "s"}`);
+  if (bills > 0) blockers.push(`${bills} bill${bills === 1 ? "" : "s"}`);
+  if (loans > 0) blockers.push(`${loans} lending entr${loans === 1 ? "y" : "ies"}`);
+  if (rules.length > 0) blockers.push(`${rules.length} recurring rule${rules.length === 1 ? "" : "s"}`);
+
+  if (blockers.length > 0) {
+    const { pausedRules } = await archiveAccount(userId, id);
+    return { outcome: "archived", reason: blockers.join(", "), pausedRules };
+  }
+
+  await prisma.$transaction(async (db) => {
+    await db.account.delete({ where: { id } });
+    await audit(db, userId, "delete", "Account", id, account, undefined);
+  });
+  return { outcome: "deleted", pausedRules: 0 };
 }
 
 /** Card Vault editing (lending-module-phase2) — the one way to set

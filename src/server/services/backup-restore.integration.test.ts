@@ -193,6 +193,23 @@ describe("commitBackupRestore integration", () => {
     expect(Number(acct.balance)).toBe(9_000);
   });
 
+  // A backup taken after archiving must restore an archived account, not
+  // resurrect it into every picker.
+  it("preserves the archived state of a restored account", async () => {
+    const backup = makeBackup({
+      accounts: [
+        { id: "a1", name: "Closed Wallet", type: "CASH", openingBalance: 0, isArchived: true },
+        { id: "a2", name: "Open Wallet", type: "CASH", openingBalance: 0 },
+      ],
+    });
+    await commitBackupRestore(userId, backup);
+
+    const closed = await prisma.account.findFirstOrThrow({ where: { userId, name: "Closed Wallet" } });
+    const open = await prisma.account.findFirstOrThrow({ where: { userId, name: "Open Wallet" } });
+    expect(closed.isArchived).toBe(true);
+    expect(open.isArchived).toBe(false);
+  });
+
   it("preserves a negative opening balance (credit card carrying a debt)", async () => {
     const backup = makeBackup({
       accounts: [{ id: "a1", name: "Amex Card", type: "CREDIT_CARD", openingBalance: -25_000, balance: -25_000 }],

@@ -244,3 +244,8 @@ export const recurringRuleSchema = z
   });
 
 export const updateRecurringRuleSchema = z.object({ id: z.string().min(1) }).and(recurringRuleSchema);
+
+/** Account rename — the only field of an existing account that's freely editable
+ * (type and opening balance feed the balance invariant; card fields have their
+ * own editor). */
+export const accountNameSchema = z.string().trim().min(1, "Name is required").max(60);

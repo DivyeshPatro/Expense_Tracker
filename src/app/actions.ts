@@ -6,7 +6,13 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/server/session";
-import { createAccount, updateAccountCardDetails } from "@/server/services/accounts";
+import {
+  createAccount,
+  deleteOrArchiveAccount as removeAccount,
+  renameAccount,
+  unarchiveAccount,
+  updateAccountCardDetails,
+} from "@/server/services/accounts";
 import { createBill, markBillPaid } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
 import { changeCategoryKind, createCategory, createGroupCategory, deleteCategory, listGroupCategories, renameCategory } from "@/server/services/categories";
@@ -94,6 +100,7 @@ import {
   accountCardDetailsSchema,
   recurringRuleSchema,
   updateRecurringRuleSchema,
+  accountNameSchema,
 } from "@/validators";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -290,6 +297,47 @@ export async function createAccountAction(input: unknown): Promise<ActionResult>
     const user = await requireUser();
     const data = accountSchema.parse(input);
     await createAccount(user.id, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function renameAccountAction(id: string, name: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const clean = accountNameSchema.parse(name);
+    await renameAccount(user.id, id, clean);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Deletes an unused account outright, archives one that still has records
+ * pointing at it. The message explains which happened and why — an account that
+ * silently turned into an archived one would look like the delete failed.
+ */
+export async function removeAccountAction(id: string): Promise<ActionResult & { message?: string }> {
+  try {
+    const user = await requireUser();
+    const res = await removeAccount(user.id, id);
+    refresh();
+    if (res.outcome === "deleted") return { ok: true, message: "Account deleted" };
+    const paused = res.pausedRules > 0 ? ` ${res.pausedRules} recurring rule${res.pausedRules === 1 ? "" : "s"} paused.` : "";
+    return { ok: true, message: `Archived instead — ${res.reason} still reference this account, so its history is kept.${paused}` };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function unarchiveAccountAction(id: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await unarchiveAccount(user.id, id);
     refresh();
     return { ok: true };
   } catch (e) {

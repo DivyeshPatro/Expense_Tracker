@@ -195,8 +195,11 @@ function toTemplate(input: RuleInput): RecurringTemplate {
  */
 async function assertOwnedRefs(userId: string, accountId: string | null, categoryId: string | null) {
   if (accountId) {
-    const owned = await prisma.account.count({ where: { id: accountId, userId } });
-    if (!owned) throw new Error("That account doesn't exist");
+    const account = await prisma.account.findFirst({ where: { id: accountId, userId } });
+    if (!account) throw new Error("That account doesn't exist");
+    // Archiving pauses the rules already funded by an account; scheduling a NEW
+    // one against it would walk straight back into what archiving just stopped.
+    if (account.isArchived) throw new Error("That account is archived — restore it first, or pick another");
   }
   if (categoryId) {
     const owned = await prisma.category.count({ where: { id: categoryId, userId } });
