@@ -310,6 +310,10 @@ model RecurringRule {
   // down permanently (31st → Feb 28 → Mar 28 → …). Null on pre-existing rules,
   // which keeps their current behaviour — see advance() in lib/dates.ts.
   anchorDay Int?
+  // Paused rules are skipped by the engine and their nextRunAt does NOT advance
+  // while paused — resuming rolls the schedule forward to the next future
+  // occurrence rather than backfilling the pause window.
+  isPaused  Boolean   @default(false)
   template  Json // transaction/bill payload to materialize
   kind      RuleKind
 

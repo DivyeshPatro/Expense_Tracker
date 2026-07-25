@@ -3,8 +3,16 @@
 // with a Postgres service.
 
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { istNoon, toYMD } from "@/lib/dates";
-import { materializeDueRules } from "./recurring";
+import { istNoon, todayYMD, toYMD } from "@/lib/dates";
+import {
+  createRecurringRule,
+  deleteRecurringRule,
+  listRecurringRules,
+  materializeDueRules,
+  setRecurringRulePaused,
+  updateRecurringRule,
+  type RuleInput,
+} from "./recurring";
 import { prisma } from "../db";
 
 const EMAIL = "recurring-test@ledgerly.app";
@@ -220,5 +228,135 @@ describe("materializeDueRules", () => {
     await makeRule({ nextRunAt: istNoon("2026-08-01") });
     const res = await materializeDueRules(istNoon("2026-07-01"));
     expect(res).toEqual({ created: 0, failures: [] });
+  });
+});
+
+describe("recurring rule management", () => {
+  function input(over: Partial<RuleInput> = {}): RuleInput {
+    return {
+      type: "EXPENSE",
+      amountPaise: 49_900,
+      accountId,
+      categoryId,
+      merchant: "Spotify",
+      cadence: "MONTHLY",
+      interval: 1,
+      startYmd: "2026-08-15",
+      endYmd: null,
+      ...over,
+    };
+  }
+
+  beforeEach(async () => {
+    await prisma.transaction.deleteMany({ where: { userId } });
+    await prisma.notification.deleteMany({ where: { userId } });
+    await prisma.recurringRule.deleteMany({ where: { userId } });
+    await prisma.account.update({ where: { id: accountId }, data: { balance: 100_000 } });
+  });
+
+  it("creates a rule and lists it with resolved account/category names", async () => {
+    await createRecurringRule(userId, input());
+    const [rule] = await listRecurringRules(userId);
+
+    expect(rule.template.merchant).toBe("Spotify");
+    expect(rule.template.amount).toBe(49_900);
+    expect(rule.nextRunYmd).toBe("2026-08-15");
+    expect(rule.accountName).toBe("Recurring Bank");
+    expect(rule.categoryName).toBe("Subscriptions");
+    expect(rule.isPaused).toBe(false);
+    expect(rule.materializedCount).toBe(0);
+  });
+
+  it("anchors month-based cadences to the start day, and leaves day-based ones unanchored", async () => {
+    await createRecurringRule(userId, input({ cadence: "MONTHLY", startYmd: "2026-01-31" }));
+    await createRecurringRule(userId, input({ cadence: "WEEKLY", startYmd: "2026-01-31", merchant: "Weekly" }));
+    const rules = await listRecurringRules(userId);
+
+    expect(rules.find((r) => r.template.merchant === "Spotify")?.anchorDay).toBe(31);
+    expect(rules.find((r) => r.template.merchant === "Weekly")?.anchorDay).toBeNull();
+  });
+
+  it("refuses an account or category belonging to someone else", async () => {
+    const other = await prisma.user.create({ data: { name: "Other", email: "other-recurring@ledgerly.app", emailVerified: true } });
+    const foreign = await prisma.account.create({
+      data: { userId: other.id, name: "Not Yours", type: "BANK", balance: 0, openingBalance: 0 },
+    });
+
+    await expect(createRecurringRule(userId, input({ accountId: foreign.id }))).rejects.toThrow(/account doesn't exist/);
+    expect(await prisma.recurringRule.count({ where: { userId } })).toBe(0);
+
+    await prisma.user.delete({ where: { id: other.id } });
+  });
+
+  it("edits future occurrences only, never past ones", async () => {
+    const id = await createRecurringRule(userId, input({ cadence: "DAILY", startYmd: "2026-07-01" }));
+    await materializeDueRules(istNoon("2026-07-02")); // two occurrences at 49,900
+
+    await updateRecurringRule(userId, id, input({ cadence: "DAILY", startYmd: "2026-07-03", amountPaise: 99_900 }));
+    await materializeDueRules(istNoon("2026-07-03"));
+
+    const txs = await prisma.transaction.findMany({ where: { userId }, orderBy: { occurredAt: "asc" } });
+    expect(txs.map((t) => Number(t.amount))).toEqual([49_900, 49_900, 99_900]);
+  });
+
+  it("deleting a rule keeps the transactions it already created", async () => {
+    const id = await createRecurringRule(userId, input({ cadence: "DAILY", startYmd: "2026-07-01" }));
+    await materializeDueRules(istNoon("2026-07-02"));
+    expect(await prisma.transaction.count({ where: { userId, deletedAt: null } })).toBe(2);
+
+    await deleteRecurringRule(userId, id);
+
+    expect(await prisma.recurringRule.count({ where: { id } })).toBe(0);
+    // History survives, still stamped with the (now absent) rule id.
+    const txs = await prisma.transaction.findMany({ where: { userId, deletedAt: null } });
+    expect(txs).toHaveLength(2);
+    expect(txs.every((t) => t.recurringRuleId === id)).toBe(true);
+  });
+
+  it("will not touch another user's rule", async () => {
+    const other = await prisma.user.create({ data: { name: "Other", email: "other-recurring@ledgerly.app", emailVerified: true } });
+    const theirs = await prisma.recurringRule.create({
+      data: {
+        userId: other.id,
+        kind: "TRANSACTION",
+        cadence: "DAILY",
+        interval: 1,
+        nextRunAt: istNoon("2026-07-01"),
+        template: { type: "EXPENSE", amount: 100, merchant: "Theirs" } as object,
+      },
+    });
+
+    await expect(deleteRecurringRule(userId, theirs.id)).rejects.toThrow(/not found/);
+    await expect(setRecurringRulePaused(userId, theirs.id, true)).rejects.toThrow(/not found/);
+    expect(await prisma.recurringRule.count({ where: { id: theirs.id } })).toBe(1);
+
+    await prisma.user.delete({ where: { id: other.id } });
+  });
+
+  it("a paused rule materializes nothing and its schedule does not advance", async () => {
+    const id = await createRecurringRule(userId, input({ cadence: "DAILY", startYmd: "2026-07-01" }));
+    await setRecurringRulePaused(userId, id, true);
+
+    const res = await materializeDueRules(istNoon("2026-07-05"));
+
+    expect(res.created).toBe(0);
+    expect(await prisma.transaction.count({ where: { userId } })).toBe(0);
+    const rule = await prisma.recurringRule.findUniqueOrThrow({ where: { id } });
+    expect(toYMD(rule.nextRunAt)).toBe("2026-07-01"); // frozen where it stood
+  });
+
+  it("resuming skips the paused window instead of backfilling it", async () => {
+    // Start in the past so resume has a gap to skip.
+    const id = await createRecurringRule(userId, input({ cadence: "DAILY", startYmd: "2020-01-01" }));
+    await setRecurringRulePaused(userId, id, true);
+    await setRecurringRulePaused(userId, id, false);
+
+    const rule = await prisma.recurringRule.findUniqueOrThrow({ where: { id } });
+    expect(rule.isPaused).toBe(false);
+    // Rolled forward to today or later — not still sitting in 2020.
+    expect(toYMD(rule.nextRunAt) >= todayYMD()).toBe(true);
+
+    const res = await materializeDueRules(new Date());
+    expect(res.created).toBeLessThanOrEqual(1); // at most today's occurrence
   });
 });

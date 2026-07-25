@@ -220,3 +220,27 @@ export const participantDetailsSchema = z.object({
   phone: z.string().trim().max(30).nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
 });
+
+// Recurring rules. Validated here rather than trusted from the client because
+// this payload is stored and then replayed unattended by the nightly cron —
+// malformed data written once fails every night, with nobody watching.
+export const recurringRuleSchema = z
+  .object({
+    type: z.enum(["EXPENSE", "INCOME"]),
+    amount: paiseFromRupees,
+    accountId: z.string().min(1).nullable(),
+    categoryId: z.string().min(1).nullable(),
+    merchant: z.string().trim().min(1, "Give this a description").max(120),
+    cadence: z.enum(["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"]),
+    // Guards the catch-up loop as much as the user: interval 0 would never
+    // advance nextRunAt and would spin against the per-run cap forever.
+    interval: z.coerce.number().int().min(1, "Repeat every at least 1").max(99),
+    startDate: ymd,
+    endDate: ymd.nullable().optional(),
+  })
+  .refine((v) => !v.endDate || v.endDate >= v.startDate, {
+    message: "End date can't be before the start date",
+    path: ["endDate"],
+  });
+
+export const updateRecurringRuleSchema = z.object({ id: z.string().min(1) }).and(recurringRuleSchema);

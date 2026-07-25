@@ -20,6 +20,14 @@ import {
   type CommitInput,
 } from "@/server/services/import";
 import { commitBackupRestore, previewBackupRestore } from "@/server/services/backup-restore";
+import {
+  createRecurringRule,
+  deleteRecurringRule,
+  listRecurringRules,
+  setRecurringRulePaused,
+  updateRecurringRule,
+  type RecurringRuleView,
+} from "@/server/services/recurring";
 import { addParticipant, recordSettlement } from "@/server/services/shared";
 import {
   addLoanEntry,
@@ -84,6 +92,8 @@ import {
   updateLoanEntryWithIntentSchema,
   deleteLoanEntrySchema,
   accountCardDetailsSchema,
+  recurringRuleSchema,
+  updateRecurringRuleSchema,
 } from "@/validators";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -509,6 +519,82 @@ export async function commitBackupRestoreAction(json: unknown): Promise<ActionRe
     const result = await commitBackupRestore(user.id, json);
     refresh();
     return { ok: true, batchId: result.batchId, imported: result.imported, skipped: result.skipped };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Recurring rules ───────────
+// Config, not a ledger mutation, so these go straight to the server rather than
+// through the offline outbox: there is nothing to replay optimistically, and a
+// rule only takes effect when the nightly cron next runs anyway.
+
+export async function listRecurringRulesAction(): Promise<RecurringRuleView[]> {
+  const user = await requireUser();
+  return listRecurringRules(user.id);
+}
+
+export async function createRecurringRuleAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const d = recurringRuleSchema.parse(input);
+    await createRecurringRule(user.id, {
+      type: d.type,
+      amountPaise: d.amount,
+      accountId: d.accountId,
+      categoryId: d.categoryId,
+      merchant: d.merchant,
+      cadence: d.cadence,
+      interval: d.interval,
+      startYmd: d.startDate,
+      endYmd: d.endDate ?? null,
+    });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function updateRecurringRuleAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const d = updateRecurringRuleSchema.parse(input);
+    await updateRecurringRule(user.id, d.id, {
+      type: d.type,
+      amountPaise: d.amount,
+      accountId: d.accountId,
+      categoryId: d.categoryId,
+      merchant: d.merchant,
+      cadence: d.cadence,
+      interval: d.interval,
+      startYmd: d.startDate,
+      endYmd: d.endDate ?? null,
+    });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteRecurringRuleAction(ruleId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await deleteRecurringRule(user.id, ruleId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function setRecurringRulePausedAction(ruleId: string, paused: boolean): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await setRecurringRulePaused(user.id, ruleId, paused);
+    refresh();
+    return { ok: true };
   } catch (e) {
     return fail(e);
   }
