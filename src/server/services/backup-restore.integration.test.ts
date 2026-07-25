@@ -1,0 +1,204 @@
+// Database-backed tests for the backup restore engine.
+//
+// These need a live Postgres (DATABASE_URL) and are NOT part of `npm run test`.
+// Run them with `npm run test:integration`; CI runs them in a job with a
+// Postgres service container. Keeping them out of the unit run is what lets the
+// unit suite stay green on a machine (or CI job) with no database.
+
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { commitBackupRestore, previewBackupRestore } from "./backup-restore";
+import { prisma } from "../db";
+import { undoImport } from "./import";
+
+const EMAIL = "backup-test@ledgerly.app";
+
+function makeBackup(overrides: Partial<Record<string, unknown>> & { transactions?: unknown[] } = {}) {
+  return {
+    formatVersion: 1,
+    exportedAt: "2026-07-20T00:00:00.000Z",
+    user: { name: "Test", email: EMAIL, currency: "INR" },
+    accounts: [],
+    categories: [],
+    transactions: [],
+    ...overrides,
+  };
+}
+
+async function freshUser() {
+  const existing = await prisma.user.findUnique({ where: { email: EMAIL } });
+  if (existing) await prisma.user.delete({ where: { id: existing.id } });
+  const user = await prisma.user.create({ data: { name: "Test", email: EMAIL, emailVerified: true } });
+  return user.id;
+}
+
+describe("previewBackupRestore integration", () => {
+  let userId: string;
+
+  beforeAll(async () => {
+    userId = await freshUser();
+    await prisma.account.create({ data: { userId, name: "HDFC Savings", type: "BANK", balance: 10_000, openingBalance: 10_000 } });
+    await prisma.category.create({ data: { userId, name: "Food", kind: "EXPENSE" } });
+  });
+
+  beforeEach(async () => {
+    await prisma.transaction.deleteMany({ where: { userId } });
+    await prisma.importBatch.deleteMany({ where: { userId } });
+  });
+
+  it("summarizes accounts/categories and detects unsupported sections", async () => {
+    const backup = makeBackup({
+      accounts: [
+        { id: "a1", name: "HDFC Savings", type: "BANK" },
+        { id: "a2", name: "Cash Wallet", type: "CASH" },
+      ],
+      categories: [
+        { id: "c1", name: "Food", kind: "EXPENSE" },
+        { id: "c2", name: "Salary", kind: "INCOME" },
+      ],
+      budgets: [{ id: "b1" }],
+    });
+    const preview = await previewBackupRestore(userId, backup);
+    expect(preview.formatVersion).toBe(1);
+    expect(preview.transactions).toBe(0);
+    expect(preview.validTransactions).toBe(0);
+    expect(preview.newAccounts).toBe(1);
+    expect(preview.matchedAccounts).toBe(1);
+    expect(preview.newCategories).toBe(1);
+    expect(preview.matchedCategories).toBe(1);
+    expect(preview.unsupported).toEqual(["budgets"]);
+  });
+
+  it("validates, dedupes and counts invalid rows", async () => {
+    await prisma.transaction.create({
+      data: {
+        userId,
+        type: "EXPENSE",
+        amount: 500,
+        merchant: "Dup",
+        occurredAt: new Date("2026-07-05T12:00:00+05:30"),
+        accountId: null,
+      },
+    });
+    const backup = makeBackup({
+      transactions: [
+        { type: "EXPENSE", amount: 500, merchant: "Dup", occurredAt: "2026-07-05" },
+        { type: "INCOME", amount: 1200, merchant: "Salary", occurredAt: "2026-07-06" },
+        { type: "EXPENSE", amount: -5, merchant: "Bad", occurredAt: "2026-07-07" },
+        { type: "EXPENSE", amount: 100, accountId: "missing", merchant: "Nope", occurredAt: "2026-07-08" },
+      ],
+    });
+    const preview = await previewBackupRestore(userId, backup);
+    expect(preview.transactions).toBe(4);
+    expect(preview.validTransactions).toBe(1);
+    expect(preview.duplicateTransactions).toBe(1);
+    expect(preview.invalidTransactions).toBe(2);
+    expect(preview.invalidBreakdown["amount missing or not a positive number"]).toBe(1);
+    expect(preview.invalidBreakdown["referenced account missing"]).toBe(1);
+    expect(preview.sample).toHaveLength(1);
+    expect(preview.sample[0].merchant).toBe("Salary");
+  });
+});
+
+describe("commitBackupRestore integration", () => {
+  let userId: string;
+  let accountId: string;
+
+  beforeAll(async () => {
+    userId = await freshUser();
+    const acc = await prisma.account.create({ data: { userId, name: "HDFC Savings", type: "BANK", balance: 10_000, openingBalance: 10_000 } });
+    accountId = acc.id;
+  });
+
+  beforeEach(async () => {
+    await prisma.transaction.deleteMany({ where: { userId } });
+    await prisma.importBatch.deleteMany({ where: { userId } });
+    await prisma.account.deleteMany({ where: { userId, id: { not: accountId } } });
+    await prisma.category.deleteMany({ where: { userId } });
+  });
+
+  it("restores transactions and creates missing accounts/categories", async () => {
+    const backup = makeBackup({
+      accounts: [
+        { id: "a1", name: "HDFC Savings", type: "BANK" },
+        { id: "a2", name: "Cash Wallet", type: "CASH", balance: 2_000, openingBalance: 2_000 },
+      ],
+      categories: [
+        { id: "c1", name: "Food", kind: "EXPENSE" },
+        { id: "c2", name: "Salary", kind: "INCOME" },
+      ],
+      transactions: [
+        { id: "t1", type: "EXPENSE", amount: 500, accountId: "a1", categoryId: "c1", merchant: "Lunch", occurredAt: "2026-07-10" },
+        { id: "t2", type: "INCOME", amount: 10_000, accountId: "a1", categoryId: "c2", merchant: "Salary", occurredAt: "2026-07-11" },
+        { id: "t3", type: "TRANSFER", amount: 1_000, accountId: "a1", toAccountId: "a2", merchant: "Self", occurredAt: "2026-07-12" },
+      ],
+    });
+    const result = await commitBackupRestore(userId, backup);
+    expect(result.imported).toBe(3);
+    expect(result.skipped).toBe(0);
+
+    const created = await prisma.transaction.findMany({ where: { userId, deletedAt: null }, orderBy: { occurredAt: "asc" } });
+    expect(created).toHaveLength(3);
+    const [expense, income, transfer] = created;
+    expect(expense.type + ":" + expense.merchant + ":" + Number(expense.amount)).toBe("EXPENSE:Lunch:500");
+    expect(income.type + ":" + income.merchant + ":" + Number(income.amount)).toBe("INCOME:Salary:10000");
+
+    expect(transfer.type + ":" + transfer.merchant + ":" + Number(transfer.amount)).toBe("TRANSFER:Self:1000");
+    expect(transfer.accountId).toBeTruthy();
+    expect(transfer.toAccountId).toBeTruthy();
+    expect(transfer.accountId).not.toBe(transfer.toAccountId);
+
+    const accounts = await prisma.account.findMany({ where: { userId } });
+    expect(accounts).toHaveLength(2);
+
+    const batch = await prisma.importBatch.findUnique({ where: { id: result.batchId } });
+    expect(batch?.importedCount).toBe(3);
+    expect(batch?.status).toBe("COMMITTED");
+  });
+
+  it("remaps duplicate backup IDs and respects name matching", async () => {
+    const backup = makeBackup({
+      accounts: [{ id: "a1", name: "HDFC Savings", type: "BANK" }],
+      transactions: [{ id: "t1", type: "EXPENSE", amount: 300, accountId: "a1", merchant: "Coffee", occurredAt: "2026-07-13" }],
+    });
+    const result = await commitBackupRestore(userId, backup);
+    const tx = await prisma.transaction.findFirstOrThrow({ where: { importBatchId: result.batchId } });
+    expect(tx.accountId).toBe(accountId);
+  });
+
+  it("skips invalid rows and reports counts", async () => {
+    const backup = makeBackup({
+      transactions: [
+        { type: "EXPENSE", amount: 100, merchant: "OK", occurredAt: "2026-07-14" },
+        { type: "EXPENSE", amount: 0, merchant: "Bad", occurredAt: "2026-07-15" },
+      ],
+    });
+    const result = await commitBackupRestore(userId, backup);
+    expect(result.imported).toBe(1);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("undo removes restored transactions and reverses balances", async () => {
+    const before = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
+    const backup = makeBackup({
+      accounts: [{ id: "a1", name: "HDFC Savings", type: "BANK" }],
+      transactions: [{ type: "INCOME", amount: 2_000, accountId: "a1", merchant: "Refund", occurredAt: "2026-07-16" }],
+    });
+    const { batchId } = await commitBackupRestore(userId, backup);
+    const after = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
+    expect(Number(after.balance) - Number(before.balance)).toBe(2_000);
+
+    await undoImport(userId, batchId);
+    const undone = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
+    expect(Number(undone.balance)).toBe(Number(before.balance));
+
+    const remaining = await prisma.transaction.count({ where: { userId, deletedAt: null } });
+    expect(remaining).toBe(0);
+    const batch = await prisma.importBatch.findUnique({ where: { id: batchId } });
+    expect(batch?.status).toBe("UNDONE");
+  });
+
+  it("rejects malformed JSON in actions by propagating parseBackup error", async () => {
+    await expect(previewBackupRestore(userId, "not-object")).rejects.toThrow(/Not a valid Ledgerly backup file/);
+    await expect(commitBackupRestore(userId, null)).rejects.toThrow(/Not a valid Ledgerly backup file/);
+  });
+});

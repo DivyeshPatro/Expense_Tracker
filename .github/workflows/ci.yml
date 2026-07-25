@@ -36,8 +36,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # Pure unit tests only (no service touches Prisma/the DB — verified),
-      # so no Postgres service container is needed here.
+      # Unit suite only — vitest.config.ts excludes *.integration.test.ts, so
+      # nothing here touches Postgres and this step needs no database. The
+      # integration job below covers the DB-backed tests.
       - name: Unit tests
         run: npm run test
 
@@ -52,3 +53,46 @@ jobs:
           BETTER_AUTH_SECRET: "ci-placeholder-secret-not-used-at-runtime"
           BETTER_AUTH_URL: "http://localhost:3000"
           CRON_SECRET: "ci-placeholder"
+
+  # DB-backed tests (currently the backup restore engine: balance arithmetic,
+  # preview/commit parity, undo reversal). These need real Postgres semantics —
+  # interactive transactions, FK constraints, BigInt balances — so they run
+  # against a service container with migrations applied rather than a mock.
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ledgerly_test
+        ports:
+          - 5432:5432
+        # Without this the first migrate can race the server's own startup.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ledgerly_test"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      # deploy, not dev: apply the committed migrations exactly as production
+      # would, so a missing migration fails here instead of in production.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Integration tests
+        run: npm run test:integration
