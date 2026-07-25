@@ -20,6 +20,7 @@
     "e2e:dashboard": "node scripts/e2e-dashboard.mjs",
     "e2e:activity": "node scripts/e2e-activity.mjs",
     "e2e:import": "node scripts/e2e-import.mjs",
+    "e2e:recurring": "node scripts/e2e-recurring.mjs",
     "e2e:backup-restore": "node scripts/e2e-backup-restore.mjs",
     "e2e:monito": "node scripts/e2e-monito.mjs",
     "e2e:large-import": "node scripts/e2e-large-import.mjs",
@@ -33,7 +34,7 @@
     "e2e:lending-settlement": "tsx scripts/e2e-lending-settlement.ts",
     "e2e:finance-hub": "tsx scripts/e2e-finance-hub.ts",
     "e2e:accessibility": "tsx scripts/e2e-accessibility.ts",
-    "e2e:all": "npm run db:seed && npm run e2e && npm run e2e:tx-detail && npm run e2e:mobile-nav && npm run e2e:analytics && npm run e2e:dashboard && npm run e2e:activity && npm run e2e:import && npm run e2e:backup-restore && npm run e2e:monito && npm run e2e:large-import && npm run e2e:perf && npm run e2e:offline && npm run e2e:collab && npm run e2e:audit-phaseA && npm run e2e:group-expenses && npm run e2e:datepicker && npm run e2e:lending && npm run e2e:lending-settlement && npm run e2e:finance-hub && npm run e2e:accessibility"
+    "e2e:all": "npm run db:seed && npm run e2e && npm run e2e:tx-detail && npm run e2e:mobile-nav && npm run e2e:analytics && npm run e2e:dashboard && npm run e2e:activity && npm run e2e:import && npm run e2e:recurring && npm run e2e:backup-restore && npm run e2e:monito && npm run e2e:large-import && npm run e2e:perf && npm run e2e:offline && npm run e2e:collab && npm run e2e:audit-phaseA && npm run e2e:group-expenses && npm run e2e:datepicker && npm run e2e:lending && npm run e2e:lending-settlement && npm run e2e:finance-hub && npm run e2e:accessibility"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
