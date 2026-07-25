@@ -20,6 +20,7 @@ import { friendlyDay, todayYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import type { OpenLoanRow } from "@/server/services/lending";
+import { AccountOptions } from "./account-options";
 import { DateField } from "./date-field";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { GroupCategorySelect } from "./group-category-select";
@@ -142,9 +143,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
       <div className="flex gap-2.5 flex-wrap">
         <Field label="ACCOUNT">
           <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {refData.accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-            ))}
+            <AccountOptions accounts={refData.accounts} />
           </select>
         </Field>
         <Field label="CATEGORY">
@@ -254,9 +253,7 @@ function IncomeForm({ prefill }: { prefill?: ModalPrefill }) {
       <div className="flex gap-2.5 flex-wrap">
         <Field label="INTO ACCOUNT">
           <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {refData.accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-            ))}
+            <AccountOptions accounts={refData.accounts} />
           </select>
         </Field>
         <Field label="SOURCE">
@@ -318,16 +315,12 @@ function TransferForm({ prefill }: { prefill?: ModalPrefill }) {
       <div className="flex gap-2.5 flex-wrap">
         <Field label="FROM">
           <select className="field" value={from} onChange={(e) => setFrom(e.target.value)}>
-            {refData.accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-            ))}
+            <AccountOptions accounts={refData.accounts} />
           </select>
         </Field>
         <Field label="TO">
           <select className="field" value={to} onChange={(e) => setTo(e.target.value)}>
-            {refData.accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-            ))}
+            <AccountOptions accounts={refData.accounts} />
           </select>
         </Field>
       </div>
@@ -494,9 +487,7 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
         <Field label="FUNDING SOURCE">
           <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             <option value="">Untracked / cash in hand</option>
-            {refData.accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-            ))}
+            <AccountOptions accounts={refData.accounts} />
           </select>
         </Field>
         <Field label="DATE">

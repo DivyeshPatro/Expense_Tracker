@@ -13,6 +13,7 @@ import { lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryActio
 import { friendlyDay } from "@/lib/dates";
 import { balanceAfterLabel, computeContactSummary, type ContactSummary } from "@/lib/lending";
 import { formatPaise } from "@/lib/money";
+import { AccountOptions } from "@/components/shell/account-options";
 import { DateField } from "@/components/shell/date-field";
 import { EmptyState } from "@/components/shell/empty-state";
 import { AmountInput, ErrorNote, Field, SubmitButton } from "@/components/shell/form-primitives";
@@ -459,9 +460,7 @@ export function EditEntryForm({ entry, onDone, onCancel }: { entry: LoanEntryRow
         <Field label="FUNDING SOURCE">
           <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             <option value="">Untracked / cash in hand</option>
-            {refData.accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
-            ))}
+            <AccountOptions accounts={refData.accounts} />
           </select>
         </Field>
         <Field label="DATE">
