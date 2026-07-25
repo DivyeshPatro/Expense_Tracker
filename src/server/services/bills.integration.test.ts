@@ -169,9 +169,36 @@ describe("bills", () => {
       const active = await listBills(userId, istNoon("2026-07-06"));
       expect(active.map((b) => b.name)).toEqual(["Passport fee"]);
     });
+
+    // The notification feed is derived from listBills() at render time rather
+    // than stored as scheduled rows, so an edit has to show up as recomputed
+    // urgency — there is nothing to reschedule, but also nothing to keep in sync
+    // by hand, and this is what proves it.
+    it("recomputes due urgency after an edit, which is what the reminder feed reads", async () => {
+      await createBill(userId, { name: "Insurance", amount: 20_000, categoryId: null, dueDate: "2026-08-30", cadence: null });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+      const before = (await listBills(userId, istNoon("2026-07-05")))[0];
+      expect(before.urgency).toBe("later");
+
+      await updateBill(userId, bill.id, { name: "Insurance", amount: 20_000, categoryId: null, dueDate: "2026-07-06", cadence: null });
+
+      const after = (await listBills(userId, istNoon("2026-07-05")))[0];
+      expect(after.urgency).toBe("urgent");
+      expect(after.dueLabel).toBe("Due in 1d");
+    });
   });
 
   describe("delete", () => {
+    it("removes the bill from the list the reminder feed is built from", async () => {
+      await createBill(userId, { name: "Vanishing", amount: 1_000, categoryId: null, dueDate: "2026-07-06", cadence: null });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+      expect((await listBills(userId, istNoon("2026-07-05"))).map((b) => b.name)).toEqual(["Vanishing"]);
+
+      await deleteBill(userId, bill.id);
+
+      expect(await listBills(userId, istNoon("2026-07-05"))).toEqual([]);
+    });
+
     it("deletes an unpaid bill", async () => {
       await createBill(userId, { name: "Gym", amount: 2_000, categoryId: null, dueDate: "2026-08-01", cadence: null });
       const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
