@@ -707,6 +707,23 @@ function BackupRestoreSummary({
         </div>
       )}
 
+      {(preview.unusableAccounts > 0 || preview.unusableCategories > 0) && (
+        <div className="text-[12px] text-amber bg-ambersoft rounded-lg px-3 py-2">
+          <span className="font-semibold">Incomplete entries:</span>{" "}
+          {[
+            preview.unusableAccounts > 0
+              ? `${preview.unusableAccounts} account${preview.unusableAccounts === 1 ? "" : "s"}`
+              : null,
+            preview.unusableCategories > 0
+              ? `${preview.unusableCategories} categor${preview.unusableCategories === 1 ? "y" : "ies"}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" and ")}{" "}
+          in this backup are missing a name or type and can&apos;t be restored. Any transaction that referenced them is counted under invalid rows above.
+        </div>
+      )}
+
       {(preview.earliest || preview.latest) && (
         <div className="text-[12px] text-mut">
           {preview.earliest && <span>From <b className="text-ink">{preview.earliest}</b></span>}

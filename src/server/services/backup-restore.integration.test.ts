@@ -201,6 +201,27 @@ describe("commitBackupRestore integration", () => {
     expect(Number(acct.balance)).toBe(-25_000);
   });
 
+  // Parity: whatever preview promises as restorable, commit must actually import.
+  it("imports exactly the count preview promised, including unusable-entity rows", async () => {
+    const backup = makeBackup({
+      // a2 has an id but no name/type — neither matchable nor creatable.
+      accounts: [
+        { id: "a1", name: "HDFC Savings", type: "BANK" },
+        { id: "a2" },
+      ],
+      transactions: [
+        { type: "EXPENSE", amount: 700, accountId: "a1", merchant: "Parity A", occurredAt: "2026-07-18" },
+        { type: "EXPENSE", amount: 800, accountId: "a2", merchant: "Parity B", occurredAt: "2026-07-19" },
+      ],
+    });
+    const preview = await previewBackupRestore(userId, backup);
+    const result = await commitBackupRestore(userId, backup);
+    expect(preview.unusableAccounts).toBe(1);
+    expect(preview.validTransactions).toBe(1);
+    expect(result.imported).toBe(preview.validTransactions);
+    expect(result.skipped).toBe(preview.duplicateTransactions + preview.invalidTransactions);
+  });
+
   it("undo removes restored transactions and reverses balances", async () => {
     const before = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
     const backup = makeBackup({

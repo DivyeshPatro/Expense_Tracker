@@ -5,10 +5,9 @@
 import { describe, expect, it } from "vitest";
 import {
   BACKUP_FORMAT_VERSION,
-  buildAccountIdMap,
-  buildCategoryIdMap,
   classifyTransactions,
   parseBackup,
+  planRestore,
 } from "./backup-restore";
 import { DuplicateIndex } from "@/lib/import/dedupe";
 
@@ -160,8 +159,96 @@ describe("classifyTransactions", () => {
     expect((out[1] as { reason: string }).reason).toBe("duplicate");
   });
 
-  it("builds id maps from backup arrays", () => {
-    expect([...buildAccountIdMap([{ id: "x" }]).entries()]).toEqual([["x", "x"]]);
-    expect([...buildCategoryIdMap([{ id: "y" }]).entries()]).toEqual([["y", "y"]]);
+});
+
+describe("planRestore", () => {
+  it("matches existing accounts/categories case-insensitively by name and type", () => {
+    const plan = planRestore(
+      [{ id: "a1", name: "hdfc savings", type: "BANK" }],
+      [{ id: "c1", name: "FOOD", kind: "EXPENSE" }],
+      [{ id: "real-acc", name: "HDFC Savings", type: "BANK" }],
+      [{ id: "real-cat", name: "Food", kind: "EXPENSE" }]
+    );
+    expect(plan.accountIdMap.get("a1")).toBe("real-acc");
+    expect(plan.categoryIdMap.get("c1")).toBe("real-cat");
+    expect(plan.matchedAccounts).toBe(1);
+    expect(plan.matchedCategories).toBe(1);
+    expect(plan.accountsToCreate).toHaveLength(0);
+    expect(plan.categoriesToCreate).toHaveLength(0);
+  });
+
+  it("queues unmatched entities for creation with a resolvable placeholder id", () => {
+    const plan = planRestore(
+      [{ id: "a1", name: "Cash Wallet", type: "CASH" }],
+      [{ id: "c1", name: "Travel", kind: "EXPENSE" }],
+      [],
+      []
+    );
+    expect(plan.accountsToCreate).toHaveLength(1);
+    expect(plan.categoriesToCreate).toHaveLength(1);
+    // Resolvable in preview even though the row doesn't exist yet — commit
+    // overwrites the placeholder with the real id.
+    expect(plan.accountIdMap.get("a1")).toBe("a1");
+    expect(plan.categoryIdMap.get("c1")).toBe("c1");
+  });
+
+  // The divergence this planner exists to prevent: preview used to map every
+  // account carrying an id, while commit skipped name/type-less ones, so preview
+  // counted rows valid that commit then rejected as "referenced account missing".
+  it("excludes rows too incomplete to match or create, so preview cannot over-promise", () => {
+    const plan = planRestore(
+      [{ id: "a1" }, { id: "a2", name: "No Type" }],
+      [{ id: "c1" }],
+      [],
+      []
+    );
+    expect(plan.accountIdMap.has("a1")).toBe(false);
+    expect(plan.accountIdMap.has("a2")).toBe(false);
+    expect(plan.categoryIdMap.has("c1")).toBe(false);
+    expect(plan.unusableAccounts).toBe(2);
+    expect(plan.unusableCategories).toBe(1);
+    expect(plan.accountsToCreate).toHaveLength(0);
+
+    // A transaction pointing at the unusable account is rejected identically in
+    // both paths, because both read this same map.
+    const [out] = classifyTransactions(
+      [{ type: "EXPENSE", amount: 100, accountId: "a1", merchant: "X", occurredAt: "2026-07-01" }],
+      plan.accountIdMap,
+      plan.categoryIdMap,
+      new DuplicateIndex([])
+    );
+    expect(out.ok).toBe(false);
+    expect((out as { reason: string }).reason).toBe("referenced account missing");
+  });
+
+  it("collapses duplicate (name,type) rows within the backup onto one creation", () => {
+    const plan = planRestore(
+      [
+        { id: "a1", name: "Cash", type: "CASH" },
+        { id: "a2", name: "cash", type: "CASH" },
+      ],
+      [],
+      [],
+      []
+    );
+    expect(plan.accountsToCreate).toHaveLength(1);
+    expect(plan.accountIdMap.get("a1")).toBe("a1");
+    expect(plan.accountIdMap.get("a2")).toBe("a1");
+  });
+
+  it("treats the same name under a different kind as a separate category", () => {
+    const plan = planRestore(
+      [],
+      [
+        { id: "c1", name: "Bonus", kind: "INCOME" },
+        { id: "c2", name: "Bonus", kind: "EXPENSE" },
+      ],
+      [],
+      [{ id: "real", name: "Bonus", kind: "INCOME" }]
+    );
+    expect(plan.categoryIdMap.get("c1")).toBe("real");
+    expect(plan.matchedCategories).toBe(1);
+    expect(plan.categoriesToCreate).toHaveLength(1);
+    expect(plan.categoriesToCreate[0].kind).toBe("EXPENSE");
   });
 });

@@ -72,6 +72,9 @@ export interface BackupPreview {
   matchedAccounts: number;
   newCategories: number;
   matchedCategories: number;
+  /** Backup rows too incomplete to restore (no name, or no type/kind). */
+  unusableAccounts: number;
+  unusableCategories: number;
   earliest?: string | null;
   latest?: string | null;
   unsupported: string[];
@@ -204,16 +207,103 @@ function resolveId(id: string | null | undefined, map: Map<string, string>): str
   return map.get(id) ?? null;
 }
 
-export function buildAccountIdMap(accounts: BackupAccount[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const a of accounts) if (a.id) map.set(a.id, a.id);
-  return map;
+// ── Entity resolution plan ───────────────────────────────────────────────────
+// Preview and commit MUST agree on exactly which backup ids are resolvable,
+// otherwise the preview promises a row count the commit won't deliver. They
+// used to build their id maps independently — preview mapped every account
+// carrying an id, commit skipped the ones missing name/type — so a name/type-less
+// account made preview count a row valid that commit then rejected as
+// "referenced account missing".
+//
+// Both paths now derive their maps from this single planner, so the resolvable
+// key set is identical by construction. Entries for entities that don't exist
+// yet are seeded with the backup's own id as a placeholder; commit overwrites
+// each one with the real id as it creates the row.
+
+export interface RestorePlan {
+  accountIdMap: Map<string, string>;
+  categoryIdMap: Map<string, string>;
+  /** Backup rows that have no counterpart yet and will be created on commit. */
+  accountsToCreate: BackupAccount[];
+  categoriesToCreate: BackupCategory[];
+  matchedAccounts: number;
+  matchedCategories: number;
+  /** Rows too incomplete to match or create (missing name/type|kind). */
+  unusableAccounts: number;
+  unusableCategories: number;
 }
 
-export function buildCategoryIdMap(categories: BackupCategory[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const c of categories) if (c.id) map.set(c.id, c.id);
-  return map;
+export function planRestore(
+  accounts: BackupAccount[],
+  categories: BackupCategory[],
+  existingAccounts: { id: string; name: string; type: string }[],
+  existingCategories: { id: string; name: string; kind: string }[]
+): RestorePlan {
+  const accountKey = new Map(existingAccounts.map((a) => [`${a.name.toLowerCase()}|${a.type}`, a.id]));
+  const categoryKey = new Map(existingCategories.map((c) => [`${c.name.toLowerCase()}|${c.kind}`, c.id]));
+
+  const accountIdMap = new Map<string, string>();
+  const accountsToCreate: BackupAccount[] = [];
+  let matchedAccounts = 0;
+  let unusableAccounts = 0;
+  for (const a of accounts) {
+    if (!a.name || !a.type) {
+      unusableAccounts++;
+      continue;
+    }
+    const key = `${a.name.toLowerCase()}|${a.type}`;
+    const existingId = accountKey.get(key);
+    if (existingId) {
+      matchedAccounts++;
+      if (a.id) accountIdMap.set(a.id, existingId);
+      continue;
+    }
+    // Deduplicate within the backup itself: two rows with the same (name, type)
+    // resolve to one created account, not two.
+    const pending = accountsToCreate.find((p) => `${p.name!.toLowerCase()}|${p.type}` === key);
+    if (pending) {
+      if (a.id && pending.id) accountIdMap.set(a.id, pending.id);
+      continue;
+    }
+    accountsToCreate.push(a);
+    if (a.id) accountIdMap.set(a.id, a.id);
+  }
+
+  const categoryIdMap = new Map<string, string>();
+  const categoriesToCreate: BackupCategory[] = [];
+  let matchedCategories = 0;
+  let unusableCategories = 0;
+  for (const c of categories) {
+    if (!c.name || !c.kind) {
+      unusableCategories++;
+      continue;
+    }
+    const key = `${c.name.toLowerCase()}|${c.kind}`;
+    const existingId = categoryKey.get(key);
+    if (existingId) {
+      matchedCategories++;
+      if (c.id) categoryIdMap.set(c.id, existingId);
+      continue;
+    }
+    const pending = categoriesToCreate.find((p) => `${p.name!.toLowerCase()}|${p.kind}` === key);
+    if (pending) {
+      if (c.id && pending.id) categoryIdMap.set(c.id, pending.id);
+      continue;
+    }
+    categoriesToCreate.push(c);
+    if (c.id) categoryIdMap.set(c.id, c.id);
+  }
+
+  return {
+    accountIdMap,
+    categoryIdMap,
+    accountsToCreate,
+    categoriesToCreate,
+    matchedAccounts,
+    matchedCategories,
+    unusableAccounts,
+    unusableCategories,
+  };
 }
 
 export function parseBackup(json: unknown): {
@@ -246,17 +336,11 @@ export async function previewBackupRestore(userId: string, json: unknown): Promi
       select: { occurredAt: true, amount: true, merchant: true },
     }),
   ]);
-  const accountKey = new Set(existingAccounts.map((a) => `${a.name.toLowerCase()}|${a.type}`));
-  const categoryKey = new Set(existingCategories.map((c) => `${c.name.toLowerCase()}|${c.kind}`));
-  const newAccounts = parsed.accounts.filter((a) => a.name && a.type && !accountKey.has(`${a.name.toLowerCase()}|${a.type}`)).length;
-  const newCategories = parsed.categories.filter((c) => c.name && c.kind && !categoryKey.has(`${c.name.toLowerCase()}|${c.kind}`)).length;
-
-  const accountIdMap = buildAccountIdMap(parsed.accounts);
-  const categoryIdMap = buildCategoryIdMap(parsed.categories);
+  const plan = planRestore(parsed.accounts, parsed.categories, existingAccounts, existingCategories);
   const dupIndex = new DuplicateIndex(
     existingTx.map((t) => ({ ymd: toYMD(t.occurredAt), amountPaise: Number(t.amount), merchant: t.merchant }))
   );
-  const classified = classifyTransactions(parsed.transactions, accountIdMap, categoryIdMap, dupIndex);
+  const classified = classifyTransactions(parsed.transactions, plan.accountIdMap, plan.categoryIdMap, dupIndex);
 
   const breakdown: Record<string, number> = {};
   let valid = 0, duplicate = 0;
@@ -284,10 +368,12 @@ export async function previewBackupRestore(userId: string, json: unknown): Promi
     duplicateTransactions: duplicate,
     invalidTransactions: Object.values(breakdown).reduce((a, b) => a + b, 0),
     invalidBreakdown: breakdown,
-    newAccounts,
-    matchedAccounts: parsed.accounts.length - newAccounts,
-    newCategories,
-    matchedCategories: parsed.categories.length - newCategories,
+    newAccounts: plan.accountsToCreate.length,
+    matchedAccounts: plan.matchedAccounts,
+    newCategories: plan.categoriesToCreate.length,
+    matchedCategories: plan.matchedCategories,
+    unusableAccounts: plan.unusableAccounts,
+    unusableCategories: plan.unusableCategories,
     earliest,
     latest,
     unsupported: parsed.unsupported,
@@ -305,8 +391,7 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
       select: { occurredAt: true, amount: true, merchant: true },
     }),
   ]);
-  const accountKey = new Map(existingAccounts.map((a) => [`${a.name.toLowerCase()}|${a.type}`, a.id]));
-  const categoryKey = new Map(existingCategories.map((c) => [`${c.name.toLowerCase()}|${c.kind}`, c.id]));
+  const plan = planRestore(parsed.accounts, parsed.categories, existingAccounts, existingCategories);
   const dupIndex = new DuplicateIndex(
     existingTx.map((t) => ({ ymd: toYMD(t.occurredAt), amountPaise: Number(t.amount), merchant: t.merchant }))
   );
@@ -316,21 +401,15 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
       data: { userId, source: "Ledgerly Backup", fileName: "ledgerly-backup.json", importedCount: 0, skippedCount: 0, status: "COMMITTED" },
     });
 
-    // Accounts: match by (name, type) or create new. Remap the backup's account
-    // ids to the resolved ids so transactions point at the right rows.
-    const accountIdMap = new Map<string, string>();
-    for (const a of parsed.accounts) {
-      if (!a.name || !a.type) continue;
-      const key = `${a.name.toLowerCase()}|${a.type}`;
-      const existingId = accountKey.get(key);
-      if (existingId) {
-        if (a.id) accountIdMap.set(a.id, existingId);
-        continue;
-      }
+    // Accounts/categories the plan says don't exist yet. Creating them here and
+    // overwriting the placeholder id keeps the resolvable key set identical to
+    // what preview reported.
+    const { accountIdMap, categoryIdMap } = plan;
+    for (const a of plan.accountsToCreate) {
       const created = await db.account.create({
         data: {
           userId,
-          name: a.name,
+          name: a.name!,
           type: a.type as Prisma.AccountCreateInput["type"],
           bankName: asString(a.bankName ?? undefined) ?? null,
           // Seed at the account's OPENING position, never its exported closing
@@ -350,30 +429,19 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
           dueDay: a.dueDay ?? null,
         },
       });
-      accountKey.set(key, created.id);
       if (a.id) accountIdMap.set(a.id, created.id);
     }
 
-    // Categories: match by (name, kind) or create new.
-    const categoryIdMap = new Map<string, string>();
-    for (const c of parsed.categories) {
-      if (!c.name || !c.kind) continue;
-      const key = `${c.name.toLowerCase()}|${c.kind}`;
-      const existingId = categoryKey.get(key);
-      if (existingId) {
-        if (c.id) categoryIdMap.set(c.id, existingId);
-        continue;
-      }
+    for (const c of plan.categoriesToCreate) {
       const created = await db.category.create({
         data: {
           userId,
-          name: c.name,
+          name: c.name!,
           kind: c.kind as Prisma.CategoryCreateInput["kind"],
           icon: asString(c.icon ?? undefined) ?? null,
           color: asString(c.color ?? undefined) ?? null,
         },
       });
-      categoryKey.set(key, created.id);
       if (c.id) categoryIdMap.set(c.id, created.id);
     }
 
