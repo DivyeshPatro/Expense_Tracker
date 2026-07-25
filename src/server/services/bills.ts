@@ -81,7 +81,10 @@ export async function markBillPaid(userId: string, billId: string, accountId?: s
     await applyBalances(db, t, 1);
 
     if (bill.cadence) {
-      const next = advance(toYMD(bill.dueDate), bill.cadence, 1);
+      // Anchored so a month-end bill keeps its day: without it, rolling forward
+      // from an already-clamped date turns the 31st into Feb 28 and leaves it
+      // there for good. Null anchor (pre-existing bills) keeps prior behaviour.
+      const next = advance(toYMD(bill.dueDate), bill.cadence, 1, bill.anchorDay);
       await db.bill.update({ where: { id: billId }, data: { dueDate: istNoon(next), paidTxId: t.id, status: "UPCOMING" } });
     } else {
       await db.bill.update({ where: { id: billId }, data: { status: "PAID", paidTxId: t.id } });
@@ -106,6 +109,12 @@ export interface BillInput {
   cadence: "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY" | null;
 }
 
+/** Month-based cadences pin to the first due date's day; day-based ones don't need it. */
+export function billAnchorDay(cadence: BillInput["cadence"], dueYmd: string): number | null {
+  if (!cadence || cadence === "DAILY" || cadence === "WEEKLY") return null;
+  return Number(dueYmd.slice(8, 10));
+}
+
 export async function createBill(userId: string, input: BillInput) {
   await prisma.$transaction(async (db) => {
     const b = await db.bill.create({
@@ -116,6 +125,7 @@ export async function createBill(userId: string, input: BillInput) {
         categoryId: input.categoryId,
         dueDate: istNoon(input.dueDate),
         cadence: input.cadence,
+        anchorDay: billAnchorDay(input.cadence, input.dueDate),
       },
     });
     await audit(db, userId, "create", "Bill", b.id, undefined, b);

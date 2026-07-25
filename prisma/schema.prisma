@@ -285,6 +285,11 @@ model Bill {
   accountId       String? // default account to pay from
   dueDate         DateTime
   cadence         Cadence? // null ⇒ one-off; else due date rolls forward on payment
+  // Day-of-month the due date is pinned to, for month-based cadences. Without it,
+  // rolling forward from an already-clamped date walks a month-end bill down to
+  // the 28th permanently — same fix as RecurringRule.anchorDay. Null on
+  // pre-existing bills, which keeps their current behaviour.
+  anchorDay       Int?
   recurringRuleId String?
   status          BillStatus @default(UPCOMING)
   paidTxId        String? // links the payment transaction
