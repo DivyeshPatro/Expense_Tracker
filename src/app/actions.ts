@@ -473,12 +473,24 @@ export async function commitImportAction(input: CommitInput): Promise<ActionResu
   }
 }
 
-export async function undoImportAction(batchId: string): Promise<ActionResult> {
+export async function undoImportAction(
+  batchId: string
+): Promise<ActionResult & { message?: string }> {
   try {
     const user = await requireUser();
-    await undoImport(user.id, batchId);
+    const r = await undoImport(user.id, batchId);
     refresh();
-    return { ok: true };
+    // A restore can create accounts/categories; undo removes them unless other
+    // data now depends on them. Say which, so a leftover account isn't a mystery.
+    const parts = [`Removed ${r.reversed} transaction${r.reversed === 1 ? "" : "s"}`];
+    const alsoRemoved = [
+      r.removedAccounts > 0 ? `${r.removedAccounts} account${r.removedAccounts === 1 ? "" : "s"}` : null,
+      r.removedCategories > 0 ? `${r.removedCategories} categor${r.removedCategories === 1 ? "y" : "ies"}` : null,
+    ].filter(Boolean);
+    if (alsoRemoved.length) parts.push(`and ${alsoRemoved.join(" and ")}`);
+    const retained = [...r.retainedAccounts, ...r.retainedCategories];
+    if (retained.length) parts.push(`· kept ${retained.join(", ")} (still in use elsewhere)`);
+    return { ok: true, message: parts.join(" ") };
   } catch (e) {
     return fail(e);
   }

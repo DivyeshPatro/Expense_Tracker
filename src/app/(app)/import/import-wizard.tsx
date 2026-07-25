@@ -761,7 +761,7 @@ function BackupRestoreSummary({
       )}
 
       <div className="text-[12px] text-mut bg-accsoft rounded-lg px-3 py-2.5">
-        Accounts &amp; categories are matched by name; only the missing ones are created, starting from their opening balance so the restored ledger adds up. Budgets, bills, lending entries, settlements, recurring rules and tags from the backup aren&apos;t restored in this version — only the transaction ledger. You can undo the whole restore in one step from Settings → Import history.
+        Accounts &amp; categories are matched by name; only the missing ones are created, starting from their opening balance so the restored ledger adds up. Budgets, bills, lending entries, settlements, recurring rules and tags from the backup aren&apos;t restored in this version — only the transaction ledger. You can undo the whole restore in one step from Settings → Import history: that reverses every restored transaction and removes the accounts and categories it created, keeping only the ones you&apos;ve since used elsewhere.
       </div>
 
       <div className="flex gap-2 justify-end">

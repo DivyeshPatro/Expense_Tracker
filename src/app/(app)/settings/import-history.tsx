@@ -40,7 +40,7 @@ export function ImportHistory({ batches }: { batches: ImportBatchRow[] }) {
                 setBusyId(b.id);
                 const res = await undoImportAction(b.id);
                 setBusyId(null);
-                showToast(res.ok ? "Import undone" : res.error);
+                showToast(res.ok ? res.message ?? "Import undone" : res.error);
                 router.refresh();
               }}
               className="px-3 py-1.5 rounded-lg border border-line2 text-[11.5px] font-semibold text-acc cursor-pointer bg-transparent hover:bg-accsoft disabled:opacity-60"

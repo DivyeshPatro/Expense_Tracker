@@ -53,7 +53,7 @@ interface BackupTransaction {
   toAccountId?: string | null;
   categoryId?: string | null;
   merchant?: string;
-  occurredAt?: string | null;
+  occurredAt?: string | number | null;
   notes?: string | null;
   location?: string | null;
   paymentMethod?: string | null;
@@ -106,6 +106,8 @@ export interface BackupCommitResult {
   batchId: string;
   imported: number;
   skipped: number;
+  createdAccounts: number;
+  createdCategories: number;
 }
 
 function asString(v: unknown): string | undefined {
@@ -134,6 +136,18 @@ function balancePaise(v: unknown): number | null {
   return n === null ? null : Math.round(n);
 }
 
+// toYMD delegates to Intl.DateTimeFormat.format, which THROWS RangeError on an
+// Invalid Date rather than returning something falsy. Feeding it `new Date(...)`
+// unchecked meant one malformed occurredAt anywhere in the file aborted the whole
+// preview/restore with an unhandled error, instead of rejecting that single row.
+// Accepts epoch numbers too — older exports weren't guaranteed to be ISO strings.
+function occurredAtToYMD(v: unknown): string | null {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : toYMD(d);
+}
+
 export function classifyTransactions(
   transactions: BackupTransaction[],
   accountIdMap: Map<string, string>,
@@ -156,7 +170,7 @@ export function classifyTransactions(
       result.push({ ok: false, reason: "merchant missing", data: t });
       continue;
     }
-    const ymd = t.occurredAt ? toYMD(new Date(t.occurredAt)) : null;
+    const ymd = occurredAtToYMD(t.occurredAt);
     if (!ymd) {
       result.push({ ok: false, reason: "date missing or invalid", data: t });
       continue;
@@ -405,6 +419,9 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
     // overwriting the placeholder id keeps the resolvable key set identical to
     // what preview reported.
     const { accountIdMap, categoryIdMap } = plan;
+    const createdAccountIds: string[] = [];
+    const createdCategoryIds: string[] = [];
+
     for (const a of plan.accountsToCreate) {
       const created = await db.account.create({
         data: {
@@ -429,6 +446,7 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
           dueDay: a.dueDay ?? null,
         },
       });
+      createdAccountIds.push(created.id);
       if (a.id) accountIdMap.set(a.id, created.id);
     }
 
@@ -442,6 +460,7 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
           color: asString(c.color ?? undefined) ?? null,
         },
       });
+      createdCategoryIds.push(created.id);
       if (c.id) categoryIdMap.set(c.id, created.id);
     }
 
@@ -474,8 +493,29 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
       imported++;
     }
 
-    await db.importBatch.update({ where: { id: b.id }, data: { importedCount: imported, skippedCount: skipped } });
-    await audit(db, userId, "backup-restore", "ImportBatch", b.id, undefined, { imported, skipped });
-    return { batchId: b.id, imported, skipped };
+    // Record what this restore brought into existence so undo can reverse it.
+    // Without this the accounts/categories a restore created outlived the undo,
+    // leaving "fully undoable" false.
+    await db.importBatch.update({
+      where: { id: b.id },
+      data: {
+        importedCount: imported,
+        skippedCount: skipped,
+        createdEntities: { accounts: createdAccountIds, categories: createdCategoryIds } as Prisma.InputJsonValue,
+      },
+    });
+    await audit(db, userId, "backup-restore", "ImportBatch", b.id, undefined, {
+      imported,
+      skipped,
+      createdAccounts: createdAccountIds.length,
+      createdCategories: createdCategoryIds.length,
+    });
+    return {
+      batchId: b.id,
+      imported,
+      skipped,
+      createdAccounts: createdAccountIds.length,
+      createdCategories: createdCategoryIds.length,
+    };
   }, TX_OPTIONS);
 }

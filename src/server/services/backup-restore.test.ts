@@ -1,6 +1,6 @@
 // Pure unit tests — no database. Anything that needs Postgres lives in
-// backup-restore.integration.test.ts so `npm run test` stays runnable (and
-// CI-runnable) without a database.
+// backup-restore.integration.test.ts so `npm run test` stays runnable (and CI-
+// runnable) without a database.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -147,6 +147,40 @@ describe("classifyTransactions", () => {
     expect(out.toAccountId).toBe("acc-2");
   });
 
+  // Regression: toYMD throws RangeError on an Invalid Date, so an unchecked
+  // `new Date(occurredAt)` let one malformed row abort the entire preview/restore
+  // instead of being rejected on its own.
+  it("rejects a malformed date without throwing, and keeps processing later rows", () => {
+    const out = classifyTransactions(
+      [
+        { type: "EXPENSE", amount: 100, merchant: "Bad Date", occurredAt: "not-a-date" },
+        { type: "EXPENSE", amount: 100, merchant: "Bad Date 2", occurredAt: "2026-13-45" },
+        { type: "EXPENSE", amount: 250, merchant: "Good Row", occurredAt: "2026-07-02" },
+      ],
+      accountIdMap,
+      categoryIdMap,
+      new DuplicateIndex([])
+    );
+    expect(out[0].ok).toBe(false);
+    expect((out[0] as { reason: string }).reason).toBe("date missing or invalid");
+    expect(out[1].ok).toBe(false);
+    expect((out[1] as { reason: string }).reason).toBe("date missing or invalid");
+    // The valid row after the bad ones still lands.
+    expect(out[2].ok).toBe(true);
+  });
+
+  it("accepts an epoch-number occurredAt from older exports", () => {
+    const [out] = classifyTransactions(
+      [{ type: "EXPENSE", amount: 100, merchant: "Epoch", occurredAt: Date.parse("2026-07-04T06:30:00Z") }],
+      accountIdMap,
+      categoryIdMap,
+      new DuplicateIndex([])
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) throw new Error("expected ok");
+    expect(out.ymd).toBe("2026-07-04");
+  });
+
   it("detects duplicates within the backup", () => {
     const index = new DuplicateIndex([]);
     const txs = [
@@ -158,7 +192,6 @@ describe("classifyTransactions", () => {
     expect(out[1].ok).toBe(false);
     expect((out[1] as { reason: string }).reason).toBe("duplicate");
   });
-
 });
 
 describe("planRestore", () => {

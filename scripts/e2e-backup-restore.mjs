@@ -131,7 +131,9 @@ try {
   const undoButton = page.getByRole("button", { name: "Undo" }).first();
   await undoButton.waitFor({ state: "visible", timeout: 10000 });
   await undoButton.click();
-  await page.waitForSelector("text=Import undone", { timeout: 15000 }).catch(() => {});
+  // Undo now reports what it reversed ("Removed 2 transactions", plus any
+  // accounts/categories the restore created), not a flat "Import undone".
+  await page.waitForSelector("text=/Removed \\d+ transaction/", { timeout: 15000 }).catch(() => {});
 
   await gotoRetry(`${BASE}/transactions`);
   await page.waitForTimeout(800);

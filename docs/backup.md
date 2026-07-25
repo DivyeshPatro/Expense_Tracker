@@ -42,15 +42,54 @@ own data (`src/server/services/export.ts`):
 
 This is real, working, and exercised by the e2e suite — but it is a
 **personal export for the user's own use**, not an admin backup
-mechanism, and critically:
+mechanism.
 
-**There is no restore path for the JSON export.** The Import wizard
-(`/import`) accepts CSV/XLSX transaction data through the same generic
-adapter used for bank statements and other trackers — it does not accept
-Ledgerly's own JSON export format, and there is no "restore my full
-account from this JSON file" feature. If you export your data as JSON
-today, you can read it, archive it, or process it externally, but you
-cannot currently re-import it to reconstruct an account.
+### 3. Application-level: restoring a JSON backup
+
+The Import wizard's **Ledgerly Backup** source card accepts a `.json`
+export back into the ledger
+(`src/server/services/backup-restore.ts`). Scope and semantics matter
+here, so they're spelled out rather than implied:
+
+- **What restores:** accounts, categories, and the transaction ledger
+  (expense/income/transfer).
+- **What does not restore:** budgets, bills, participants, groups,
+  settlements, recurring rules, lending entries/allocations, and tags.
+  The export *carries* them (`formatVersion: 1`) for forward
+  completeness, but this version's restore engine reads only the ledger.
+  The preview lists every section it's skipping, by name.
+- **Additive, never destructive.** Every restored row is a new row.
+  Accounts are matched to existing ones by (name, type) and categories by
+  (name, kind), case-insensitively; only the missing ones are created.
+  Nothing existing is overwritten or deleted.
+- **Newly created accounts start at their opening balance**, and the
+  restored transactions are replayed onto that, preserving the schema's
+  `balance = openingBalance + Σ ledger` invariant. Seeding a new account
+  with its *exported closing* balance and then replaying the same
+  transactions would count each one twice.
+- **Rows are validated individually.** A row is rejected — with a
+  reason shown in the preview — if it has no supported type, a
+  non-positive amount, no merchant, an unreadable date, a reference to an
+  account that isn't in the backup, or a transfer missing either side.
+  Duplicates (same date + amount + merchant as an existing transaction)
+  are skipped too. One bad row never aborts the restore.
+- **Preview and commit cannot disagree.** Both derive their entity
+  resolution from one shared planner (`planRestore`) and classify rows
+  with one shared function, so the count the preview promises is the
+  count the commit imports.
+
+#### Undoing a restore
+
+A restore is one `ImportBatch`, undoable in one click from Settings →
+Import history. Undo reverses every restored transaction (soft-delete
+plus balance reversal) **and deletes the accounts and categories that
+restore created** — tracked on `ImportBatch.createdEntities`.
+
+The one deliberate exception: a created account or category is **kept**
+if anything outside that batch now references it — your own transactions,
+a budget, a bill, a merchant rule, or a lending entry. Deleting it would
+cascade away data the undo was never asked to touch. Undo reports exactly
+what it kept and why, rather than leaving you to discover it.
 
 ## Restore procedure (database-level)
 
@@ -102,8 +141,12 @@ problems:
 - A scheduled, automated `pg_dump` (or equivalent) independent of the
   hosting provider's own backup system, for defense-in-depth against a
   provider-level failure or account issue.
-- A restore path for the JSON export, so "export my data" and "restore my
-  data" are actually symmetric operations.
+- **Full symmetry between export and restore.** The JSON restore covers
+  the ledger (accounts, categories, transactions); budgets, bills,
+  lending, groups, settlements, recurring rules and tags are exported but
+  not yet restored. Restoring those safely needs either `importBatchId`
+  parity on those tables or a different undo strategy — deliberately
+  deferred rather than shipped half-undoable.
 - Off-site storage of exports/backups, separate from the primary
   database's own hosting account.
 

@@ -590,9 +590,14 @@ model ImportBatch {
   importedCount Int          @default(0)
   skippedCount  Int          @default(0)
   errors        Json?
+  // Entities this batch brought into existence, so undo can reverse them:
+  // {"accounts":[id,…],"categories":[id,…]}. Only the backup-restore engine
+  // creates entities — the CSV import maps onto existing ones — so this is
+  // null for every CSV batch. Undo deletes these only while still unreferenced.
+  createdEntities Json?
   status        ImportStatus @default(PREVIEW)
   createdAt     DateTime     @default(now())
-  // undo = soft-delete all tx where importBatchId = id
+  // undo = soft-delete all tx where importBatchId = id, then drop createdEntities
 
   @@index([userId])
 }

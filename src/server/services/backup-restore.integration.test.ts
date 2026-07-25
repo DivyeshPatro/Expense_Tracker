@@ -135,6 +135,8 @@ describe("commitBackupRestore integration", () => {
     const result = await commitBackupRestore(userId, backup);
     expect(result.imported).toBe(3);
     expect(result.skipped).toBe(0);
+    expect(result.createdAccounts).toBe(1);
+    expect(result.createdCategories).toBe(2);
 
     const created = await prisma.transaction.findMany({ where: { userId, deletedAt: null }, orderBy: { occurredAt: "asc" } });
     expect(created).toHaveLength(3);
@@ -240,6 +242,69 @@ describe("commitBackupRestore integration", () => {
     expect(remaining).toBe(0);
     const batch = await prisma.importBatch.findUnique({ where: { id: batchId } });
     expect(batch?.status).toBe("UNDONE");
+  });
+
+  // Regression: accounts/categories a restore created used to survive undo, so
+  // a restore permanently grew both lists even after being "fully" undone.
+  it("undo also removes the accounts and categories the restore created", async () => {
+    const backup = makeBackup({
+      accounts: [{ id: "a1", name: "Undo Wallet", type: "CASH", openingBalance: 0 }],
+      categories: [{ id: "c1", name: "Undo Category", kind: "EXPENSE" }],
+      transactions: [
+        { type: "EXPENSE", amount: 400, accountId: "a1", categoryId: "c1", merchant: "Undo Me", occurredAt: "2026-07-20" },
+      ],
+    });
+    const { batchId, createdAccounts, createdCategories } = await commitBackupRestore(userId, backup);
+    expect(createdAccounts).toBe(1);
+    expect(createdCategories).toBe(1);
+
+    const undo = await undoImport(userId, batchId);
+    expect(undo.removedAccounts).toBe(1);
+    expect(undo.removedCategories).toBe(1);
+    expect(undo.retainedAccounts).toEqual([]);
+    expect(undo.retainedCategories).toEqual([]);
+
+    expect(await prisma.account.count({ where: { userId, name: "Undo Wallet" } })).toBe(0);
+    expect(await prisma.category.count({ where: { userId, name: "Undo Category" } })).toBe(0);
+  });
+
+  // The deliberate limit on that reversal: once the user's own data depends on a
+  // restored entity, undo keeps it rather than cascading their data away.
+  it("undo keeps a created account the user has since transacted against, and reports it", async () => {
+    const backup = makeBackup({
+      accounts: [{ id: "a1", name: "Kept Wallet", type: "CASH", openingBalance: 0 }],
+      categories: [{ id: "c1", name: "Kept Category", kind: "EXPENSE" }],
+      transactions: [
+        { type: "EXPENSE", amount: 400, accountId: "a1", categoryId: "c1", merchant: "Restored Row", occurredAt: "2026-07-21" },
+      ],
+    });
+    const { batchId } = await commitBackupRestore(userId, backup);
+    const wallet = await prisma.account.findFirstOrThrow({ where: { userId, name: "Kept Wallet" } });
+    const category = await prisma.category.findFirstOrThrow({ where: { userId, name: "Kept Category" } });
+
+    // The user's own spending on the restored account, outside the batch.
+    await prisma.transaction.create({
+      data: {
+        userId,
+        type: "EXPENSE",
+        amount: 150,
+        accountId: wallet.id,
+        categoryId: category.id,
+        merchant: "My Own Spend",
+        occurredAt: new Date("2026-07-22T12:00:00+05:30"),
+      },
+    });
+
+    const undo = await undoImport(userId, batchId);
+    expect(undo.removedAccounts).toBe(0);
+    expect(undo.removedCategories).toBe(0);
+    expect(undo.retainedAccounts).toEqual(["Kept Wallet"]);
+    expect(undo.retainedCategories).toEqual(["Kept Category"]);
+
+    // The user's transaction survives untouched.
+    const mine = await prisma.transaction.findFirstOrThrow({ where: { userId, merchant: "My Own Spend" } });
+    expect(mine.deletedAt).toBeNull();
+    expect(mine.accountId).toBe(wallet.id);
   });
 
   it("rejects malformed JSON in actions by propagating parseBackup error", async () => {

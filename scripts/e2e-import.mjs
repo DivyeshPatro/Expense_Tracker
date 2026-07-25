@@ -136,7 +136,9 @@ try {
   await page.goto("http://localhost:3000/settings");
   await page.waitForSelector("text=IMPORT HISTORY");
   await page.locator('button:has-text("Undo")').first().click();
-  await page.waitForSelector("text=Import undone");
+  // Undo reports what it reversed ("Removed 4 transactions", plus any
+  // accounts/categories a backup restore created) rather than "Import undone".
+  await page.waitForSelector("text=/Removed \\d+ transaction/");
   await page.goto("http://localhost:3000/transactions");
   await page.waitForTimeout(500);
   const afterUndoBody = await page.textContent("body");
