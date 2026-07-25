@@ -126,6 +126,46 @@ describe("account lifecycle", () => {
     expect(await prisma.bill.count({ where: { userId } })).toBe(1);
   });
 
+  // Lending funds from accounts; a card-funded loan's whole billing story hangs
+  // off the account it was paid with.
+  it("archives rather than deletes an account a lending entry was funded from", async () => {
+    const card = await makeAccount("Lending Card", { type: "CREDIT_CARD" });
+    const participant = await prisma.participant.create({ data: { ownerId: userId, displayName: "Rohan" } });
+    await prisma.loanEntry.create({
+      // LoanEntry.accountId is onDelete: SetNull — a hard delete would not fail,
+      // it would quietly erase the loan's funding source and with it the card
+      // billing story. Hence counting lending entries as a blocker.
+      data: { userId, participantId: participant.id, kind: "GAVE", amount: 100_000, accountId: card.id, occurredAt: istNoon("2026-07-01") },
+    });
+
+    const res = await deleteOrArchiveAccount(userId, card.id);
+
+    expect(res.outcome).toBe("archived");
+    expect(res.reason).toContain("lending entr");
+    // The loan keeps its funding source, which is what Card Recovery reads.
+    const loan = await prisma.loanEntry.findFirstOrThrow({ where: { userId } });
+    expect(loan.accountId).toBe(card.id);
+
+    await prisma.loanEntry.deleteMany({ where: { userId } });
+    await prisma.participant.delete({ where: { id: participant.id } });
+  });
+
+  it("keeps Card Vault details intact across archive and restore", async () => {
+    const card = await prisma.account.create({
+      data: {
+        userId, name: "Vault Card", type: "CREDIT_CARD", balance: -25_000, openingBalance: -25_000,
+        cardNetwork: "Visa", cardLast4: "4242", statementDay: 3, dueDay: 18,
+      },
+    });
+
+    await archiveAccount(userId, card.id);
+    await unarchiveAccount(userId, card.id);
+
+    const after = await prisma.account.findUniqueOrThrow({ where: { id: card.id } });
+    expect([after.cardNetwork, after.cardLast4, after.statementDay, after.dueDay]).toEqual(["Visa", "4242", 3, 18]);
+    expect(Number(after.balance)).toBe(-25_000);
+  });
+
   it("hides archived accounts from the pickers but keeps them listed as archived", async () => {
     const active = await makeAccount("Still Used");
     const archived = await makeAccount("Put Away");
