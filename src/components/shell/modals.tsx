@@ -22,6 +22,7 @@ import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import type { OpenLoanRow } from "@/server/services/lending";
 import { AccountOptions } from "./account-options";
 import { DateField } from "./date-field";
+import { createRuleFor, RepeatBlock, useRepeat } from "./repeat-block";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { GroupCategorySelect } from "./group-category-select";
 import { LendingContactSheet } from "./lending-detail";
@@ -123,6 +124,10 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   // creator and its payer are two different people (Rahul paid, I logged
   // it) — defaults to Me, same as the implicit behavior before this existed.
   const [payerId, setPayerId] = useState<string | null>(null);
+  const repeat = useRepeat();
+  // Captured by the submit closure so a schedule that fails to save can be
+  // reported in the success message without failing the whole submission.
+  let scheduleError: string | null = null;
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
   const selected = refData.participants.filter((p) => parts[p.id]);
@@ -182,6 +187,11 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
 
       <SplitEditor state={splitState} amtPaise={amtPaise} participants={refData.participants} />
 
+      {/* A rule's template carries neither splits nor a group, so repeating is
+          offered only for a plain personal expense rather than silently
+          scheduling something different from what's on screen. */}
+      {!split && !groupId && <RepeatBlock state={repeat} transactionYmd={date} />}
+
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
@@ -219,9 +229,32 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                   });
                 })();
               }
-              return createViaOutbox("expense.create", payload);
+              // Schedule after the transaction lands. A failure here must not
+              // fail the submission — the expense is already committed, and
+              // reporting failure would invite a duplicate on resubmit — so it
+              // is surfaced in the success message instead.
+              return createViaOutbox("expense.create", payload).then(async (res) => {
+                if (res.ok && repeat.on && !split && !groupId) {
+                  scheduleError = await createRuleFor(repeat, {
+                    type: "EXPENSE",
+                    amount,
+                    accountId: accountId || null,
+                    categoryId: categoryId || null,
+                    merchant,
+                    date,
+                  });
+                }
+                return res;
+              });
             },
-            split ? "Split expense added" : "Expense added"
+            () =>
+              scheduleError
+                ? `Expense added — but the repeat wasn't saved: ${scheduleError}`
+                : repeat.on && !split && !groupId
+                  ? "Expense added and scheduled to repeat"
+                  : split
+                    ? "Split expense added"
+                    : "Expense added"
           )
         }
       >
@@ -245,6 +278,8 @@ function IncomeForm({ prefill }: { prefill?: ModalPrefill }) {
   const [merchant, setMerchant] = useState(prefill?.dupMerchant ?? "");
   const [date, setDate] = useState(todayYMD());
   const [groupId, setGroupId] = useState(prefill?.dupGroupId ?? "");
+  const repeat = useRepeat();
+  let scheduleError: string | null = null;
   return (
     <div className="flex flex-col gap-3">
       <Field label="AMOUNT (₹)">
@@ -282,14 +317,35 @@ function IncomeForm({ prefill }: { prefill?: ModalPrefill }) {
           </select>
         </Field>
       )}
+      {!groupId && <RepeatBlock state={repeat} transactionYmd={date} />}
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
         color="var(--green)"
         onClick={() =>
           run(
-            () => createViaOutbox("income.create", { amount, accountId, categoryId: categoryId || null, merchant, date, groupId: groupId || null }),
-            "Income added"
+            () =>
+              createViaOutbox("income.create", { amount, accountId, categoryId: categoryId || null, merchant, date, groupId: groupId || null }).then(
+                async (res) => {
+                  if (res.ok && repeat.on && !groupId) {
+                    scheduleError = await createRuleFor(repeat, {
+                      type: "INCOME",
+                      amount,
+                      accountId: accountId || null,
+                      categoryId: categoryId || null,
+                      merchant,
+                      date,
+                    });
+                  }
+                  return res;
+                }
+              ),
+            () =>
+              scheduleError
+                ? `Income added — but the repeat wasn't saved: ${scheduleError}`
+                : repeat.on && !groupId
+                  ? "Income added and scheduled to repeat"
+                  : "Income added"
           )
         }
       >

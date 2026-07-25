@@ -12,28 +12,12 @@ import {
   updateRecurringRuleAction,
 } from "@/app/actions";
 import { AccountOptions } from "@/components/shell/account-options";
-import { DateField } from "@/components/shell/date-field";
 import { AmountInput, ErrorNote, Field } from "@/components/shell/form-primitives";
+import { cadenceLabel, RepeatFields, type Cadence } from "@/components/shell/repeat-fields";
 import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import type { RecurringRuleView } from "@/server/services/recurring";
-
-const CADENCES = [
-  { value: "DAILY", label: "Day" },
-  { value: "WEEKLY", label: "Week" },
-  { value: "MONTHLY", label: "Month" },
-  { value: "QUARTERLY", label: "Quarter" },
-  { value: "YEARLY", label: "Year" },
-] as const;
-
-type Cadence = (typeof CADENCES)[number]["value"];
-
-/** "Every month" / "Every 2 weeks" — the plural only appears when it's needed. */
-export function cadenceLabel(cadence: Cadence, interval: number): string {
-  const unit = CADENCES.find((c) => c.value === cadence)?.label.toLowerCase() ?? "month";
-  return interval === 1 ? `Every ${unit}` : `Every ${interval} ${unit}s`;
-}
 
 export function RecurringRules({ rules }: { rules: RecurringRuleView[] }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -239,73 +223,6 @@ function EditRuleForm({ rule, onDone }: { rule: RecurringRuleView; onDone: () =>
           Cancel
         </button>
       </div>
-    </div>
-  );
-}
-
-/**
- * Cadence + interval + start/end, shared by this edit form and the "Repeat this"
- * block on the create forms so the two can't drift apart.
- */
-export function RepeatFields({
-  cadence,
-  setCadence,
-  interval,
-  setInterval,
-  startDate,
-  setStartDate,
-  endDate,
-  setEndDate,
-  startLabel = "STARTS",
-}: {
-  cadence: Cadence;
-  setCadence: (v: Cadence) => void;
-  interval: string;
-  setInterval: (v: string) => void;
-  startDate: string;
-  setStartDate: (v: string) => void;
-  endDate: string;
-  setEndDate: (v: string) => void;
-  startLabel?: string;
-}) {
-  return (
-    <div className="flex gap-2.5 flex-wrap items-end">
-      <Field label="REPEAT EVERY">
-        <div className="flex gap-2">
-          <input
-            className="field !w-[70px]"
-            inputMode="numeric"
-            value={interval}
-            onChange={(e) => setInterval(e.target.value.replace(/\D/g, ""))}
-            aria-label="Repeat interval"
-          />
-          <select className="field" value={cadence} onChange={(e) => setCadence(e.target.value as Cadence)} aria-label="Repeat unit">
-            {CADENCES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-                {Number(interval) > 1 ? "s" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-      </Field>
-      <Field label={startLabel}>
-        <DateField value={startDate} onChange={setStartDate} />
-      </Field>
-      <Field label="ENDS (OPTIONAL)">
-        <div className="flex items-center gap-2">
-          <DateField value={endDate} onChange={setEndDate} min={startDate} />
-          {endDate && (
-            <button
-              type="button"
-              onClick={() => setEndDate("")}
-              className="text-[11.5px] font-semibold text-mut2 bg-transparent border-none cursor-pointer hover:text-ink flex-none"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      </Field>
     </div>
   );
 }
