@@ -96,7 +96,7 @@ function EditBillForm({ bill, onDone }: { bill: BillView; onDone: () => void }) 
       )}
       <div className="flex gap-2.5 flex-wrap">
         <Field label="NAME">
-          <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} aria-label="Bill name" />
         </Field>
         <Field label="AMOUNT (₹)">
           <AmountInput value={amount} onChange={setAmount} />
