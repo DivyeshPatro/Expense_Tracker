@@ -3,7 +3,7 @@
 
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { istNoon, toYMD } from "@/lib/dates";
-import { billAnchorDay, createBill, listBills, markBillPaid } from "./bills";
+import { billAnchorDay, createBill, deleteBill, listBills, listPaidBills, markBillPaid, updateBill } from "./bills";
 import { prisma } from "../db";
 
 const EMAIL = "bills-test@ledgerly.app";
@@ -121,5 +121,113 @@ describe("bills", () => {
     await prisma.account.update({ where: { id: accountId }, data: { isArchived: false } });
     await prisma.transaction.deleteMany({ where: { userId } });
     await prisma.account.delete({ where: { id: live.id } });
+  });
+
+  describe("edit", () => {
+    it("updates the reminder and re-derives the anchor", async () => {
+      await createBill(userId, { name: "Rent", amount: 50_000, categoryId: null, dueDate: "2026-07-05", cadence: "MONTHLY" });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+
+      await updateBill(userId, bill.id, { name: "Rent (new flat)", amount: 65_000, categoryId: null, dueDate: "2026-08-31", cadence: "MONTHLY" });
+
+      const after = await prisma.bill.findUniqueOrThrow({ where: { id: bill.id } });
+      expect(after.name).toBe("Rent (new flat)");
+      expect(Number(after.amount)).toBe(65_000);
+      expect(toYMD(after.dueDate)).toBe("2026-08-31");
+      expect(after.anchorDay).toBe(31); // re-derived from the new due date
+    });
+
+    it("clears the anchor when a recurring bill becomes one-off", async () => {
+      await createBill(userId, { name: "Rent", amount: 50_000, categoryId: null, dueDate: "2026-01-31", cadence: "MONTHLY" });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+      await updateBill(userId, bill.id, { name: "Rent", amount: 50_000, categoryId: null, dueDate: "2026-01-31", cadence: null });
+      expect((await prisma.bill.findUniqueOrThrow({ where: { id: bill.id } })).anchorDay).toBeNull();
+    });
+
+    it("never disturbs a payment already recorded against the bill", async () => {
+      await createBill(userId, { name: "Broadband", amount: 99_900, categoryId: null, dueDate: "2026-07-05", cadence: "MONTHLY" });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+      await markBillPaid(userId, bill.id, accountId, istNoon("2026-07-05"));
+      const paidTx = await prisma.transaction.findFirstOrThrow({ where: { userId } });
+      const balanceAfterPayment = Number((await prisma.account.findUniqueOrThrow({ where: { id: accountId } })).balance);
+
+      await updateBill(userId, bill.id, { name: "Broadband", amount: 120_000, categoryId: null, dueDate: "2026-09-05", cadence: "MONTHLY" });
+
+      const tx = await prisma.transaction.findUniqueOrThrow({ where: { id: paidTx.id } });
+      expect(Number(tx.amount)).toBe(99_900); // the old price, as it was paid
+      expect(Number((await prisma.account.findUniqueOrThrow({ where: { id: accountId } })).balance)).toBe(balanceAfterPayment);
+    });
+
+    it("brings a settled one-off back into the active list when rescheduled as recurring", async () => {
+      await createBill(userId, { name: "Passport fee", amount: 1_500, categoryId: null, dueDate: "2026-07-05", cadence: null });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+      await markBillPaid(userId, bill.id, accountId, istNoon("2026-07-05"));
+      expect(await listBills(userId, istNoon("2026-07-06"))).toEqual([]);
+
+      await updateBill(userId, bill.id, { name: "Passport fee", amount: 1_500, categoryId: null, dueDate: "2026-09-01", cadence: "YEARLY" });
+
+      const active = await listBills(userId, istNoon("2026-07-06"));
+      expect(active.map((b) => b.name)).toEqual(["Passport fee"]);
+    });
+  });
+
+  describe("delete", () => {
+    it("deletes an unpaid bill", async () => {
+      await createBill(userId, { name: "Gym", amount: 2_000, categoryId: null, dueDate: "2026-08-01", cadence: null });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+
+      const res = await deleteBill(userId, bill.id);
+
+      expect(res.keptPaymentTxId).toBeNull();
+      expect(await prisma.bill.count({ where: { userId } })).toBe(0);
+    });
+
+    // The whole point: the reminder is a schedule, the payment is money that moved.
+    it("deletes a paid bill but leaves its payment transaction untouched", async () => {
+      await createBill(userId, { name: "Broadband", amount: 99_900, categoryId: null, dueDate: "2026-07-05", cadence: null });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+      await markBillPaid(userId, bill.id, accountId, istNoon("2026-07-05"));
+      const paidTx = await prisma.transaction.findFirstOrThrow({ where: { userId } });
+      const balance = Number((await prisma.account.findUniqueOrThrow({ where: { id: accountId } })).balance);
+
+      const res = await deleteBill(userId, bill.id);
+
+      expect(res.keptPaymentTxId).toBe(paidTx.id);
+      expect(await prisma.bill.count({ where: { userId } })).toBe(0);
+
+      const tx = await prisma.transaction.findUniqueOrThrow({ where: { id: paidTx.id } });
+      expect(tx.deletedAt).toBeNull();
+      expect(Number(tx.amount)).toBe(99_900);
+      expect(tx.accountId).toBe(accountId);
+      expect(tx.merchant).toBe("Broadband");
+      // Balances and therefore analytics are unaffected.
+      expect(Number((await prisma.account.findUniqueOrThrow({ where: { id: accountId } })).balance)).toBe(balance);
+    });
+
+    it("lists settled one-off bills so they remain reachable", async () => {
+      await createBill(userId, { name: "Passport fee", amount: 1_500, categoryId: null, dueDate: "2026-07-05", cadence: null });
+      const bill = await prisma.bill.findFirstOrThrow({ where: { userId } });
+      await markBillPaid(userId, bill.id, accountId, istNoon("2026-07-05"));
+
+      const paid = await listPaidBills(userId);
+      expect(paid.map((b) => b.name)).toEqual(["Passport fee"]);
+      expect(paid[0].hasPayment).toBe(true);
+      expect(paid[0].paidYMD).toBe("2026-07-05");
+    });
+
+    it("will not touch another user's bill", async () => {
+      const other = await prisma.user.create({ data: { name: "Other", email: "other-bills@ledgerly.app", emailVerified: true } });
+      const theirs = await prisma.bill.create({
+        data: { userId: other.id, name: "Theirs", amount: 100, dueDate: istNoon("2026-08-01") },
+      });
+
+      await expect(deleteBill(userId, theirs.id)).rejects.toThrow(/not found/);
+      await expect(
+        updateBill(userId, theirs.id, { name: "Mine", amount: 1, categoryId: null, dueDate: "2026-08-01", cadence: null })
+      ).rejects.toThrow(/not found/);
+      expect(await prisma.bill.count({ where: { id: theirs.id } })).toBe(1);
+
+      await prisma.user.delete({ where: { id: other.id } });
+    });
   });
 });

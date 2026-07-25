@@ -13,7 +13,7 @@ import {
   unarchiveAccount,
   updateAccountCardDetails,
 } from "@/server/services/accounts";
-import { createBill, markBillPaid } from "@/server/services/bills";
+import { createBill, deleteBill, markBillPaid, updateBill } from "@/server/services/bills";
 import { upsertBudget } from "@/server/services/budgets";
 import { changeCategoryKind, createCategory, createGroupCategory, deleteCategory, listGroupCategories, renameCategory } from "@/server/services/categories";
 import { queryTransactions, type TxListFilter } from "@/server/services/ledger";
@@ -101,6 +101,7 @@ import {
   recurringRuleSchema,
   updateRecurringRuleSchema,
   accountNameSchema,
+  updateBillSchema,
 } from "@/validators";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -287,6 +288,37 @@ export async function createBillAction(input: unknown): Promise<ActionResult> {
     await createBill(user.id, data);
     refresh();
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function updateBillAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, ...data } = updateBillSchema.parse(input);
+    await updateBill(user.id, id, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Removes the reminder. Any recorded payment is deliberately left in the ledger,
+ * and the message says so — "deleted the bill" could otherwise be read as having
+ * undone the payment too.
+ */
+export async function deleteBillAction(id: string): Promise<ActionResult & { message?: string }> {
+  try {
+    const user = await requireUser();
+    const { keptPaymentTxId } = await deleteBill(user.id, id);
+    refresh();
+    return {
+      ok: true,
+      message: keptPaymentTxId ? "Bill deleted — its recorded payment is still in your transactions" : "Bill deleted",
+    };
   } catch (e) {
     return fail(e);
   }
