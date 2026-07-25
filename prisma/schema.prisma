@@ -305,6 +305,11 @@ model RecurringRule {
   interval  Int       @default(1)
   nextRunAt DateTime
   endsAt    DateTime?
+  // Day-of-month the schedule is pinned to, for month-based cadences. Without
+  // it, advancing from an already-clamped date makes month-end schedules drift
+  // down permanently (31st → Feb 28 → Mar 28 → …). Null on pre-existing rules,
+  // which keeps their current behaviour — see advance() in lib/dates.ts.
+  anchorDay Int?
   template  Json // transaction/bill payload to materialize
   kind      RuleKind
 

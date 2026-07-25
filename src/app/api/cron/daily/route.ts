@@ -21,10 +21,16 @@ export async function GET(req: Request) {
   if (!secret || !header || !safeEqual(header, `Bearer ${secret}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const created = await materializeDueRules();
+  const { created, failures } = await materializeDueRules();
+  if (failures.length > 0) {
+    // Reported, not thrown: the run itself succeeded, and a rule that fails
+    // every night must not turn the whole cron red (or block the reconciliation
+    // below) — but it must never be silent either.
+    console.error("[cron/daily] rules failed to materialize", failures);
+  }
   const drift = await reconcileAll();
   if (drift.length > 0) {
     console.error("[cron/daily] balance drift detected", drift);
   }
-  return NextResponse.json({ ok: true, created, drift });
+  return NextResponse.json({ ok: true, created, failures, drift });
 }

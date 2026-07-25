@@ -65,8 +65,25 @@ export function addDaysYMD(ymd: string, days: number): string {
   return toYMD(d);
 }
 
-/** Roll a date forward by one cadence step (for bills / recurring rules). */
-export function advance(ymd: string, cadence: "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY", interval = 1): string {
+/**
+ * Roll a date forward by one cadence step (for bills / recurring rules).
+ *
+ * `anchorDay` is the day-of-month the schedule is really pinned to, and only
+ * affects the month-based cadences. Without it, month-end schedules drift
+ * downward permanently: the 31st clamps to Feb 28, and because the *next* step
+ * is then computed from the 28th, it stays on the 28th forever. Passing the
+ * original day lets each step clamp independently — 31 → Feb 28 → Mar 31 —
+ * so a short month borrows the date back instead of rewriting the schedule.
+ *
+ * Optional, and omitting it preserves the previous behaviour exactly (the
+ * anchor defaults to the day of the date being advanced).
+ */
+export function advance(
+  ymd: string,
+  cadence: "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY",
+  interval = 1,
+  anchorDay?: number | null
+): string {
   const [y, m, d] = ymd.split("-").map(Number);
   switch (cadence) {
     case "DAILY":
@@ -81,7 +98,8 @@ export function advance(ymd: string, cadence: "DAILY" | "WEEKLY" | "MONTHLY" | "
       const ny = Math.floor(total / 12);
       const nm = (total % 12) + 1;
       const lastDay = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
-      return `${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(d, lastDay)).padStart(2, "0")}`;
+      const wanted = anchorDay && anchorDay >= 1 && anchorDay <= 31 ? anchorDay : d;
+      return `${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(wanted, lastDay)).padStart(2, "0")}`;
     }
   }
 }
