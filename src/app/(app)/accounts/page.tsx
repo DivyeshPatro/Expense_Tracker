@@ -1,9 +1,10 @@
 import { OpenModalButton } from "@/components/shell/buttons";
+import { AccountCardActions, ArchivedAccounts } from "./account-actions";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { parsePeriod } from "@/lib/period";
 import { soft } from "@/lib/tx-display";
-import { listAccounts } from "@/server/services/accounts";
+import { listAccounts, listArchivedAccounts, referencedAccountIds } from "@/server/services/accounts";
 import { loadLedgerAggRange } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
 
@@ -15,7 +16,12 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const { range, label } = parsePeriod(sp, now);
 
-  const [accounts, rows] = await Promise.all([listAccounts(user.id, range, now), loadLedgerAggRange(user.id, range.start, range.end)]);
+  const [accounts, rows, archived, referenced] = await Promise.all([
+    listAccounts(user.id, range, now),
+    loadLedgerAggRange(user.id, range.start, range.end),
+    listArchivedAccounts(user.id),
+    referencedAccountIds(user.id),
+  ]);
   const transfers = rows.filter((r) => r.type === "TRANSFER");
 
   return (
@@ -54,9 +60,12 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
                 </OpenModalButton>
               </div>
             )}
+            <AccountCardActions id={a.id} name={a.name} hasHistory={referenced.has(a.id)} />
           </div>
         ))}
       </div>
+
+      <ArchivedAccounts accounts={archived} />
       <div className="card p-[var(--pad)]">
         <div className="flex justify-between items-baseline mb-2.5">
           <h2 className="text-[13.5px] font-bold m-0">Transfers</h2>

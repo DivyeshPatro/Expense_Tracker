@@ -177,6 +177,34 @@ export async function listArchivedAccounts(userId: string): Promise<ArchivedAcco
 }
 
 /**
+ * Ids of accounts that something still points at, in a handful of queries rather
+ * than a per-account check. The Accounts page uses it to label the remove button
+ * "Archive" or "Delete" up front — the server still decides for real in
+ * deleteOrArchiveAccount, but the button should say what's about to happen.
+ */
+export async function referencedAccountIds(userId: string): Promise<Set<string>> {
+  const [fromTx, toTx, budgets, bills, loans, rules] = await Promise.all([
+    prisma.transaction.groupBy({ by: ["accountId"], where: { userId } }),
+    prisma.transaction.groupBy({ by: ["toAccountId"], where: { userId } }),
+    prisma.budget.findMany({ where: { userId }, select: { accountId: true } }),
+    prisma.bill.findMany({ where: { userId }, select: { accountId: true } }),
+    prisma.loanEntry.findMany({ where: { userId }, select: { accountId: true } }),
+    prisma.recurringRule.findMany({ where: { userId }, select: { template: true } }),
+  ]);
+  const ids = new Set<string>();
+  for (const r of fromTx) if (r.accountId) ids.add(r.accountId);
+  for (const r of toTx) if (r.toAccountId) ids.add(r.toAccountId);
+  for (const rows of [budgets, bills, loans]) {
+    for (const r of rows) if (r.accountId) ids.add(r.accountId);
+  }
+  for (const r of rules) {
+    const a = (r.template as { accountId?: string } | null)?.accountId;
+    if (a) ids.add(a);
+  }
+  return ids;
+}
+
+/**
  * Rename only. Type and opening balance are deliberately not editable: both feed
  * the balance invariant (balance = openingBalance + Σ ledger) and changing either
  * after transactions exist would silently invalidate every reported figure.
