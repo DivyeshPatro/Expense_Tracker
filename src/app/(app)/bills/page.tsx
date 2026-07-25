@@ -1,16 +1,17 @@
 import { OpenModalButton, PayBillButton } from "@/components/shell/buttons";
 import { EmptyState } from "@/components/shell/empty-state";
+import { BillActions, PaidBills } from "./bill-actions";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
 import { billUrgencyBackground, billUrgencyColor } from "@/lib/urgency";
-import { listBills } from "@/server/services/bills";
+import { listBills, listPaidBills } from "@/server/services/bills";
 import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function BillsPage() {
   const user = await requireUser();
-  const bills = await listBills(user.id);
+  const [bills, paidBills] = await Promise.all([listBills(user.id), listPaidBills(user.id)]);
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
@@ -36,9 +37,12 @@ export default async function BillsPage() {
             </div>
             <div className="text-sm font-extrabold min-w-[80px] text-right">{formatPaise(b.amount)}</div>
             <PayBillButton billId={b.id} label={`${b.name} paid · ${formatPaise(b.amount)}`} />
+            <BillActions bill={b} />
           </div>
         ))}
       </div>
+
+      <PaidBills bills={paidBills} />
     </div>
   );
 }
