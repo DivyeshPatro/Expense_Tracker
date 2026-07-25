@@ -4,6 +4,76 @@ All notable changes to Ledgerly are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Backup restore (JSON)** — a Ledgerly Backup `.json` export can be
+  restored from the Import Center. Additive only: every restored row is a
+  new row, accounts are matched to existing ones by (name, type) and
+  categories by (name, kind), and only the missing ones are created.
+  Restores the ledger — accounts, categories, transactions; the preview
+  names every backup section it does *not* restore (budgets, bills,
+  lending entries, settlements, recurring rules, tags) rather than
+  silently dropping them. See [`docs/backup.md`](docs/backup.md).
+- **Undo a restore in one step** from Settings → Import history. Reverses
+  every restored transaction *and* removes the accounts and categories the
+  restore created (`ImportBatch.createdEntities`). A created entity is
+  deliberately kept when data outside the batch already depends on it —
+  your own transactions, a budget, bill, merchant rule, or lending
+  entry — and the undo reports what it kept, rather than cascading away
+  data it was never asked to touch.
+- **Account pickers grouped by funding type** — Cash / Bank / Wallet /
+  Credit card / Investment, across expense, income, transfer and lending
+  funding-source fields. Credit cards show their Card Vault identity
+  (`Visa •••• 4242`) inline, so a card is recognisable at the point of
+  choice.
+
+### Fixed
+
+- **Restored account balances were silently corrupted.** A newly created
+  account was seeded with the backup's exported *closing* balance and then
+  had every transaction in that backup replayed onto it, counting each one
+  twice. Accounts now start at their opening position, restoring the
+  documented invariant `balance = openingBalance + Σ ledger`.
+- **A restore preview could promise more rows than the commit delivered.**
+  Preview and commit resolved backup ids independently and disagreed on
+  entities missing a name or type. Both now derive from one shared
+  `planRestore()`, so the resolvable set is identical by construction.
+  Incomplete backup entries are reported in the preview instead of being
+  invisible.
+- **One malformed date aborted an entire restore.** `toYMD` throws on an
+  Invalid Date rather than returning a falsy value, so a single unreadable
+  `occurredAt` failed the whole file instead of rejecting that one row.
+- **Undo could delete an account still in use.** Its reference check used
+  `importBatchId <> batch`, which excludes NULL rows under SQL
+  three-valued logic — that is, every hand-entered transaction.
+- **Credit cards restored with a debt were zeroed out**, because a
+  positive-paise-only amount helper was being applied to balances, where
+  zero and negative are both legitimate.
+
+### Changed
+
+- Unit and integration tests are now separate suites (`npm run test` /
+  `npm run test:integration`). The unit suite touches no database and is
+  verified to pass without one; CI runs the DB-backed suite in its own job
+  against a Postgres service with migrations applied via
+  `prisma migrate deploy`.
+- CI runs again. Its triggers had been narrowed to pushes to `main` and
+  pull requests against it — neither of which can fire on a repository
+  whose only branch is `ledgerly-app` — leaving the workflow configured
+  but unreachable since 2026-07-19.
+
+### Migrations
+
+- `20260725120247_import_batch_created_entities` — adds nullable
+  `ImportBatch.createdEntities Json?`, recording what a restore created so
+  undo can reverse it. Additive and backward-compatible: null for every
+  existing row, and for every CSV import batch (that path only maps onto
+  entities that already exist).
+
+---
+
 ## [1.0.0] — 2026-07-19
 
 First production-ready release. Everything below shipped across the
