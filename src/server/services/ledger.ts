@@ -228,6 +228,9 @@ export interface TxListFilter {
   /** legacy single-month filter from NL search ("swiggy in march") — a deliberate one-off query, takes precedence over the shared period below */
   monthKey?: string | null;
   categoryId?: string | null;
+  /** Either side of a transfer counts. Used by the Accounts page, including the
+   * archived list, where it's the only way back to an account's history. */
+  accountId?: string | null;
   /** the shared period picker's raw ?p/?from/?to — resolved with parsePeriod, same as every other period-aware page */
   period?: { p?: string; from?: string; to?: string };
   textQuery?: string;
@@ -248,6 +251,12 @@ export async function queryTransactions(userId: string, filter: TxListFilter, pa
   if (filter.type) where.type = filter.type;
   if (filter.categoryId) where.categoryId = filter.categoryId;
   if (filter.importBatchId) where.importBatchId = filter.importBatchId;
+  if (filter.accountId) {
+    // Both sides of a transfer count as "this account's" activity. Nested under
+    // AND rather than assigning where.OR, which the text search below already
+    // owns — the two filters have to compose, not overwrite each other.
+    where.AND = [{ OR: [{ accountId: filter.accountId }, { toAccountId: filter.accountId }] }];
+  }
   if (filter.monthKey) {
     const { start, end } = monthRange(filter.monthKey);
     where.occurredAt = { gte: start, lt: end };

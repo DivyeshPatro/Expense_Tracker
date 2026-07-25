@@ -8,17 +8,21 @@ export const dynamic = "force-dynamic";
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; tab?: string; month?: string; category?: string; batch?: string; p?: string; from?: string; to?: string; tx?: string }>;
+  searchParams: Promise<{ q?: string; tab?: string; month?: string; category?: string; account?: string; batch?: string; p?: string; from?: string; to?: string; tx?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
   const type = (params.tab as "EXPENSE" | "INCOME" | "TRANSFER" | undefined) || undefined;
   const categoryId = params.category || null;
+  const accountId = params.account || null;
   const batchId = params.batch || null;
   const period = { p: params.p, from: params.from, to: params.to };
-  const [initialPage, category] = await Promise.all([
-    queryTransactions(user.id, { type, monthKey: params.month, categoryId, period, textQuery: params.q, importBatchId: batchId }, 0),
+  const [initialPage, category, account] = await Promise.all([
+    queryTransactions(user.id, { type, monthKey: params.month, categoryId, accountId, period, textQuery: params.q, importBatchId: batchId }, 0),
     categoryId ? prisma.category.findFirst({ where: { id: categoryId, userId: user.id }, select: { name: true, icon: true } }) : null,
+    // Deliberately not filtered by isArchived: reaching an archived account's
+    // history is the main reason this filter exists.
+    accountId ? prisma.account.findFirst({ where: { id: accountId, userId: user.id }, select: { name: true, icon: true } }) : null,
   ]);
 
   return (
@@ -29,6 +33,7 @@ export default async function TransactionsPage({
       initialTab={type ?? null}
       initialMonth={params.month ?? null}
       initialCategory={categoryId ? { id: categoryId, name: category?.name ?? "Category", icon: category?.icon ?? "📦" } : null}
+      initialAccount={accountId ? { id: accountId, name: account?.name ?? "Account", icon: account?.icon ?? "🏦" } : null}
       initialBatch={batchId}
       period={period}
       initialOpenTransactionId={params.tx || null}

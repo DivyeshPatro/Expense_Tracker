@@ -12,6 +12,7 @@ import {
   renameAccount,
   unarchiveAccount,
 } from "./accounts";
+import { queryTransactions } from "./ledger";
 import { createRecurringRule, materializeDueRules } from "./recurring";
 import { prisma } from "../db";
 
@@ -237,5 +238,42 @@ describe("account lifecycle", () => {
     expect(await prisma.account.count({ where: { id: theirs.id } })).toBe(1);
 
     await prisma.user.delete({ where: { id: other.id } });
+  });
+});
+
+describe("transaction filtering by account", () => {
+  it("matches both sides of a transfer, and composes with a text search", async () => {
+    const from = await makeAccount("Filter From");
+    const to = await makeAccount("Filter To");
+    await prisma.transaction.createMany({
+      data: [
+        { userId, type: "EXPENSE", amount: 100, accountId: from.id, merchant: "Groceries", occurredAt: istNoon("2026-07-01") },
+        { userId, type: "TRANSFER", amount: 500, accountId: from.id, toAccountId: to.id, merchant: "Moving money", occurredAt: istNoon("2026-07-02") },
+        { userId, type: "EXPENSE", amount: 200, accountId: to.id, merchant: "Groceries", occurredAt: istNoon("2026-07-03") },
+      ],
+    });
+
+    const fromSide = await queryTransactions(userId, { accountId: from.id }, 0);
+    expect(fromSide.rows.map((r) => r.merchant).sort()).toEqual(["Groceries", "Moving money"]);
+
+    // The transfer counts for the destination account too.
+    const toSide = await queryTransactions(userId, { accountId: to.id }, 0);
+    expect(toSide.rows.map((r) => r.merchant).sort()).toEqual(["Groceries", "Moving money"]);
+
+    // Account filter AND text search, not one overwriting the other.
+    const both = await queryTransactions(userId, { accountId: to.id, textQuery: "Groceries" }, 0);
+    expect(both.rows).toHaveLength(1);
+    expect(Number(both.rows[0].amount)).toBe(200);
+  });
+
+  it("still finds the history of an archived account", async () => {
+    const a = await makeAccount("Archived History");
+    await prisma.transaction.create({
+      data: { userId, type: "EXPENSE", amount: 700, accountId: a.id, merchant: "Old Spend", occurredAt: istNoon("2026-06-01") },
+    });
+    await archiveAccount(userId, a.id);
+
+    const page = await queryTransactions(userId, { accountId: a.id }, 0);
+    expect(page.rows.map((r) => r.merchant)).toEqual(["Old Spend"]);
   });
 });

@@ -37,6 +37,7 @@ export function TransactionsList({
   initialTab,
   initialMonth,
   initialCategory,
+  initialAccount,
   initialBatch,
   period,
   initialOpenTransactionId,
@@ -47,6 +48,7 @@ export function TransactionsList({
   initialTab: TxType | null;
   initialMonth: string | null;
   initialCategory: CategoryRef | null;
+  initialAccount: CategoryRef | null;
   initialBatch: string | null;
   period: Period;
   initialOpenTransactionId?: string | null;
@@ -70,6 +72,7 @@ export function TransactionsList({
   const [tab, setTab] = useState<TxType | null>(initialTab);
   const [month, setMonth] = useState<string | null>(initialMonth);
   const [category, setCategory] = useState<CategoryRef | null>(initialCategory);
+  const [account, setAccount] = useState<CategoryRef | null>(initialAccount);
   const [batch, setBatch] = useState<string | null>(initialBatch);
   const [loading, setLoading] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,16 +83,17 @@ export function TransactionsList({
   // switching the period picker with no active search, never gets "consumed"
   // by the fetch effect — leaving it armed to silently swallow the *next*
   // real change instead, such as a search typed right after switching period.)
-  const appliedFilter = useRef({ q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, batch: initialBatch });
+  const appliedFilter = useRef({ q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, accountId: initialAccount?.id ?? null, batch: initialBatch });
   const periodKey = `${period.p ?? ""}|${period.from ?? ""}|${period.to ?? ""}`;
 
-  async function refetch(filter: { type?: TxType; monthKey?: string | null; categoryId?: string | null; textQuery?: string; batch?: string | null }) {
+  async function refetch(filter: { type?: TxType; monthKey?: string | null; categoryId?: string | null; accountId?: string | null; textQuery?: string; batch?: string | null }) {
     setLoading(true);
     const result = await queryTransactionsAction(
       {
         type: filter.type,
         monthKey: filter.monthKey ?? undefined,
         categoryId: filter.categoryId ?? undefined,
+        accountId: filter.accountId ?? undefined,
         period,
         textQuery: filter.textQuery,
         importBatchId: filter.batch ?? undefined,
@@ -111,36 +115,45 @@ export function TransactionsList({
     setTab(initialTab);
     setMonth(initialMonth);
     setCategory(initialCategory);
+    setAccount(initialAccount);
     setBatch(initialBatch);
     setRows(initialRows);
     setHasMore(initialHasMore);
     setPage(0);
-    appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, batch: initialBatch };
+    appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, accountId: initialAccount?.id ?? null, batch: initialBatch };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQ, initialTab, initialMonth, initialCategory?.id, initialBatch, periodKey, initialRows]);
+  }, [initialQ, initialTab, initialMonth, initialCategory?.id, initialAccount?.id, initialBatch, periodKey, initialRows]);
 
   useEffect(() => {
     const categoryId = category?.id ?? null;
+    const accountId = account?.id ?? null;
     const applied = appliedFilter.current;
-    if (applied.q === q && applied.tab === tab && applied.month === month && applied.categoryId === categoryId && applied.batch === batch) {
+    if (
+      applied.q === q &&
+      applied.tab === tab &&
+      applied.month === month &&
+      applied.categoryId === categoryId &&
+      applied.accountId === accountId &&
+      applied.batch === batch
+    ) {
       return; // matches what's already loaded — nothing to refetch
     }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
-      appliedFilter.current = { q, tab, month, categoryId, batch };
-      refetch({ type: tab ?? undefined, monthKey: month, categoryId, textQuery: q, batch });
+      appliedFilter.current = { q, tab, month, categoryId, accountId, batch };
+      refetch({ type: tab ?? undefined, monthKey: month, categoryId, accountId, textQuery: q, batch });
     }, 300);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, tab, month, category?.id, batch]);
+  }, [q, tab, month, category?.id, account?.id, batch]);
 
   async function loadMore() {
     setLoading(true);
     const next = page + 1;
     const result = await queryTransactionsAction(
-      { type: tab ?? undefined, monthKey: month ?? undefined, categoryId: category?.id, period, textQuery: q, importBatchId: batch ?? undefined },
+      { type: tab ?? undefined, monthKey: month ?? undefined, categoryId: category?.id, accountId: account?.id, period, textQuery: q, importBatchId: batch ?? undefined },
       next
     );
     setRows((r) => [...r, ...result.rows]);
@@ -198,6 +211,12 @@ export function TransactionsList({
           <div className="flex items-center gap-[7px] px-[13px] py-[7px] rounded-full bg-accsoft text-acc text-xs font-bold">
             {category.icon} {category.name}
             <button onClick={() => setCategory(null)} className="cursor-pointer bg-transparent border-none text-acc font-bold p-0">✕</button>
+          </div>
+        )}
+        {account && (
+          <div className="flex items-center gap-[7px] px-[13px] py-[7px] rounded-full bg-accsoft text-acc text-xs font-bold">
+            {account.icon} {account.name}
+            <button onClick={() => setAccount(null)} className="cursor-pointer bg-transparent border-none text-acc font-bold p-0" aria-label="Clear account filter">✕</button>
           </div>
         )}
         {batch && (
