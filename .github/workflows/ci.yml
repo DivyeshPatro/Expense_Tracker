@@ -2,8 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `main` doesn't exist on the remote — `ledgerly-app` is the repository's
+    # default branch — and with no other branch to target, no pull request can
+    # be opened either. Between them those were the only two triggers, so CI
+    # silently stopped running entirely when they were narrowed to this pair.
+    # Keep main listed for when the branching model settles; add the branch that
+    # actually exists so pushes are covered today.
+    branches: [main, ledgerly-app]
   pull_request:
+  # Manual runs, so CI is never again unreachable just because no configured
+  # trigger matches the repository's actual branches.
+  workflow_dispatch:
 
 # Cancel superseded runs on the same branch/PR instead of letting them
 # queue up and finish out of order.
