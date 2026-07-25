@@ -17,11 +17,25 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 try {
   // ── sign in ──
-  await page.goto("http://localhost:3000/sign-in");
-  await page.fill('input[type="email"]', "arjun@ledgerly.app");
-  await page.fill('input[type="password"]', "ledgerly-demo");
-  await page.click('button[type="submit"]');
-  await page.waitForURL("**/dashboard", { timeout: 15000 });
+  // Tolerate a cold `next dev` server: submitting before React has hydrated
+  // fires a native form GET that never reaches /dashboard, so wait for the
+  // button and retry instead of filling the instant the DOM appears.
+  let signedIn = false;
+  for (let attempt = 0; attempt < 3 && !signedIn; attempt++) {
+    await page.goto("http://localhost:3000/sign-in", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector('button[type="submit"]', { timeout: 30000 });
+    await page.waitForTimeout(1500);
+    await page.fill('input[type="email"]', "arjun@ledgerly.app");
+    await page.fill('input[type="password"]', "ledgerly-demo");
+    await page.click('button[type="submit"]');
+    try {
+      await page.waitForURL("**/dashboard", { timeout: 30000 });
+      signedIn = true;
+    } catch {
+      /* retry */
+    }
+  }
+  if (!signedIn) throw new Error("Could not sign in after 3 attempts (hydration race)");
   ok("sign-in redirects to dashboard", true);
 
   // ── dashboard numbers ──

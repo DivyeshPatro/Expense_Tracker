@@ -34,26 +34,36 @@ const browser = await chromium.launch({ headless: true });
 }
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
-async function gotoRetry(url, opts) {
+// `next dev` keeps a long-lived HMR websocket open, so a hard
+// `waitUntil: "networkidle"` can never settle and times out on a cold server
+// even though the page rendered fine. Navigate on domcontentloaded, then treat
+// network quiet as a best-effort settle: the actual hydration guarantee comes
+// from waiting on the element we're about to interact with.
+async function settle(ms = 6000) {
+  await page.waitForLoadState("networkidle", { timeout: ms }).catch(() => {});
+}
+
+async function gotoRetry(url, opts = {}) {
+  const options = { waitUntil: "domcontentloaded", timeout: 60000, ...opts };
   try {
-    await page.goto(url, opts);
+    await page.goto(url, options);
   } catch (e) {
-    if (String(e).includes("ERR_ABORTED")) {
+    if (String(e).includes("ERR_ABORTED") || String(e).includes("Timeout")) {
       await page.waitForTimeout(1000);
-      await page.goto(url, opts);
+      await page.goto(url, options);
     } else {
       throw e;
     }
   }
+  await settle();
 }
 
 try {
   // ── Sign in (wait for hydration to avoid a native form GET). ──
   let signedIn = false;
   for (let attempt = 0; attempt < 3 && !signedIn; attempt++) {
-    await gotoRetry(`${BASE}/sign-in`, { waitUntil: "networkidle" });
-    await page.waitForSelector('button[type="submit"]', { timeout: 20000 });
-    await page.waitForLoadState("networkidle");
+    await gotoRetry(`${BASE}/sign-in`);
+    await page.waitForSelector('button[type="submit"]', { timeout: 30000 });
     await page.waitForTimeout(1500);
     await page.fill('input[type="email"]', "arjun@ledgerly.app");
     await page.fill('input[type="password"]', "ledgerly-demo");
@@ -68,13 +78,13 @@ try {
   if (!signedIn) throw new Error("Could not sign in after 3 attempts (hydration race)");
 
   // ── Pre-check: fixture merchants must not already exist ──
-  await gotoRetry(`${BASE}/transactions`, { waitUntil: "domcontentloaded" });
+  await gotoRetry(`${BASE}/transactions`);
   await page.waitForSelector("body", { timeout: 20000 });
   const before = await page.textContent("body");
   ok("fixture merchants absent before restore", !before.includes("ZZZ RestoreTest"));
 
   // ── Import Center: pick the Ledgerly Backup card ──
-  await gotoRetry(`${BASE}/import`, { waitUntil: "networkidle" });
+  await gotoRetry(`${BASE}/import`);
   await page.waitForSelector("text=Ledgerly Backup", { timeout: 20000 });
   await page.getByRole("button", { name: /Ledgerly Backup/ }).click();
   await page.locator("button", { hasText: "Ledgerly Backup" }).filter({ hasText: "✓ Selected" }).waitFor({ timeout: 10000 });
@@ -111,19 +121,19 @@ try {
   ok("restored INCOME transaction appears in ledger", after.includes("ZZZ RestoreTest Income 002"));
 
   // ── Undo via Settings → Import history (the source is "Ledgerly Backup") ──
-  await gotoRetry(`${BASE}/settings`, { waitUntil: "networkidle" });
+  await gotoRetry(`${BASE}/settings`);
   await page.waitForSelector("text=IMPORT HISTORY", { timeout: 20000 });
   await page.locator("text=Ledgerly Backup").first().waitFor({ timeout: 10000 });
   // Wait for hydration so the React onClick is attached before clicking (the
   // Undo button has no explicit type, so a too-early click fires a native no-op).
-  await page.waitForLoadState("networkidle");
+  await settle();
   await page.waitForTimeout(1500);
   const undoButton = page.getByRole("button", { name: "Undo" }).first();
   await undoButton.waitFor({ state: "visible", timeout: 10000 });
   await undoButton.click();
   await page.waitForSelector("text=Import undone", { timeout: 15000 }).catch(() => {});
 
-  await gotoRetry(`${BASE}/transactions`, { waitUntil: "networkidle" });
+  await gotoRetry(`${BASE}/transactions`);
   await page.waitForTimeout(800);
   const afterUndo = await page.textContent("body");
   ok("undo removes the restored transactions", !afterUndo.includes("ZZZ RestoreTest"), afterUndo.includes("ZZZ RestoreTest") ? "still present" : "absent");

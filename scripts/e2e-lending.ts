@@ -265,15 +265,24 @@ async function main() {
     // ══════════════ 13. Contact Summary Card + timeline grouping ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await page.getByRole("button", { name: /Rohan/ }).first().click();
-    await page.waitForSelector("text=Outstanding Loans", { timeout: 10000 });
+    // The summary card uses plain-language labels for a non-technical audience
+    // ("Total Given", not "Total Lent"); this asserts the shipped wording.
+    await page.waitForSelector("text=Pending Entries", { timeout: 10000 });
     // labels render with CSS text-transform: uppercase — innerText() reflects
     // the rendered text, not the literal DOM string, so compare case-insensitively
     const summaryBody = (await (await contactPane(page)).innerText()).toUpperCase();
     ok(
-      "Contact Summary Card shows Outstanding Loans / Total Lent / Total Recovered / Largest Loan / Last+First Transaction",
-      ["Outstanding Loans", "Total Lent", "Total Recovered", "Largest Loan", "Last Transaction", "First Transaction"].every((label) =>
-        summaryBody.includes(label.toUpperCase())
-      )
+      "Contact Summary Card shows Pending Entries / Total Given / Total Received / Largest Given / Received So Far / Last+First Transaction",
+      [
+        "Pending Entries",
+        "Total Given",
+        "Average Given",
+        "Largest Given",
+        "Total Received",
+        "Received So Far",
+        "Last Transaction",
+        "First Transaction",
+      ].every((label) => summaryBody.includes(label.toUpperCase()))
     );
     ok("entries are grouped under a date header (Today)", /\bTODAY\b/.test(summaryBody));
 
@@ -291,7 +300,7 @@ async function main() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await page.getByRole("button", { name: /Rohan/ }).first().click();
-    await page.waitForSelector("text=Outstanding Loans", { timeout: 10000 });
+    await page.waitForSelector("text=Pending Entries", { timeout: 10000 });
     ok("mobile: viewing a contact's ledger opens the modal sheet", (await page.locator(".fixed.inset-0.z-\\[60\\]").count()) === 1);
     await page.setViewportSize({ width: 1280, height: 900 });
 

@@ -20,11 +20,25 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 try {
-  await page.goto("http://localhost:3000/sign-in");
-  await page.fill('input[type="email"]', "arjun@ledgerly.app");
-  await page.fill('input[type="password"]', "ledgerly-demo");
-  await page.click('button[type="submit"]');
-  await page.waitForURL("**/dashboard", { timeout: 15000 });
+  // Sign in, tolerating a cold `next dev` server: submitting before React has
+  // hydrated fires a native form GET that never reaches /dashboard, so wait for
+  // the button and retry rather than filling the instant the DOM appears.
+  let signedIn = false;
+  for (let attempt = 0; attempt < 3 && !signedIn; attempt++) {
+    await page.goto("http://localhost:3000/sign-in", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector('button[type="submit"]', { timeout: 30000 });
+    await page.waitForTimeout(1500);
+    await page.fill('input[type="email"]', "arjun@ledgerly.app");
+    await page.fill('input[type="password"]', "ledgerly-demo");
+    await page.click('button[type="submit"]');
+    try {
+      await page.waitForURL("**/dashboard", { timeout: 30000 });
+      signedIn = true;
+    } catch {
+      /* retry */
+    }
+  }
+  if (!signedIn) throw new Error("Could not sign in after 3 attempts (hydration race)");
 
   // ── Settings: export ──
   await page.goto("http://localhost:3000/settings");
@@ -45,10 +59,19 @@ try {
   await page.waitForSelector("text=Type CLEAR to confirm");
   await page.getByLabel("Confirmation text").fill("CLEAR");
   await page.click('button:has-text("Clear all transactions?")');
-  await page.waitForTimeout(1500);
-  await page.goto("http://localhost:3000/transactions");
-  await page.waitForSelector("text=/Nothing matches|Today|Yesterday/", { timeout: 8000 }).catch(() => {});
-  const txBody = await page.textContent("body");
+  // Clearing deletes across ~10 tables inside one transaction and resets every
+  // account balance, which routinely takes longer than a fixed 1.5s wait on the
+  // seeded dataset — a flat sleep here made this check fail intermittently while
+  // the clear was still committing. Reload until the ledger actually reports
+  // empty instead of guessing at a duration; the assertion is unchanged.
+  let txBody = "";
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await page.goto("http://localhost:3000/transactions", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("text=/Nothing matches|Today|Yesterday/", { timeout: 8000 }).catch(() => {});
+    txBody = await page.textContent("body");
+    if (txBody.includes("Nothing matches") || !txBody.includes("Swiggy")) break;
+    await page.waitForTimeout(1000);
+  }
   ok("clear transactions empties the ledger", txBody.includes("Nothing matches") || !txBody.includes("Swiggy"));
 
   await page.goto("http://localhost:3000/dashboard");
@@ -60,7 +83,9 @@ try {
   await page.goto("http://localhost:3000/import");
   await page.waitForSelector("text=Choose file");
   await page.setInputFiles('input[type="file"]', CSV_PATH);
-  await page.waitForSelector("text=Map your columns", { timeout: 10000 });
+  // Generous: the first upload of a run has to compile /api/import/parse on a
+  // cold `next dev` server, which alone can exceed a 10s budget.
+  await page.waitForSelector("text=Map your columns", { timeout: 60000 });
   const mapBody = await page.textContent("body");
   ok("auto-detects Date/Narration/Debit/Credit/Category headers", mapBody.includes("Date") && mapBody.includes("Narration"));
 
@@ -97,7 +122,9 @@ try {
   await page.goto("http://localhost:3000/import");
   await page.waitForSelector("text=Choose file");
   await page.setInputFiles('input[type="file"]', CSV_PATH);
-  await page.waitForSelector("text=Map your columns", { timeout: 10000 });
+  // Generous: the first upload of a run has to compile /api/import/parse on a
+  // cold `next dev` server, which alone can exceed a 10s budget.
+  await page.waitForSelector("text=Map your columns", { timeout: 60000 });
   await page.click("text=Continue");
   await page.waitForSelector("text=Map categories", { timeout: 8000 });
   await page.click("text=Preview import");
