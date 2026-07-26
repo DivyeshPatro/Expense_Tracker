@@ -14,7 +14,7 @@ import {
   updateAccountCardDetails,
 } from "@/server/services/accounts";
 import { createBill, deleteBill, markBillPaid, updateBill } from "@/server/services/bills";
-import { upsertBudget } from "@/server/services/budgets";
+import { deleteBudget, upsertBudget } from "@/server/services/budgets";
 import { changeCategoryKind, createCategory, createGroupCategory, deleteCategory, listGroupCategories, renameCategory } from "@/server/services/categories";
 import { queryTransactions, type TxListFilter } from "@/server/services/ledger";
 import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
@@ -265,6 +265,25 @@ export async function saveBudgetAction(input: unknown): Promise<ActionResult> {
     await upsertBudget(user.id, data.categoryId, data.limit);
     refresh();
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Removes the budgeting layer only. Nothing else refers to a Budget, so spending,
+ * categories, accounts and analytics are untouched — the message says so, and
+ * mentions any stale threshold alerts cleared along with it.
+ */
+export async function deleteBudgetAction(id: string): Promise<ActionResult & { message?: string }> {
+  try {
+    const user = await requireUser();
+    const { clearedNotifications } = await deleteBudget(user.id, id);
+    refresh();
+    const cleared = clearedNotifications > 0
+      ? ` ${clearedNotifications} budget alert${clearedNotifications === 1 ? "" : "s"} cleared.`
+      : "";
+    return { ok: true, message: `Budget deleted — your transactions are unchanged.${cleared}` };
   } catch (e) {
     return fail(e);
   }
