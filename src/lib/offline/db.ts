@@ -144,10 +144,6 @@ function defaultDeviceName(): string {
   return `${browser} on ${os}`;
 }
 
-export async function outboxCount(): Promise<number> {
-  return withStore("outbox", "readonly", (s) => s.count());
-}
-
 // ─────────── outbox operations (Phase 1) ───────────
 
 let seqTiebreak = 0;

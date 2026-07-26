@@ -23,11 +23,6 @@ export async function getSavedMapping(userId: string, source: string) {
   return prisma.importMapping.findUnique({ where: { userId_source: { userId, source } } });
 }
 
-export async function listSources(userId: string): Promise<string[]> {
-  const rows = await prisma.importMapping.findMany({ where: { userId }, select: { source: true } });
-  return rows.map((r) => r.source);
-}
-
 export interface PreviewResult {
   rows: PreviewRow[];
   distinctCategories: string[];

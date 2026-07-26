@@ -29,20 +29,15 @@ import { commitBackupRestore, previewBackupRestore } from "@/server/services/bac
 import {
   createRecurringRule,
   deleteRecurringRule,
-  listRecurringRules,
   setRecurringRulePaused,
   updateRecurringRule,
-  type RecurringRuleView,
 } from "@/server/services/recurring";
 import { addParticipant, recordSettlement } from "@/server/services/shared";
 import {
   addLoanEntry,
-  cardRecoveryDashboard,
   deleteLoanEntry,
   getLoanDetail,
   lendingDashboardSummary,
-  lendingReminders,
-  lendingReportsData,
   listLoanEntries,
   openLoansForContact,
   restoreLoanEntry,
@@ -70,7 +65,7 @@ import {
   updateTransfer,
   ConflictError,
 } from "@/server/services/transactions";
-import { askLedgerly, searchMerchants, unifiedSearch } from "@/server/services/search";
+import { unifiedSearch } from "@/server/services/search";
 import { activityPage, entityHistory, importPreview } from "@/server/services/activity";
 import { ACTIVITY_CHIPS, type ActivityChip } from "@/lib/activity";
 import { parsePeriod } from "@/lib/period";
@@ -503,26 +498,6 @@ export async function loanDetailAction(loanEntryId: string) {
   return getLoanDetail(user.id, loanEntryId);
 }
 
-export async function cardRecoveryDashboardAction() {
-  const user = await requireUser();
-  return cardRecoveryDashboard(user.id);
-}
-
-export async function lendingRemindersAction() {
-  const user = await requireUser();
-  return lendingReminders(user.id);
-}
-
-export async function lendingReportsAction(months?: number) {
-  const user = await requireUser();
-  return lendingReportsData(user.id, months);
-}
-
-export async function askLedgerlyAction(query: string) {
-  const user = await requireUser();
-  return askLedgerly(user.id, query);
-}
-
 export async function queryTransactionsAction(filter: TxListFilter, page: number) {
   const user = await requireUser();
   return queryTransactions(user.id, filter, page);
@@ -627,11 +602,6 @@ export async function commitBackupRestoreAction(json: unknown): Promise<ActionRe
 // Config, not a ledger mutation, so these go straight to the server rather than
 // through the offline outbox: there is nothing to replay optimistically, and a
 // rule only takes effect when the nightly cron next runs anyway.
-
-export async function listRecurringRulesAction(): Promise<RecurringRuleView[]> {
-  const user = await requireUser();
-  return listRecurringRules(user.id);
-}
 
 export async function createRecurringRuleAction(input: unknown): Promise<ActionResult> {
   try {
@@ -798,11 +768,6 @@ export async function createGroupCategoryAction(
   } catch (e) {
     return fail(e);
   }
-}
-
-export async function searchMerchantsAction(query: string): Promise<string[]> {
-  const user = await requireUser();
-  return searchMerchants(user.id, query);
 }
 
 export async function unifiedSearchAction(query: string) {

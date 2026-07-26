@@ -20,12 +20,6 @@ export function formatPaise(paise: Paise | bigint): string {
   return "₹" + (p % 100 === 0 ? intFmt.format(rupees) : decFmt.format(rupees));
 }
 
-/** Signed variant: "−₹420" / "+₹420". */
-export function formatPaiseSigned(paise: Paise | bigint): string {
-  const n = Number(paise);
-  return (n < 0 ? "−" : "+") + formatPaise(Math.abs(n));
-}
-
 export interface SplitShare {
   participantId: string | null; // null = the owner
   owedAmount: Paise;
