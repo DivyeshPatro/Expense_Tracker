@@ -6,6 +6,7 @@ import { requireUser } from "@/server/session";
 import { Categories, type CategoryRow } from "./categories";
 import { DangerZone } from "./danger-zone";
 import { ImportHistory, type ImportBatchRow } from "./import-history";
+import { Profile } from "./profile";
 import { RecurringRules } from "./recurring";
 import { SyncCard } from "./sync-card";
 
@@ -34,6 +35,12 @@ export default async function SettingsPage() {
   return (
     <div className="flex flex-col gap-4 max-w-[640px]" style={{ animation: "rise .25s ease" }}>
       <SyncCard />
+
+      <section className="card p-6 flex flex-col gap-3">
+        <h2 className="text-[13.5px] font-bold m-0">Profile</h2>
+        <div className="text-[12.5px] text-mut">Your account details and sign-in password.</div>
+        <Profile name={user.name} email={user.email} />
+      </section>
 
       <section className="card p-6 flex flex-col gap-3">
         <h2 className="text-[13.5px] font-bold m-0">Categories</h2>
