@@ -22,11 +22,25 @@ const desktop = await browser.newPage({ viewport: { width: 1280, height: 900 } }
 desktop.setDefaultTimeout(15000);
 
 try {
-  await desktop.goto("http://localhost:3000/sign-in");
-  await desktop.fill('input[type="email"]', "arjun@ledgerly.app");
-  await desktop.fill('input[type="password"]', "ledgerly-demo");
-  await desktop.click('button[type="submit"]');
-  await desktop.waitForURL("**/dashboard", { timeout: 15000 });
+  // Tolerate a cold `next dev` server: submitting before React has hydrated
+  // fires a native form GET that never reaches /dashboard, so wait for the
+  // button and retry rather than filling the instant the DOM appears.
+  let signedIn = false;
+  for (let attempt = 0; attempt < 3 && !signedIn; attempt++) {
+    await desktop.goto("http://localhost:3000/sign-in", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await desktop.waitForSelector('button[type="submit"]', { timeout: 30000 });
+    await desktop.waitForTimeout(1500);
+    await desktop.fill('input[type="email"]', "arjun@ledgerly.app");
+    await desktop.fill('input[type="password"]', "ledgerly-demo");
+    await desktop.click('button[type="submit"]');
+    try {
+      await desktop.waitForURL("**/dashboard", { timeout: 30000 });
+      signedIn = true;
+    } catch {
+      /* retry */
+    }
+  }
+  if (!signedIn) throw new Error("Could not sign in after 3 attempts (hydration race)");
   const cookies = await desktop.context().cookies();
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
