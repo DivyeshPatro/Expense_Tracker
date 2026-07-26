@@ -66,11 +66,15 @@ export function AmountInput({
   onChange,
   autoFocus,
   disabled,
+  ariaLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
   autoFocus?: boolean;
   disabled?: boolean;
+  /** For amount fields that repeat on a page, where the visible "AMOUNT (₹)"
+   * label alone doesn't say which row it belongs to. */
+  ariaLabel?: string;
 }) {
   return (
     <input
@@ -83,6 +87,7 @@ export function AmountInput({
       placeholder="0"
       autoFocus={autoFocus}
       disabled={disabled}
+      aria-label={ariaLabel}
       className="field !py-3 !text-[19px] !font-bold disabled:opacity-60 disabled:cursor-not-allowed"
     />
   );

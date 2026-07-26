@@ -1,5 +1,6 @@
 import { OpenModalButton } from "@/components/shell/buttons";
 import { EmptyState } from "@/components/shell/empty-state";
+import { BudgetActions } from "./budget-actions";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
 import { listBudgets } from "@/server/services/budgets";
@@ -38,6 +39,7 @@ export default async function BudgetsPage() {
                 style={{ width: `${Math.min(100, b.pct)}%`, background: b.over ? "var(--red)" : b.warn ? "var(--amber)" : "var(--acc)" }}
               />
             </div>
+            <BudgetActions budget={b} />
           </div>
         ))}
       </div>
