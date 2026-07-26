@@ -82,21 +82,22 @@ export function BudgetActions({ budget }: { budget: BudgetView }) {
         <TinyButton
           tone="danger"
           disabled={busy}
+          ariaLabel={`Confirm delete ${budget.category} budget`}
           onClick={async () => {
             if (await run(() => deleteBudgetAction(budget.id), "Budget deleted")) setMode("idle");
           }}
         >
           Delete
         </TinyButton>
-        <TinyButton onClick={() => setMode("idle")}>Keep</TinyButton>
+        <TinyButton ariaLabel={`Keep ${budget.category} budget`} onClick={() => setMode("idle")}>Keep</TinyButton>
       </div>
     );
   }
 
   return (
     <div className="flex items-center gap-2 mt-3 pt-3 border-t border-line">
-      <TinyButton onClick={() => setMode("edit")}>Edit limit</TinyButton>
-      <TinyButton onClick={() => setMode("confirm")}>Delete</TinyButton>
+      <TinyButton ariaLabel={`Edit ${budget.category} limit`} onClick={() => setMode("edit")}>Edit limit</TinyButton>
+      <TinyButton ariaLabel={`Delete ${budget.category} budget`} onClick={() => setMode("confirm")}>Delete</TinyButton>
     </div>
   );
 }
@@ -106,16 +107,21 @@ function TinyButton({
   onClick,
   disabled,
   tone,
+  ariaLabel,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   tone?: "danger";
+  /** Several budgets share this page, so a bare "Delete" says nothing about
+   * which one — name the budget for screen readers. */
+  ariaLabel?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className={
         tone === "danger"
           ? "px-2.5 py-1.5 rounded-lg border-none bg-red text-white text-[11px] font-semibold cursor-pointer disabled:opacity-60"
