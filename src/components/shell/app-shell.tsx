@@ -27,6 +27,10 @@ const NAV = [
   { href: "/shared", icon: "◫", label: "Shared" },
   { href: "/activity", icon: "◴", label: "Activity" },
   { href: "/analytics", icon: "◵", label: "Analytics" },
+  // Import sits next to Settings rather than up with the money sections: it's a
+  // periodic errand, not a daily destination. It was previously reachable only
+  // from inside Settings, which is a lot of feature to hide behind one link.
+  { href: "/import", icon: "📥", label: "Import" },
   { href: "/settings", icon: "⚙", label: "Settings" },
 ];
 
@@ -80,7 +84,9 @@ export function AppShell({
 function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge: number; children: React.ReactNode }) {
   const { openModal, setPaletteOpen, closeModal, refData } = useUI();
   const pathname = usePathname();
-  const title = NAV.find((n) => pathname.startsWith(n.href))?.label ?? (pathname.startsWith("/import") ? "Import data" : "Ledgerly");
+  // /import used to need a special case here because it wasn't in NAV; now that
+  // it is, the lookup covers it like every other section.
+  const title = NAV.find((n) => pathname.startsWith(n.href))?.label ?? "Ledgerly";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -409,6 +415,7 @@ function MoreSheet({ close, params, badge }: { close: () => void; params: string
     { href: "/accounts", icon: "▤", label: "Accounts" },
     { href: "/budgets", icon: "◔", label: "Budgets" },
     { href: "/bills", icon: "▦", label: "Bills" },
+    { href: "/import", icon: "📥", label: "Import" },
     { href: "/settings", icon: "⚙", label: "Settings" },
   ];
   // spec §7 "More sheet / Settings row" — same three-state copy as the Sync Center hero
