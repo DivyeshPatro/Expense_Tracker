@@ -4,73 +4,159 @@ All notable changes to Ledgerly are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.0] — 2026-07-27
+
+The first release after v1.0.0. It closes the gaps that stopped Ledgerly
+being usable as a daily finance app: things you could create but never
+correct or remove, a scheduling engine with no way to reach it, and the
+rough edges — a bare framework 404, no way to change your password — that
+made a finished product feel unfinished.
+
+No breaking changes. All four migrations add nullable or defaulted
+columns and are safe to apply to an existing database.
 
 ### Added
 
-- **Backup restore (JSON)** — a Ledgerly Backup `.json` export can be
-  restored from the Import Center. Additive only: every restored row is a
-  new row, accounts are matched to existing ones by (name, type) and
-  categories by (name, kind), and only the missing ones are created.
-  Restores the ledger — accounts, categories, transactions; the preview
-  names every backup section it does *not* restore (budgets, bills,
-  lending entries, settlements, recurring rules, tags) rather than
-  silently dropping them. See [`docs/backup.md`](docs/backup.md).
-- **Undo a restore in one step** from Settings → Import history. Reverses
-  every restored transaction *and* removes the accounts and categories the
-  restore created (`ImportBatch.createdEntities`). A created entity is
-  deliberately kept when data outside the batch already depends on it —
-  your own transactions, a budget, bill, merchant rule, or lending
-  entry — and the undo reports what it kept, rather than cascading away
-  data it was never asked to touch.
-- **Account pickers grouped by funding type** — Cash / Bank / Wallet /
-  Credit card / Investment, across expense, income, transfer and lending
-  funding-source fields. Credit cards show their Card Vault identity
-  (`Visa •••• 4242`) inline, so a card is recognisable at the point of
-  choice.
+- **Recurring transactions** — subscriptions, rent, salary. Tick "Repeat
+  this" when adding an expense or income and the schedule is created with
+  it; manage everything from Settings → Recurring transactions (edit,
+  pause, resume, delete). The engine had existed since v1.0.0, but
+  nothing could create a rule, so no rule ever ran.
+- **Backup restore** — a Ledgerly Backup `.json` export can be restored
+  from the Import Center. Additive only: accounts are matched by (name,
+  type) and categories by (name, kind); only missing ones are created and
+  nothing existing is overwritten. Every restore is one `ImportBatch`,
+  undoable in a click, and the preview names each backup section it does
+  not restore. See [`docs/backup.md`](docs/backup.md).
+- **Account archive, restore and delete** — an account nothing references
+  is deleted outright; one with history is archived instead, keeping its
+  transactions, balance and card details, and restorable at any time.
+  Archived accounts leave the pickers but stay reachable under Accounts →
+  Archived, with a link to their transactions.
+- **Bills: edit and delete** — including a Settled bills section for
+  one-off bills already paid, which previously disappeared from the app
+  entirely. Deleting a bill removes the reminder only; the payment it
+  recorded stays in your transactions.
+- **Budgets: edit and delete** — changing a limit keeps the month's
+  spending and re-evaluates alerts against the new figure; deleting
+  removes the budgeting layer and nothing else.
+- **Profile settings** — change your display name and your password from
+  inside the app, independently of the forgotten-password email flow.
+  Email is intentionally read-only for now, with the reason shown.
+- **Error and not-found screens** — a failed page keeps the navigation
+  and offers Try again / Go to Dashboard; an unknown URL gets a branded
+  page instead of the framework default. No stack traces or internal
+  messages are ever shown.
+- **Transaction filtering by account** — `?account=` on the ledger,
+  matching both sides of a transfer.
+- **Import Center in the navigation** — desktop sidebar and mobile More
+  sheet, alongside the existing Settings entry.
+
+### Improved
+
+- **Account pickers** are grouped by funding type (Cash, Bank, Wallet,
+  Credit card, Investment), and credit cards show their Card Vault
+  identity at the point of choice.
+- **Accessibility** — labels added wherever repeated controls shared one
+  visible label: per-budget Edit/Delete buttons, per-account rename
+  fields, amount inputs, and the bill name field.
+- **Mobile** — verified free of horizontal overflow at 390px across
+  Accounts, Bills, Budgets, Settings and the import wizard.
+- **Wording** — destructive confirmations now say what *survives* ("3
+  past transactions stay", "the payment you already recorded stays in
+  your transactions"), because the fear when deleting a bill or a budget
+  is that it takes the money with it.
+- **Performance** — profiled against a production build: 15–22 ms time to
+  first byte and 52–102 ms full server render across every route, on a
+  lean 102 kB shared JS bundle.
 
 ### Fixed
 
-- **Restored account balances were silently corrupted.** A newly created
-  account was seeded with the backup's exported *closing* balance and then
-  had every transaction in that backup replayed onto it, counting each one
-  twice. Accounts now start at their opening position, restoring the
-  documented invariant `balance = openingBalance + Σ ledger`.
-- **A restore preview could promise more rows than the commit delivered.**
-  Preview and commit resolved backup ids independently and disagreed on
-  entities missing a name or type. Both now derive from one shared
-  `planRestore()`, so the resolvable set is identical by construction.
-  Incomplete backup entries are reported in the preview instead of being
-  invisible.
-- **One malformed date aborted an entire restore.** `toYMD` throws on an
-  Invalid Date rather than returning a falsy value, so a single unreadable
-  `occurredAt` failed the whole file instead of rejecting that one row.
-- **Undo could delete an account still in use.** Its reference check used
-  `importBatchId <> batch`, which excludes NULL rows under SQL
-  three-valued logic — that is, every hand-entered transaction.
+- **Restored account balances were silently wrong.** A newly created
+  account was seeded with the backup's exported *closing* balance and
+  then had every transaction in that backup replayed onto it, counting
+  each one twice. Accounts now start at their opening position, restoring
+  the documented invariant `balance = openingBalance + the ledger sum`.
+- **One bad recurring rule could stop the nightly job entirely.** A
+  template referencing a deleted account raised an error that escaped the
+  loop, skipping every remaining rule for every user — and the balance
+  reconciliation that follows it — silently, every night. Failures are
+  now isolated per rule and reported.
+- **Month-end schedules drifted downward permanently**, in both recurring
+  rules and bills: the 31st became Feb 28 and then stayed on the 28th
+  forever. Schedules now carry an anchor day, so 31 becomes Feb 28 and
+  then Mar 31 again. Existing rules and bills keep their current dates
+  rather than being silently rescheduled.
+- **Undo of a restore could delete an account still in use.** Its
+  reference check excluded rows where `importBatchId` is NULL — under SQL
+  three-valued logic that means every hand-entered transaction.
+- **Budget alerts outlived the budgets they described.** Threshold
+  notifications link to a budget only by a key string, so nothing
+  cascaded: deleting a budget left its alerts in the notification centre,
+  and a stale alert also suppressed the correct one. Alerts are now
+  cleared on delete and re-evaluated when a limit changes.
+- **A card-funded loan could silently lose its funding source.**
+  `LoanEntry.accountId` is `onDelete: SetNull`, so hard-deleting an
+  account would not have failed — it would have blanked the loan's
+  funding source, and with it the card billing history.
+- **A restore preview could promise more rows than the commit delivered**,
+  because preview and commit resolved backup ids independently. Both now
+  derive from one shared plan, so the two cannot disagree.
+- **One malformed date aborted an entire restore** instead of rejecting
+  that single row.
 - **Credit cards restored with a debt were zeroed out**, because a
-  positive-paise-only amount helper was being applied to balances, where
-  zero and negative are both legitimate.
+  positive-only amount helper was applied to balances, where zero and
+  negative are both meaningful.
+- **Missed recurring occurrences recovered at one per day**, so a
+  five-day outage took five more days to catch up. Catch-up now completes
+  in a single run, bounded to 60 occurrences.
 
-### Changed
+### Testing
 
-- Unit and integration tests are now separate suites (`npm run test` /
-  `npm run test:integration`). The unit suite touches no database and is
-  verified to pass without one; CI runs the DB-backed suite in its own job
-  against a Postgres service with migrations applied via
-  `prisma migrate deploy`.
-- CI runs again. Its triggers had been narrowed to pushes to `main` and
-  pull requests against it — neither of which can fire on a repository
-  whose only branch is `ledgerly-app` — leaving the workflow configured
-  but unreachable since 2026-07-19.
+- **Unit: 282 tests across 23 files** (up from 265), and the suite no
+  longer requires a database — verified by running it against an
+  unreachable `DATABASE_URL`.
+- **Integration: 79 tests across 5 files** — a new suite covering the
+  backup restore engine, recurring rules, accounts, bills and budgets
+  against real Postgres.
+- **E2E: 25 suites**, four of them new — account, bill, budget and
+  recurring-rule lifecycles.
+- **CI runs again.** Its triggers had been narrowed to a branch that does
+  not exist on this repository, leaving the workflow configured but
+  unreachable since 2026-07-19. It now also runs the integration suite in
+  a job with a Postgres service and migrations applied.
 
 ### Migrations
 
-- `20260725120247_import_batch_created_entities` — adds nullable
-  `ImportBatch.createdEntities Json?`, recording what a restore created so
-  undo can reverse it. Additive and backward-compatible: null for every
-  existing row, and for every CSV import batch (that path only maps onto
-  entities that already exist).
+Four, all additive and backward-compatible:
+
+- `20260725120247_import_batch_created_entities` — records what a restore
+  created, so undo can reverse it.
+- `20260725194241_recurring_rule_anchor_day` — day-of-month anchor for
+  recurring schedules.
+- `20260725194832_recurring_rule_is_paused` — pause and resume for
+  recurring rules.
+- `20260725231628_bill_anchor_day` — day-of-month anchor for bill due
+  dates.
+
+### Known limitations
+
+Deliberate deferrals, not defects:
+
+- **Backup restore covers the ledger only** — accounts, categories and
+  transactions. Budgets, bills, lending entries, groups, settlements,
+  recurring rules and tags are exported for completeness but not
+  restored; the preview names them.
+- **Khatabook import lands as transactions, not lending entries.** The
+  wizard says so. Routing it into the lending module is the first
+  enhancement after this release.
+- **Offline sync and shared expenses/collaboration have not had a
+  real-world validation pass** — they need genuine multi-device and
+  multi-user scenarios, scheduled as Phase 3.
+- **Email address changes** are not supported in-app; doing it safely
+  needs a verification step that does not exist yet.
+- **Some E2E suites need a retry against a cold dev server.** Eight still
+  submit the sign-in form before React hydrates; the rest were fixed.
 
 ---
 

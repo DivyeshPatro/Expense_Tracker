@@ -95,12 +95,12 @@ same schema — no rewrite between phases.
   [`docs/deployment.md`](docs/deployment.md).
 - WCAG AA color contrast, keyboard-trapped modals, semantic landmarks, an
   automated accessibility test suite.
-- 240+ unit tests, a full Playwright E2E suite across every major flow,
-  ESLint, and CI on every PR.
+- 282 unit tests, 79 integration tests against real Postgres, 25 Playwright
+  E2E suites across every major flow, ESLint, and CI on every push.
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the complete v1.0.0 milestone
-list, and each `docs/*.md` for the reasoning behind the non-obvious
-choices.
+See [`CHANGELOG.md`](CHANGELOG.md) for the v1.1.0 release notes and the
+complete milestone history, and each `docs/*.md` for the reasoning behind
+the non-obvious choices.
 
 ## Screenshots
 
