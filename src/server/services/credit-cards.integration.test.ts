@@ -12,8 +12,10 @@ import {
   deleteCreditCard,
   listCreditCards,
   revealCreditCard,
+  revealWithPassword,
   setDefaultCreditCard,
   updateCreditCard,
+  verifyAccountPassword,
   type CreditCardInput,
 } from "./credit-cards";
 import { prisma } from "../db";
@@ -244,6 +246,110 @@ describe("credit cards", () => {
       const row = await prisma.creditCard.findFirstOrThrow({ where: { userId } });
       expect(row.keyFingerprint).toBe(cardKeyFingerprint());
       expect(row.keyVersion).toBe(1);
+    });
+  });
+
+  describe("password re-authentication", () => {
+    const PASSWORD = "cards-test-password-1";
+    let authUserId: string;
+
+    beforeAll(async () => {
+      // A real credential row, hashed by better-auth itself — verifying against
+      // a hash we produced ourselves would only prove our own helper agrees
+      // with itself.
+      const email = "cards-reauth@ledgerly.app";
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) await prisma.user.delete({ where: { id: existing.id } });
+      process.env.ALLOW_SIGNUP = "true";
+      const { auth } = await import("../auth");
+      await auth.api.signUpEmail({ body: { name: "Reauth", email, password: PASSWORD } });
+      authUserId = (await prisma.user.findUniqueOrThrow({ where: { email } })).id;
+    });
+
+    beforeEach(async () => {
+      await prisma.auditLog.deleteMany({ where: { userId: authUserId } });
+      await prisma.creditCard.deleteMany({ where: { userId: authUserId } });
+    });
+
+    it("accepts the account password", async () => {
+      expect(await verifyAccountPassword(authUserId, PASSWORD)).toBe(true);
+    });
+
+    it("rejects a wrong or empty password", async () => {
+      expect(await verifyAccountPassword(authUserId, "not-the-password")).toBe(false);
+      expect(await verifyAccountPassword(authUserId, "")).toBe(false);
+    });
+
+    it("reveals the card when the password is right", async () => {
+      await createCreditCard(authUserId, input());
+      const [card] = await listCreditCards(authUserId);
+
+      const res = await revealWithPassword(authUserId, card.id, PASSWORD);
+
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.card.cardNumber).toBe(PAN);
+      expect(res.card.cvv).toBe(CVV);
+    });
+
+    it("refuses and returns no card data when the password is wrong", async () => {
+      await createCreditCard(authUserId, input());
+      const [card] = await listCreditCards(authUserId);
+
+      const res = await revealWithPassword(authUserId, card.id, "wrong-password");
+
+      expect(res).toEqual({ ok: false, reason: "wrong-password" });
+      expect(JSON.stringify(res)).not.toContain(PAN);
+    });
+
+    it("records a denial so failures are visible in the trail", async () => {
+      await createCreditCard(authUserId, input());
+      const [card] = await listCreditCards(authUserId);
+      await revealWithPassword(authUserId, card.id, "wrong-password");
+
+      const denials = await prisma.auditLog.findMany({
+        where: { userId: authUserId, entity: "CreditCard", action: "reveal-denied" },
+      });
+      expect(denials).toHaveLength(1);
+    });
+
+    // A wrong-password reveal is a guess at the account password, so it needs a
+    // ceiling — the middleware's path-keyed limiter can't see server actions.
+    it("locks out after repeated wrong passwords, even if the password is then correct", async () => {
+      await createCreditCard(authUserId, input());
+      const [card] = await listCreditCards(authUserId);
+
+      for (let i = 0; i < 5; i++) {
+        expect((await revealWithPassword(authUserId, card.id, "wrong-password")).ok).toBe(false);
+      }
+
+      const locked = await revealWithPassword(authUserId, card.id, PASSWORD);
+      expect(locked).toEqual({ ok: false, reason: "too-many-attempts" });
+    });
+
+    it("lets the user back in once the window has passed", async () => {
+      await createCreditCard(authUserId, input());
+      const [card] = await listCreditCards(authUserId);
+      for (let i = 0; i < 5; i++) await revealWithPassword(authUserId, card.id, "wrong-password");
+
+      // 16 minutes later, outside the 15-minute window.
+      const later = new Date(Date.now() + 16 * 60 * 1000);
+      const res = await revealWithPassword(authUserId, card.id, PASSWORD, later);
+
+      expect(res.ok).toBe(true);
+    });
+
+    // Knowing your own password gets you your own cards and nothing else. The
+    // ownership check is inside the query, so someone else's card is simply not
+    // found — it doesn't reach the point of being decrypted and rejected.
+    it("will not reveal another user's card even with the right password", async () => {
+      await createCreditCard(userId, input({ nickname: "Not theirs" }));
+      const victim = (await listCreditCards(userId))[0];
+
+      await expect(revealWithPassword(authUserId, victim.id, PASSWORD)).rejects.toThrow(/not found/i);
+
+      // And the attempt leaves the victim's card untouched.
+      expect((await listCreditCards(userId))[0].nickname).toBe("Not theirs");
     });
   });
 

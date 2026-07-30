@@ -9,6 +9,7 @@
 // never decrypts a card number.
 
 import type { CardNetwork } from "@prisma/client";
+import { verifyPassword } from "better-auth/crypto";
 import {
   cardKeyFingerprint,
   CARD_KEY_VERSION,
@@ -227,12 +228,67 @@ export async function setDefaultCreditCard(userId: string, id: string): Promise<
 }
 
 /**
+ * Confirms the caller knows the account password.
+ *
+ * A valid session is not enough to reveal card details: a borrowed unlocked
+ * laptop is exactly the case this guards, and it is the one place in Ledgerly
+ * where a session alone shouldn't be sufficient.
+ *
+ * Verified against the stored hash with better-auth's own verifyPassword, so
+ * this uses the same hashing scheme as sign-in rather than a second opinion
+ * about how passwords work. Credential accounts only — providerId "credential"
+ * is the row better-auth writes for email+password.
+ */
+export async function verifyAccountPassword(userId: string, password: string): Promise<boolean> {
+  if (!password) return false;
+  const credential = await prisma.authAccount.findFirst({
+    where: { userId, providerId: "credential" },
+    select: { password: true },
+  });
+  if (!credential?.password) return false;
+  return verifyPassword({ hash: credential.password, password });
+}
+
+/**
+ * A wrong-password reveal is a guess at the account password with the card
+ * details as the prize, so it needs a limit. The middleware's rate limiter is
+ * keyed by request path and every server action shares one, so it can't help
+ * here — this counts recent failures from the audit log instead, which is
+ * already the durable record of what happened and needs no new storage.
+ */
+const MAX_FAILED_REVEALS = 5;
+const FAILED_REVEAL_WINDOW_MS = 15 * 60 * 1000;
+
+export type RevealDenial = "wrong-password" | "too-many-attempts";
+
+export async function revealWithPassword(
+  userId: string,
+  cardId: string,
+  password: string,
+  now = new Date()
+): Promise<{ ok: true; card: RevealedCreditCard } | { ok: false; reason: RevealDenial }> {
+  const since = new Date(now.getTime() - FAILED_REVEAL_WINDOW_MS);
+  const recentFailures = await prisma.auditLog.count({
+    where: { userId, entity: "CreditCard", action: "reveal-denied", at: { gte: since } },
+  });
+  if (recentFailures >= MAX_FAILED_REVEALS) return { ok: false, reason: "too-many-attempts" };
+
+  if (!(await verifyAccountPassword(userId, password))) {
+    // Recorded so the count above means something, and so a run of failures is
+    // visible in the activity trail rather than invisible.
+    await audit(prisma, userId, "reveal-denied", "CreditCard", cardId, undefined, { reason: "wrong-password" });
+    return { ok: false, reason: "wrong-password" };
+  }
+
+  return { ok: true, card: await revealCreditCard(userId, cardId) };
+}
+
+/**
  * Decrypts a card's secrets.
  *
- * Callers are responsible for having authenticated the request — the server
- * action added in the next commit requires the user's password before reaching
- * here. Every call is audited, because a reveal is the moment card details
- * leave the database, and that is worth a record.
+ * Callers must have confirmed the password first — revealCreditCardAction does
+ * exactly that. Every call is audited, because a reveal is the moment card
+ * details leave the database, and that is worth a record.
  */
 export async function revealCreditCard(userId: string, id: string): Promise<RevealedCreditCard> {
   const card = await prisma.creditCard.findFirst({ where: { id, userId } });

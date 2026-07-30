@@ -26,6 +26,7 @@ import {
   type CommitInput,
 } from "@/server/services/import";
 import { commitBackupRestore, previewBackupRestore } from "@/server/services/backup-restore";
+import { revealWithPassword, type RevealedCreditCard } from "@/server/services/credit-cards";
 import {
   createRecurringRule,
   deleteRecurringRule,
@@ -595,6 +596,44 @@ export async function commitBackupRestoreAction(json: unknown): Promise<ActionRe
     return { ok: true, batchId: result.batchId, imported: result.imported, skipped: result.skipped };
   } catch (e) {
     return fail(e);
+  }
+}
+
+// ─────────── Credit Cards ───────────
+
+/**
+ * Reveals a card's details, behind the account password.
+ *
+ * A valid session deliberately isn't enough: a borrowed unlocked laptop is
+ * exactly what this guards against, and it's the one place in Ledgerly where
+ * being signed in shouldn't be sufficient on its own.
+ *
+ * The result is returned to the caller and never rendered into a page. That
+ * matters because next.config.ts sets staleTimes.dynamic to 30s — anything
+ * embedded in an RSC payload would sit in the client router cache afterwards,
+ * which is not where a card number should live.
+ */
+export async function revealCreditCardAction(
+  cardId: string,
+  password: string
+): Promise<{ ok: true; card: RevealedCreditCard } | { ok: false; error: string }> {
+  try {
+    const user = await requireUser();
+    const result = await revealWithPassword(user.id, cardId, password);
+    if (result.ok) return { ok: true, card: result.card };
+    return {
+      ok: false,
+      error:
+        result.reason === "too-many-attempts"
+          ? "Too many incorrect attempts — wait a few minutes before trying again"
+          : "That password isn't right",
+    };
+  } catch (e) {
+    // fail() is typed as the shared ActionResult union, which can't narrow to
+    // this action's richer success shape — unwrap it rather than widen the
+    // return type and lose `card` from the signature.
+    const failure = fail(e);
+    return { ok: false, error: failure.ok ? "Something went wrong" : failure.error };
   }
 }
 
