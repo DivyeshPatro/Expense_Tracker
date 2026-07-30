@@ -22,6 +22,10 @@ const NAV = [
   { href: "/transactions", icon: "⇄", label: "Transactions" },
   { href: "/lending", icon: "🤝", label: "Lending" },
   { href: "/accounts", icon: "▤", label: "Accounts" },
+  // Cards is its own section, not a corner of Accounts: it answers a different
+  // question ("what do I type into this checkout form?") and is reached in a
+  // hurry, so it gets a top-level slot rather than a click inside something else.
+  { href: "/cards", icon: "💳", label: "Cards" },
   { href: "/budgets", icon: "◔", label: "Budgets" },
   { href: "/bills", icon: "▦", label: "Bills" },
   { href: "/shared", icon: "◫", label: "Shared" },
@@ -305,7 +309,7 @@ function BottomNav({ badge }: { badge: number }) {
   // badge (spec §7: bottom nav shows nothing for routine pending, but the
   // existing More red-dot for needs-attention)
   const showDot = badge > 0 || needsAttention.length > 0;
-  const moreActive = ["/accounts", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity"].some((h) => pathname.startsWith(h));
+  const moreActive = ["/accounts", "/cards", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity"].some((h) => pathname.startsWith(h));
   return (
     <>
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden">
@@ -413,6 +417,7 @@ function MoreSheet({ close, params, badge }: { close: () => void; params: string
     { href: "/shared", icon: "◫", label: "Shared" },
     { href: "/activity", icon: "◴", label: "Activity" },
     { href: "/accounts", icon: "▤", label: "Accounts" },
+    { href: "/cards", icon: "💳", label: "Cards" },
     { href: "/budgets", icon: "◔", label: "Budgets" },
     { href: "/bills", icon: "▦", label: "Bills" },
     { href: "/import", icon: "📥", label: "Import" },

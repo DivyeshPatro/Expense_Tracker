@@ -101,6 +101,18 @@ export function maskCardNumber(cardNumber: string): string {
   return `•••• •••• •••• ${last}`;
 }
 
+/**
+ * The display mask when only the last four digits are known.
+ *
+ * The gallery never receives a full card number — it isn't in the payload at
+ * all — so it can't mask one. This builds the mask from last4 and the network
+ * directly, which is the only information the gallery actually has.
+ */
+export function maskFromLast4(network: CardNetwork, last4: string): string {
+  const tail = last4.slice(-4).padStart(4, "•");
+  return network === "AMEX" ? `•••• •••••• •${tail}` : `•••• •••• •••• ${tail}`;
+}
+
 /** Groups a revealed number for readability, matching the printed layout. */
 export function formatCardNumber(cardNumber: string): string {
   const n = normalizeCardNumber(cardNumber);

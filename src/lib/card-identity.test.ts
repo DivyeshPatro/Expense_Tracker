@@ -9,6 +9,7 @@ import {
   isValidLuhn,
   lastFour,
   maskCardNumber,
+  maskFromLast4,
   networkLabel,
   normalizeCardNumber,
   parseExpiry,
@@ -117,6 +118,19 @@ describe("lastFour / masking", () => {
 
   it("masks Amex in its printed 4-6-5 grouping", () => {
     expect(maskCardNumber(AMEX)).toBe("•••• •••••• •0005");
+  });
+
+  // The gallery has last4 and nothing else, so it masks from that rather than
+  // from a number it was never given.
+  it("builds the same mask from last4 alone", () => {
+    expect(maskFromLast4("VISA", "1111")).toBe(maskCardNumber(VISA));
+    expect(maskFromLast4("AMEX", "0005")).toBe(maskCardNumber(AMEX));
+    expect(maskFromLast4("RUPAY", "4242")).toBe("•••• •••• •••• 4242");
+  });
+
+  it("stays the right shape if last4 is somehow short", () => {
+    expect(maskFromLast4("VISA", "42")).toBe("•••• •••• •••• ••42");
+    expect(maskFromLast4("VISA", "")).toBe("•••• •••• •••• ••••");
   });
 
   it("formats a revealed number in the printed grouping", () => {

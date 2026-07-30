@@ -85,7 +85,7 @@ export function CommandPalette() {
         close();
       },
     },
-    ...["Dashboard", "Transactions", "Accounts", "Budgets", "Bills", "Shared", "Lending", "Analytics", "Activity"].map((l) => ({
+    ...["Dashboard", "Transactions", "Accounts", "Cards", "Budgets", "Bills", "Shared", "Lending", "Analytics", "Activity"].map((l) => ({
       icon: "→",
       label: `Go to ${l}`,
       hint: "",
