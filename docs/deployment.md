@@ -25,6 +25,33 @@ configuration (Vercel Project Settings → Environment Variables).
 | `RESEND_FROM` | optional | Sender address; must be on a domain verified in Resend, or omit to use their shared `onboarding@resend.dev` testing sender. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | optional | Enables rate limiting on sign-in/sign-up/password-reset-request. Without them, rate limiting **fails open** (no limiting, not a hard failure) — same tradeoff as Resend: safe to defer, but a real gap before launch. |
 | `ALLOW_SIGNUP` | optional | Registration is **closed** unless this is exactly `"true"`. Ledgerly is single-tenant — one deployment holds one person's finances and their saved card details — so an open sign-up page on a public URL lets a stranger create an account inside it. Set it to `true`, create your account, then remove it. |
+| `CARD_ENCRYPTION_KEY` | required **for the Credit Cards module** | AES-256-GCM key encrypting stored card details. Exactly 64 hex characters: `openssl rand -hex 32`. Without it the Credit Cards pages error rather than storing anything in plain text; the rest of the app is unaffected. **Back it up** — see below. |
+
+## Backing up `CARD_ENCRYPTION_KEY`
+
+This key is the only thing that can decrypt saved card details, and it is
+**not derivable and not recoverable**. Losing it means every stored card
+becomes permanently unreadable — a full database backup will not help,
+because the ciphertext is useless without it.
+
+Treat it exactly like the database password: generate it once, store it in
+your password manager, and set it as an environment variable. Never commit
+it.
+
+What it protects, and what it doesn't:
+
+- **Protects** database dumps, Supabase snapshots, a leaked SQL export, or
+  an injection that reads rows — the realistic exposures for a self-hosted
+  deployment. This is what "never store card data in plain text" means.
+- **Does not protect** against an attacker who can read your server
+  environment, since the key lives there. Server compromise is game over
+  by design; that is the accepted tradeoff of server-side encryption, and
+  it is why registration is closed by default.
+
+Cards are stamped with a short, non-secret fingerprint of the key that
+encrypted them. If you rotate the key or restore a backup onto an instance
+with a different one, affected cards report **"encrypted with a different
+key"** instead of failing with an opaque decryption error.
 
 ## Creating the first account
 
