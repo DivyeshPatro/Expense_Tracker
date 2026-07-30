@@ -41,8 +41,8 @@ describe("sealField / openField", () => {
   it("never stores the plaintext in the ciphertext", () => {
     const pan = "4111111111111111";
     const sealed = sealField(pan);
-    expect(sealed.cipher.toString("utf8")).not.toContain(pan);
-    expect(sealed.cipher.toString("hex")).not.toContain(Buffer.from(pan).toString("hex"));
+    expect(Buffer.from(sealed.cipher).toString("utf8")).not.toContain(pan);
+    expect(Buffer.from(sealed.cipher).toString("hex")).not.toContain(Buffer.from(pan).toString("hex"));
   });
 
   // Reusing an IV under one key breaks GCM catastrophically, so a fresh random
@@ -50,8 +50,8 @@ describe("sealField / openField", () => {
   it("uses a different IV every time, so identical inputs differ", () => {
     const a = sealField("4111111111111111");
     const b = sealField("4111111111111111");
-    expect(a.iv.equals(b.iv)).toBe(false);
-    expect(a.cipher.equals(b.cipher)).toBe(false);
+    expect(Buffer.from(a.iv).equals(Buffer.from(b.iv))).toBe(false);
+    expect(Buffer.from(a.cipher).equals(Buffer.from(b.cipher))).toBe(false);
     expect(openField(a)).toBe(openField(b));
   });
 
@@ -59,21 +59,21 @@ describe("sealField / openField", () => {
   // plausible-looking garbage and shown to the user as a card number.
   it("rejects tampered ciphertext instead of returning garbage", () => {
     const sealed = sealField("4111111111111111");
-    const tampered = Buffer.from(sealed.cipher);
+    const tampered = new Uint8Array(sealed.cipher);
     tampered[0] ^= 0xff;
     expect(() => openField({ cipher: tampered, iv: sealed.iv })).toThrow();
   });
 
   it("rejects a tampered IV", () => {
     const sealed = sealField("4111111111111111");
-    const iv = Buffer.from(sealed.iv);
+    const iv = new Uint8Array(sealed.iv);
     iv[0] ^= 0xff;
     expect(() => openField({ cipher: sealed.cipher, iv })).toThrow();
   });
 
   it("rejects a stripped auth tag", () => {
     const sealed = sealField("4111111111111111");
-    const noTag = sealed.cipher.subarray(0, sealed.cipher.length - 16);
+    const noTag = sealed.cipher.slice(0, sealed.cipher.length - 16);
     expect(() => openField({ cipher: noTag, iv: sealed.iv })).toThrow();
   });
 
@@ -109,8 +109,8 @@ describe("sealOptional / openOptional", () => {
 
   it("returns null for a half-populated pair rather than throwing", () => {
     expect(openOptional(null)).toBeNull();
-    expect(openOptional({ cipher: Buffer.from("x") })).toBeNull();
-    expect(openOptional({ iv: Buffer.from("x") })).toBeNull();
+    expect(openOptional({ cipher: new Uint8Array([1]) })).toBeNull();
+    expect(openOptional({ iv: new Uint8Array([1]) })).toBeNull();
   });
 });
 

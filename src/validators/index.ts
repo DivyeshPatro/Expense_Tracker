@@ -3,6 +3,15 @@
 
 import { z } from "zod";
 import { toPaise } from "@/lib/money";
+import {
+  detectNetwork,
+  isPlausibleLength,
+  isValidCvv,
+  isValidLuhn,
+  networkLabel,
+  normalizeCardNumber,
+  parseExpiry,
+} from "@/lib/card-identity";
 
 export const paiseFromRupees = z
   .union([z.string(), z.number()])
@@ -251,3 +260,54 @@ export const updateRecurringRuleSchema = z.object({ id: z.string().min(1) }).and
 export const accountNameSchema = z.string().trim().min(1, "Name is required").max(60);
 
 export const updateBillSchema = z.object({ id: z.string().min(1) }).merge(billSchema);
+
+// ─────────── Credit Cards (Phase 3.1) ───────────
+// Validated here, at the boundary, because these values are encrypted
+// immediately afterwards — a malformed number that reaches storage becomes
+// ciphertext nobody can inspect without decrypting it first.
+
+export const creditCardSchema = z
+  .object({
+    nickname: z.string().trim().min(1, "Give the card a nickname").max(60),
+    bank: z.string().trim().min(1, "Which bank issued it?").max(60),
+    cardholderName: z.string().trim().min(1, "Cardholder name is required").max(60),
+    // Spaces and dashes are stripped: people paste card numbers in every format.
+    cardNumber: z
+      .string()
+      .transform((v) => normalizeCardNumber(v))
+      .pipe(z.string().regex(/^\d+$/, "Card number must be digits only")),
+    expiryMonth: z.coerce.number().int(),
+    expiryYear: z.coerce.number().int(),
+    cvv: z.string().trim().regex(/^\d+$/, "CVV must be digits only"),
+    // Auto-detected from the number when the client doesn't send one.
+    network: z.enum(["VISA", "MASTERCARD", "RUPAY", "AMEX", "DINERS", "OTHER"]).optional(),
+    color: z.string().trim().max(20).nullable().optional(),
+    notes: z.string().trim().max(500).nullable().optional(),
+    isDefault: z.boolean().optional(),
+  })
+  .superRefine((v, ctx) => {
+    // Cross-field rules: the network decides both the plausible number length
+    // and the CVV length, so they can only be checked once the number is known.
+    const network = v.network ?? detectNetwork(v.cardNumber);
+
+    if (!isValidLuhn(v.cardNumber)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cardNumber"], message: "That card number doesn't look right — check for a typo" });
+    } else if (!isPlausibleLength(v.cardNumber, network)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cardNumber"], message: `That isn't the right number of digits for a ${networkLabel(network)} card` });
+    }
+
+    const expiry = parseExpiry(v.expiryMonth, v.expiryYear);
+    if (!expiry.ok) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["expiryMonth"], message: expiry.error });
+    }
+
+    if (!isValidCvv(v.cvv, network)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cvv"],
+        message: network === "AMEX" ? "Amex CVVs are 4 digits" : "CVV must be 3 digits",
+      });
+    }
+  });
+
+export const updateCreditCardSchema = z.object({ id: z.string().min(1) }).and(creditCardSchema);

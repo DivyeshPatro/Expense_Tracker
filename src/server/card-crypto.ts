@@ -30,8 +30,11 @@ export const CARD_KEY_VERSION = 1;
  * reusing an IV under the same key breaks GCM catastrophically.
  */
 export interface SealedField {
-  cipher: Buffer;
-  iv: Buffer;
+  // Uint8Array, not Buffer: Prisma maps `Bytes` columns to Uint8Array, and
+  // Buffer is a subclass, so this type flows both into and out of the database
+  // without conversion at every call site.
+  cipher: Uint8Array<ArrayBuffer>;
+  iv: Uint8Array<ArrayBuffer>;
 }
 
 let cachedKey: Buffer | null = null;
@@ -84,7 +87,12 @@ export function sealField(plaintext: string, key: Buffer = getCardKey()): Sealed
   const body = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   // Tag appended rather than stored separately: it belongs to this ciphertext
   // and splitting them across columns invites pairing the wrong two.
-  return { cipher: Buffer.concat([body, cipher.getAuthTag()]), iv };
+  // Copied into plain Uint8Arrays so the type matches Prisma's Bytes columns
+  // exactly (Buffer.concat yields ArrayBufferLike, which Prisma rejects).
+  return {
+    cipher: new Uint8Array(Buffer.concat([body, cipher.getAuthTag()])),
+    iv: new Uint8Array(iv),
+  };
 }
 
 /**
@@ -95,9 +103,10 @@ export function openField(sealed: SealedField, key: Buffer = getCardKey()): stri
   if (sealed.cipher.length < TAG_BYTES + 1) {
     throw new Error("Ciphertext is too short to contain an auth tag");
   }
-  const body = sealed.cipher.subarray(0, sealed.cipher.length - TAG_BYTES);
-  const tag = sealed.cipher.subarray(sealed.cipher.length - TAG_BYTES);
-  const decipher = createDecipheriv(ALGORITHM, key, sealed.iv);
+  const stored = Buffer.from(sealed.cipher);
+  const body = stored.subarray(0, stored.length - TAG_BYTES);
+  const tag = stored.subarray(stored.length - TAG_BYTES);
+  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(sealed.iv));
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(body), decipher.final()]).toString("utf8");
 }

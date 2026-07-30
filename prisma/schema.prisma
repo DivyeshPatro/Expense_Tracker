@@ -38,6 +38,7 @@ model User {
   importBatches   ImportBatch[]
   loanEntries     LoanEntry[]
   loanAllocations LoanAllocation[]
+  creditCards     CreditCard[]
 }
 
 model Session {
@@ -644,4 +645,60 @@ model AuditLog {
 
   @@index([userId, at(sort: Desc)])
   @@index([entityId])
+}
+
+// ───────────────────── Phase 3.1 — Credit Cards module ─────────────────────
+// Deliberately its own table, not an extension of Account and not a generic
+// "vault": Account.cardNetwork/cardLast4/statementDay/dueDay serve Lending and
+// Card Recovery and are untouched by this. This model exists for exactly one
+// job — retrieving your own card details when paying online.
+
+enum CardNetwork {
+  VISA
+  MASTERCARD
+  RUPAY
+  AMEX
+  DINERS
+  OTHER
+}
+
+model CreditCard {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Plaintext by design — these drive the gallery, search and filters, and none
+  // of them is sufficient to transact. last4 in the clear is standard practice:
+  // it is printed on every receipt.
+  nickname  String
+  bank      String
+  network   CardNetwork
+  last4     String
+  color     String?
+  isDefault Boolean     @default(false)
+
+  // AES-256-GCM ciphertext, one column pair per field. Separate IVs make reuse
+  // structurally impossible, and per-field sealing means "Copy CVV" decrypts
+  // only the CVV — the card number never leaves the server for that action.
+  numberCipher Bytes
+  numberIv     Bytes
+  holderCipher Bytes
+  holderIv     Bytes
+  expiryCipher Bytes
+  expiryIv     Bytes
+  cvvCipher    Bytes
+  cvvIv        Bytes
+  notesCipher  Bytes?
+  notesIv      Bytes?
+
+  // Which key sealed this row. keyFingerprint is a truncated SHA-256 of the key
+  // (non-secret) so a backup restored under a different key can say so instead
+  // of failing decryption with an opaque error.
+  keyVersion     Int    @default(1)
+  keyFingerprint String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
