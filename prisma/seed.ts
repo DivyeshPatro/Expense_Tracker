@@ -4,7 +4,6 @@
 // Demo login: arjun@ledgerly.app / ledgerly-demo
 
 import { PrismaClient } from "@prisma/client";
-import { auth } from "../src/server/auth";
 import { GROUP_DEFAULT_CATEGORIES } from "../src/lib/categories";
 import { splitEqual } from "../src/lib/money";
 import { addDaysYMD, currentMonthKey, istNoon, shiftMonthKey, todayYMD } from "../src/lib/dates";
@@ -51,6 +50,14 @@ async function main() {
   }
 
   // Sign up through Better Auth so the password hash + onboarding hook are real.
+  //
+  // Registration is closed unless ALLOW_SIGNUP is set (src/server/auth.ts reads
+  // it once at module load), and better-auth enforces that inside signUpEmail
+  // itself — so the seed opts itself in for its own process and imports auth
+  // only afterwards. A static import would have evaluated the module, and read
+  // the flag, before this line ran.
+  process.env.ALLOW_SIGNUP = "true";
+  const { auth } = await import("../src/server/auth");
   await auth.api.signUpEmail({ body: { name: "Arjun", email: EMAIL, password: PASSWORD } });
   const user = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL } });
   await prisma.account.deleteMany({ where: { userId: user.id } }); // replace onboarding starter account

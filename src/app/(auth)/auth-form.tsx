@@ -4,7 +4,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
-export function AuthForm({ mode, justReset }: { mode: "sign-in" | "sign-up"; justReset?: boolean }) {
+export function AuthForm({
+  mode,
+  justReset,
+  signupOpen = true,
+}: {
+  mode: "sign-in" | "sign-up";
+  justReset?: boolean;
+  /** When registration is closed, the "Create an account" link is a dead end. */
+  signupOpen?: boolean;
+}) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -71,8 +80,10 @@ export function AuthForm({ mode, justReset }: { mode: "sign-in" | "sign-up"; jus
         <div className="text-[12.5px] text-mut text-center">
           {mode === "sign-up" ? (
             <>Already have an account? <a href="/sign-in">Sign in</a></>
-          ) : (
+          ) : signupOpen ? (
             <>New here? <a href="/sign-up">Create an account</a></>
+          ) : (
+            <>Forgot your password? <a href="/forgot-password">Reset it</a></>
           )}
         </div>
       </form>

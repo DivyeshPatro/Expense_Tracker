@@ -24,6 +24,21 @@ configuration (Vercel Project Settings → Environment Variables).
 | `RESEND_API_KEY` | optional | Enables password-reset emails. Without it, the reset flow still works end-to-end but logs the reset link server-side instead of emailing it — safe to leave unset while getting everything else running, but real users need it set before launch. |
 | `RESEND_FROM` | optional | Sender address; must be on a domain verified in Resend, or omit to use their shared `onboarding@resend.dev` testing sender. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | optional | Enables rate limiting on sign-in/sign-up/password-reset-request. Without them, rate limiting **fails open** (no limiting, not a hard failure) — same tradeoff as Resend: safe to defer, but a real gap before launch. |
+| `ALLOW_SIGNUP` | optional | Registration is **closed** unless this is exactly `"true"`. Ledgerly is single-tenant — one deployment holds one person's finances and their saved card details — so an open sign-up page on a public URL lets a stranger create an account inside it. Set it to `true`, create your account, then remove it. |
+
+## Creating the first account
+
+Registration is closed by default, so a fresh deployment has no way to
+register until you open it deliberately:
+
+1. Set `ALLOW_SIGNUP=true` in the environment and redeploy (or restart
+   locally).
+2. Visit `/sign-up` and create your account.
+3. **Remove `ALLOW_SIGNUP`** and redeploy.
+
+`/sign-up` then renders a "Registration is closed" page, and better-auth
+rejects sign-up requests at the API level too — so this holds against
+direct calls, not just the form the app renders.
 
 ## Setting up Resend (optional, recommended before launch)
 

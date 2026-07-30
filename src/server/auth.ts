@@ -4,10 +4,27 @@ import { prisma } from "./db";
 import { onboardUser } from "./services/onboarding";
 import { sendPasswordResetEmail } from "./email";
 
+/**
+ * Registration is CLOSED unless ALLOW_SIGNUP is explicitly set.
+ *
+ * Ledgerly is a self-hosted single-tenant app: a deployment holds one person's
+ * complete financial history, and from Phase 3.1 their stored card details too.
+ * Leaving registration open on a public URL means a stranger can create an
+ * account inside that deployment — and once the Credit Cards module exists, the
+ * operator becomes custodian of whatever card numbers those strangers save.
+ *
+ * Closed is therefore the safe default. To create the first account, set
+ * ALLOW_SIGNUP=true, register, then remove it — see .env.example.
+ */
+export const signupAllowed = process.env.ALLOW_SIGNUP === "true";
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
+    // Enforced by better-auth's own sign-up route, so it holds for direct API
+    // calls too — not just the form we render.
+    disableSignUp: !signupAllowed,
     // url already points at better-auth's own /reset-password/:token redirect
     // callback (baseURL-relative) — see request-password-reset in
     // better-auth's password routes. We just deliver it.
