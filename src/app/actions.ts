@@ -26,7 +26,14 @@ import {
   type CommitInput,
 } from "@/server/services/import";
 import { commitBackupRestore, previewBackupRestore } from "@/server/services/backup-restore";
-import { revealWithPassword, type RevealedCreditCard } from "@/server/services/credit-cards";
+import {
+  createCreditCard,
+  deleteCreditCard,
+  revealWithPassword,
+  setDefaultCreditCard,
+  updateCreditCard,
+  type RevealedCreditCard,
+} from "@/server/services/credit-cards";
 import {
   createRecurringRule,
   deleteRecurringRule,
@@ -77,6 +84,8 @@ import {
   budgetSchema,
   categorySchema,
   changeCategoryKindSchema,
+  creditCardSchema,
+  updateCreditCardSchema,
   renameCategorySchema,
   deleteTransactionSchema,
   expenseWithIntentSchema,
@@ -600,6 +609,52 @@ export async function commitBackupRestoreAction(json: unknown): Promise<ActionRe
 }
 
 // ─────────── Credit Cards ───────────
+
+export async function createCreditCardAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const data = creditCardSchema.parse(input);
+    await createCreditCard(user.id, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function updateCreditCardAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, ...data } = updateCreditCardSchema.parse(input);
+    await updateCreditCard(user.id, id, data);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteCreditCardAction(id: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await deleteCreditCard(user.id, id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function setDefaultCreditCardAction(id: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await setDefaultCreditCard(user.id, id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
 
 /**
  * Reveals a card's details, behind the account password.
