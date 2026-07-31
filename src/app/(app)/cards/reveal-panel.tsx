@@ -26,10 +26,14 @@ export function RevealPanel({
   card,
   revealed,
   onHide,
+  onCheckout,
 }: {
   card: CreditCardListItem;
   revealed: RevealedCreditCard;
   onHide: () => void;
+  /** Copying everything is the signal that you're mid-checkout, so it hands
+   *  over to the helper rather than starting a 30-second clock you'll lose. */
+  onCheckout: () => void;
 }) {
   const { showToast } = useUI();
   const remaining = useCountdown(REVEAL_MS, onHide);
@@ -70,14 +74,15 @@ export function RevealPanel({
       {revealed.notes && <SecretRow label="Notes" value={revealed.notes} onCopy={() => copy("Notes", revealed.notes!)} />}
 
       <button
-        onClick={() =>
-          void copy(
+        onClick={async () => {
+          await copy(
             "Card details",
             // The order a checkout form asks for them, so pasting into one
             // field at a time follows the same sequence top to bottom.
             [revealed.cardNumber, expiry, revealed.cvv, revealed.cardholderName].join("\n")
-          )
-        }
+          );
+          onCheckout();
+        }}
         className="btn-primary mt-0.5"
       >
         Copy card details

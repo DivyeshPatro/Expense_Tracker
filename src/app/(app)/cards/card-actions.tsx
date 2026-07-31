@@ -14,6 +14,7 @@ import { deleteCreditCardAction, setDefaultCreditCardAction } from "@/app/action
 import { useUI } from "@/components/shell/ui-context";
 import type { CreditCardListItem, RevealedCreditCard } from "@/server/services/credit-cards";
 import { CardForm, type CardFormInitial } from "./card-form";
+import { CheckoutHelper } from "./checkout-helper";
 import { PasswordPrompt } from "./password-prompt";
 import { RevealPanel } from "./reveal-panel";
 
@@ -29,7 +30,7 @@ export function AddCardButton() {
   );
 }
 
-type Mode = "idle" | "unlock-reveal" | "revealed" | "unlock-edit" | "edit" | "confirm-delete";
+type Mode = "idle" | "unlock-reveal" | "revealed" | "checkout" | "unlock-edit" | "edit" | "confirm-delete";
 
 export function CardActions({ card }: { card: CreditCardListItem }) {
   const router = useRouter();
@@ -102,7 +103,11 @@ export function CardActions({ card }: { card: CreditCardListItem }) {
         />
       )}
 
-      {mode === "revealed" && revealed && <RevealPanel card={card} revealed={revealed} onHide={close} />}
+      {mode === "revealed" && revealed && (
+        <RevealPanel card={card} revealed={revealed} onHide={close} onCheckout={() => setMode("checkout")} />
+      )}
+
+      {mode === "checkout" && revealed && <CheckoutHelper card={card} revealed={revealed} onClose={close} />}
 
       {mode === "unlock-edit" && (
         <PasswordPrompt
