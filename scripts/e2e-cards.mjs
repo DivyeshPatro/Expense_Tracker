@@ -125,8 +125,10 @@ try {
 
   // ── Add a card ──
   await gotoCards();
+  // Deliberately without ticking "default": the first card should still become
+  // the default on its own.
   await openDialogVia(() => page.getByRole("button", { name: /Add card/ }).first().click(), /Add card/);
-  await fillCardForm({ nickname: VISA, bank: "HDFC Bank", cardholder: "TEST HOLDER", makeDefault: true });
+  await fillCardForm({ nickname: VISA, bank: "HDFC Bank", cardholder: "TEST HOLDER" });
   await page.getByRole("dialog").getByRole("button", { name: "Save card" }).click();
 
   const created = await waitFor(
@@ -148,7 +150,7 @@ try {
       created.numberIv.length > 0 && created.cvvCipher.length > 0 && created.holderCipher.length > 0 && created.expiryCipher.length > 0
     );
     ok("the row records which key sealed it", !!created.keyFingerprint);
-    ok("a card saved with the default box ticked is stored as default", created.isDefault === true);
+    ok("the first card becomes the default automatically, even from the form", created.isDefault === true);
   }
 
   // ── The face shows the mask, not the number ──

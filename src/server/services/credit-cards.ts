@@ -162,8 +162,12 @@ export async function createCreditCard(userId: string, input: CreditCardInput): 
   return prisma.$transaction(async (db) => {
     const isFirst = (await db.creditCard.count({ where: { userId } })) === 0;
     // The first card becomes the default automatically — with one card, having
-    // no default is a distinction without a difference.
-    const isDefault = input.isDefault ?? isFirst;
+    // no default is a distinction without a difference. `||`, not `??`: the add
+    // form always sends an explicit isDefault (false when the box is unticked),
+    // so `??` would never fall through and the first card would come in with no
+    // default at all. An explicit true still wins; false on the first card
+    // still becomes the default.
+    const isDefault = input.isDefault || isFirst;
     if (isDefault) await clearOtherDefaults(db, userId);
 
     const card = await db.creditCard.create({ data: { ...data, userId, isDefault } });
