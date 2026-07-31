@@ -5,6 +5,8 @@
 import ExcelJS from "exceljs";
 import { toYMD } from "@/lib/dates";
 import { prisma } from "../db";
+import { BACKUP_FORMAT_VERSION } from "./backup-restore";
+import { toBackupCard } from "./card-backup";
 
 export async function exportTransactionsCsv(userId: string): Promise<string> {
   const rows = await prisma.transaction.findMany({
@@ -69,7 +71,7 @@ export async function exportTransactionsXlsx(userId: string): Promise<Buffer> {
 }
 
 export async function exportFullJson(userId: string) {
-  const [user, accounts, categories, transactions, budgets, bills, participants, groups, settlements, recurringRules, loanEntries, loanAllocations, tags] = await Promise.all([
+  const [user, accounts, categories, transactions, budgets, bills, participants, groups, settlements, recurringRules, loanEntries, loanAllocations, tags, creditCards] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, currency: true, createdAt: true } }),
     prisma.account.findMany({ where: { userId } }),
     prisma.category.findMany({ where: { userId } }),
@@ -83,16 +85,21 @@ export async function exportFullJson(userId: string) {
     prisma.loanEntry.findMany({ where: { userId, deletedAt: null } }),
     prisma.loanAllocation.findMany({ where: { userId } }),
     prisma.tag.findMany({ where: { userId } }),
+    prisma.creditCard.findMany({ where: { userId } }),
   ]);
 
   return JSON.parse(
     JSON.stringify(
       {
         // formatVersion: bump when the backup shape changes in a way the
-        // restore engine can't tolerate blindly. Restore currently reads only
-        // accounts/categories/transactions; the lending/budget/etc. arrays are
-        // carried for forward-completeness (a future restore version).
-        formatVersion: 1,
+        // restore engine can't tolerate blindly. Restore reads accounts,
+        // categories, transactions and credit cards; the lending/budget/etc.
+        // arrays are carried for forward-completeness (a future restore
+        // version).
+        //
+        // v2 added creditCards. A v1 backup restores into this version
+        // unchanged — it simply has no cards.
+        formatVersion: BACKUP_FORMAT_VERSION,
         exportedAt: new Date().toISOString(),
         user,
         accounts,
@@ -107,6 +114,10 @@ export async function exportFullJson(userId: string) {
         loanEntries,
         loanAllocations,
         tags,
+        // Sealed exactly as stored: the export path never decrypts, so a
+        // backup file contains no card number even momentarily, and taking one
+        // doesn't require CARD_ENCRYPTION_KEY.
+        creditCards: creditCards.map(toBackupCard),
       },
       (_k, v) => (typeof v === "bigint" ? Number(v) : v)
     )

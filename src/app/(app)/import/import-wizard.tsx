@@ -15,6 +15,7 @@ import {
   previewBackupRestoreAction,
   previewImportAction,
 } from "@/app/actions";
+import { BACKUP_FORMAT_VERSION } from "@/lib/backup-format";
 import type { ColumnMapping, PreviewRow, TargetField } from "@/lib/import/types";
 import { emptyMapping, UNCATEGORIZED } from "@/lib/import/types";
 import { formatPaise } from "@/lib/money";
@@ -670,7 +671,9 @@ function BackupRestoreSummary({
     <div className="card p-6 flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <div className="text-[13.5px] font-bold">Restore from {fileName}</div>
-        {preview.formatVersion !== null && preview.formatVersion !== 1 && (
+        {/* Older backups restore fine — the warning is only for a file written
+            by a NEWER Ledgerly, whose extra fields this build can't know about. */}
+        {preview.formatVersion !== null && preview.formatVersion > BACKUP_FORMAT_VERSION && (
           <div className="text-[12px] text-amber bg-ambersoft rounded-lg px-3 py-2">
             ⚠ This backup was made with a newer format (v{preview.formatVersion}). Some fields may not restore — proceed only if you understand the risk.
           </div>
@@ -686,7 +689,21 @@ function BackupRestoreSummary({
         <SummaryStat label="Matched accounts" value={preview.matchedAccounts} />
         <SummaryStat label="New categories" value={preview.newCategories} />
         <SummaryStat label="Matched categories" value={preview.matchedCategories} />
+        {(preview.newCreditCards > 0 || preview.matchedCreditCards > 0) && (
+          <>
+            <SummaryStat label="New cards" value={preview.newCreditCards} />
+            <SummaryStat label="Cards already saved" value={preview.matchedCreditCards} />
+          </>
+        )}
       </div>
+
+      {preview.newCreditCards > 0 && (
+        <div className="text-[12px] text-mut bg-side rounded-lg px-3 py-2">
+          Saved cards restore still encrypted — nothing in the backup file is readable without{" "}
+          <code className="font-mono">CARD_ENCRYPTION_KEY</code>. If this instance uses a different key, the cards
+          appear in your gallery but their details can&apos;t be read.
+        </div>
+      )}
 
       {hasInvalidReasons && (
         <div className="text-[12px] text-red bg-redsoft rounded-lg px-3 py-2">

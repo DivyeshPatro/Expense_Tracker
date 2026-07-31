@@ -164,6 +164,7 @@ export interface UndoResult {
   /** Created entities kept because other data now depends on them. */
   retainedAccounts: string[];
   retainedCategories: string[];
+  removedCreditCards: number;
 }
 
 /**
@@ -246,6 +247,18 @@ export async function undoImport(userId: string, batchId: string): Promise<UndoR
       removedAccounts++;
     }
 
+    // Cards restored by this batch go away outright. Unlike accounts and
+    // categories there is no reference-counting to do — nothing in the schema
+    // points at a CreditCard — so a card created by this restore can only be
+    // this restore's, and a hard delete is both safe and what "undo" means.
+    // Any the user edited since keep their new values; deleting the row is
+    // still the right reversal of having created it.
+    let removedCreditCards = 0;
+    if (created.creditCards.length > 0) {
+      const { count } = await db.creditCard.deleteMany({ where: { id: { in: created.creditCards }, userId } });
+      removedCreditCards = count;
+    }
+
     await db.importBatch.update({ where: { id: batchId }, data: { status: "UNDONE", createdEntities: Prisma.DbNull } });
     const result: UndoResult = {
       reversed: txs.length,
@@ -253,15 +266,19 @@ export async function undoImport(userId: string, batchId: string): Promise<UndoR
       removedCategories,
       retainedAccounts,
       retainedCategories,
+      removedCreditCards,
     };
     await audit(db, userId, "undo-import", "ImportBatch", batchId, undefined, { ...result });
     return result;
   }, TX_OPTIONS);
 }
 
-function parseCreatedEntities(value: unknown): { accounts: string[]; categories: string[] } {
-  if (typeof value !== "object" || value === null) return { accounts: [], categories: [] };
+function parseCreatedEntities(value: unknown): { accounts: string[]; categories: string[]; creditCards: string[] } {
+  const empty = { accounts: [], categories: [], creditCards: [] };
+  if (typeof value !== "object" || value === null) return empty;
   const v = value as Record<string, unknown>;
   const strings = (x: unknown) => (Array.isArray(x) ? x.filter((i): i is string => typeof i === "string") : []);
-  return { accounts: strings(v.accounts), categories: strings(v.categories) };
+  // creditCards is absent from batches recorded before v2 backups existed —
+  // those undo exactly as they always did.
+  return { accounts: strings(v.accounts), categories: strings(v.categories), creditCards: strings(v.creditCards) };
 }

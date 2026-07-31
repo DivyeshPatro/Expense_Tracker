@@ -7,6 +7,8 @@
 
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { commitBackupRestore, previewBackupRestore } from "./backup-restore";
+import { createCreditCard, listCreditCards, revealCreditCard } from "./credit-cards";
+import { exportFullJson } from "./export";
 import { prisma } from "../db";
 import { undoImport } from "./import";
 
@@ -327,5 +329,146 @@ describe("commitBackupRestore integration", () => {
   it("rejects malformed JSON in actions by propagating parseBackup error", async () => {
     await expect(previewBackupRestore(userId, "not-object")).rejects.toThrow(/Not a valid Ledgerly backup file/);
     await expect(commitBackupRestore(userId, null)).rejects.toThrow(/Not a valid Ledgerly backup file/);
+  });
+});
+
+// The card path through backup: sealed on the way out, sealed on the way in,
+// and readable again at the end without the key ever leaving the server.
+describe("credit cards in a backup", () => {
+  const SOURCE = "cards-backup-source@ledgerly.app";
+  const TARGET = "cards-backup-target@ledgerly.app";
+  const PAN = "4111111111111111";
+  const CVV = "123";
+  let sourceId: string;
+  let targetId: string;
+
+  async function user(email: string) {
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) await prisma.user.delete({ where: { id: existing.id } });
+    return (await prisma.user.create({ data: { name: "Cards Backup", email, emailVerified: true } })).id;
+  }
+
+  beforeEach(async () => {
+    sourceId = await user(SOURCE);
+    targetId = await user(TARGET);
+    await createCreditCard(sourceId, {
+      nickname: "Amazon Card",
+      bank: "HDFC Bank",
+      cardholderName: "DIVYESH PATRO",
+      cardNumber: PAN,
+      expiryMonth: 9,
+      expiryYear: 2029,
+      cvv: CVV,
+      notes: "Groceries 5%",
+    });
+  });
+
+  it("exports cards without the plaintext appearing anywhere in the file", async () => {
+    const backup = await exportFullJson(sourceId);
+    const text = JSON.stringify(backup);
+
+    expect(text).not.toContain(PAN);
+    expect(text).not.toContain("DIVYESH PATRO");
+    expect(text).not.toContain("Groceries 5%");
+
+    // The metadata is there by design — that's what makes the file useful.
+    expect(text).toContain("Amazon Card");
+    expect(text).toContain("1111");
+  });
+
+  it("restores into another account and the card reads back correctly", async () => {
+    const backup = await exportFullJson(sourceId);
+
+    const preview = await previewBackupRestore(targetId, backup);
+    expect(preview.newCreditCards).toBe(1);
+    expect(preview.matchedCreditCards).toBe(0);
+
+    const result = await commitBackupRestore(targetId, backup);
+    expect(result.createdCreditCards).toBe(1);
+
+    const [restored] = await listCreditCards(targetId);
+    expect(restored.nickname).toBe("Amazon Card");
+    expect(restored.last4).toBe("1111");
+    expect(restored.keyMatches).toBe(true);
+
+    // Same key, so the sealed bytes that travelled through JSON still decrypt.
+    const revealed = await revealCreditCard(targetId, restored.id);
+    expect(revealed.cardNumber).toBe(PAN);
+    expect(revealed.cvv).toBe(CVV);
+    expect(revealed.notes).toBe("Groceries 5%");
+  });
+
+  it("does not duplicate cards when the same backup is restored twice", async () => {
+    const backup = await exportFullJson(sourceId);
+    await commitBackupRestore(targetId, backup);
+
+    const second = await previewBackupRestore(targetId, backup);
+    expect(second.newCreditCards).toBe(0);
+    expect(second.matchedCreditCards).toBe(1);
+
+    const result = await commitBackupRestore(targetId, backup);
+    expect(result.createdCreditCards).toBe(0);
+    expect(await prisma.creditCard.count({ where: { userId: targetId } })).toBe(1);
+  });
+
+  it("undo removes the cards the restore created", async () => {
+    const backup = await exportFullJson(sourceId);
+    const { batchId } = await commitBackupRestore(targetId, backup);
+    expect(await prisma.creditCard.count({ where: { userId: targetId } })).toBe(1);
+
+    const undo = await undoImport(targetId, batchId);
+
+    expect(undo.removedCreditCards).toBe(1);
+    expect(await prisma.creditCard.count({ where: { userId: targetId } })).toBe(0);
+  });
+
+  it("leaves a card the user already had alone when undoing", async () => {
+    await createCreditCard(targetId, {
+      nickname: "My Own Card",
+      bank: "Axis Bank",
+      cardholderName: "SOMEONE ELSE",
+      cardNumber: "5555555555554444",
+      expiryMonth: 4,
+      expiryYear: 2030,
+      cvv: "321",
+    });
+    const backup = await exportFullJson(sourceId);
+    const { batchId } = await commitBackupRestore(targetId, backup);
+
+    await undoImport(targetId, batchId);
+
+    const remaining = await listCreditCards(targetId);
+    expect(remaining.map((c) => c.nickname)).toEqual(["My Own Card"]);
+  });
+
+  // A restore shouldn't quietly change which card the checkout flow reaches for.
+  it("does not let a restored card steal the default from an existing one", async () => {
+    await createCreditCard(targetId, {
+      nickname: "My Own Card",
+      bank: "Axis Bank",
+      cardholderName: "SOMEONE ELSE",
+      cardNumber: "5555555555554444",
+      expiryMonth: 4,
+      expiryYear: 2030,
+      cvv: "321",
+      isDefault: true,
+    });
+    const backup = await exportFullJson(sourceId);
+    await commitBackupRestore(targetId, backup);
+
+    const cards = await listCreditCards(targetId);
+    expect(cards.filter((c) => c.isDefault).map((c) => c.nickname)).toEqual(["My Own Card"]);
+  });
+
+  it("restores a v1 backup that has no cards at all", async () => {
+    const legacy = {
+      formatVersion: 1,
+      exportedAt: "2026-07-20T00:00:00.000Z",
+      accounts: [],
+      categories: [],
+      transactions: [],
+    };
+    const result = await commitBackupRestore(targetId, legacy);
+    expect(result.createdCreditCards).toBe(0);
   });
 });

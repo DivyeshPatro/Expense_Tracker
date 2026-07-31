@@ -51,7 +51,19 @@ describe("parseBackup", () => {
   });
 
   it("reports BACKUP_FORMAT_VERSION constant matches the version it writes/reads", () => {
-    expect(BACKUP_FORMAT_VERSION).toBe(1);
+    expect(BACKUP_FORMAT_VERSION).toBe(2);
+  });
+
+  // v1 files predate the creditCards array entirely; they must keep restoring.
+  it("reads a v1 backup as having no cards, not as malformed", () => {
+    const parsed = parseBackup({ formatVersion: 1, accounts: [], categories: [], transactions: [] });
+    expect(parsed.formatVersion).toBe(1);
+    expect(parsed.creditCards).toEqual([]);
+  });
+
+  it("does not report creditCards as an unsupported section", () => {
+    const parsed = parseBackup({ formatVersion: 2, accounts: [], categories: [], transactions: [], creditCards: [] });
+    expect(parsed.unsupported).not.toContain("creditCards");
   });
 });
 

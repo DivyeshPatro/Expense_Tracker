@@ -4,7 +4,9 @@
 // ImportBatch + Transaction.importBatchId undo mechanism (soft-delete by batch,
 // same as the CSV import engine). No schema change required.
 //
-// Scope (this version): Accounts, Categories, Transactions — the core ledger.
+// Scope (this version): Accounts, Categories, Transactions — the core ledger —
+// plus Credit Cards, whose sealed bytes are copied across without ever being
+// decrypted (see card-backup.ts).
 // Lending, budgets, bills, settlements, recurring rules, tags and splits are
 // exported into the backup for forward-completeness but are NOT yet restored
 // here; restoring them safely needs either importBatchId parity on those tables
@@ -12,13 +14,17 @@
 // first cut low-risk and fully undoable with the infrastructure already in hand.
 
 import type { Prisma } from "@prisma/client";
+import { BACKUP_FORMAT_VERSION } from "@/lib/backup-format";
 import { istNoon, toYMD } from "@/lib/dates";
 import { DuplicateIndex } from "@/lib/import/dedupe";
 import { prisma } from "../db";
 import { audit } from "./audit";
+import { cardKey, fromBackupCard, type RestorableCard } from "./card-backup";
 import { applyBalances } from "./transactions";
 
-export const BACKUP_FORMAT_VERSION = 1;
+// Re-exported so the many existing importers of it from this module keep
+// working; the constant itself lives in lib so client components can read it.
+export { BACKUP_FORMAT_VERSION };
 const TX_OPTIONS = { timeout: 300_000, maxWait: 15_000 };
 
 interface BackupAccount {
@@ -75,6 +81,9 @@ export interface BackupPreview {
   /** Backup rows too incomplete to restore (no name, or no type/kind). */
   unusableAccounts: number;
   unusableCategories: number;
+  /** Cards this restore would add, and ones already present by name + last4. */
+  newCreditCards: number;
+  matchedCreditCards: number;
   earliest?: string | null;
   latest?: string | null;
   unsupported: string[];
@@ -108,6 +117,7 @@ export interface BackupCommitResult {
   skipped: number;
   createdAccounts: number;
   createdCategories: number;
+  createdCreditCards: number;
 }
 
 function asString(v: unknown): string | undefined {
@@ -320,11 +330,48 @@ export function planRestore(
   };
 }
 
+/**
+ * Which backup cards are new here.
+ *
+ * Matched by nickname + last4, so restoring the same backup twice doesn't leave
+ * you holding two of every card. Deliberately not matched on ciphertext: every
+ * seal uses a fresh IV, so the same card encrypted twice produces different
+ * bytes and would never compare equal.
+ */
+export function planCreditCards(
+  entries: unknown[],
+  existing: { nickname: string; last4: string }[]
+): { toCreate: RestorableCard[]; matched: number; unusable: number } {
+  const seen = new Set(existing.map((c) => cardKey(c.nickname, c.last4)));
+  const toCreate: RestorableCard[] = [];
+  let matched = 0;
+  let unusable = 0;
+
+  for (const entry of entries) {
+    const card = fromBackupCard(entry);
+    if (!card) {
+      unusable++;
+      continue;
+    }
+    const key = cardKey(card.nickname, card.last4);
+    if (seen.has(key)) {
+      matched++;
+      continue;
+    }
+    // Added to the set as we go, so duplicates *within* one backup file collapse
+    // too rather than both being created.
+    seen.add(key);
+    toCreate.push(card);
+  }
+  return { toCreate, matched, unusable };
+}
+
 export function parseBackup(json: unknown): {
   formatVersion: number | null;
   accounts: BackupAccount[];
   categories: BackupCategory[];
   transactions: BackupTransaction[];
+  creditCards: unknown[];
   unsupported: string[];
 } {
   if (typeof json !== "object" || json === null) throw new Error("Not a valid Ledgerly backup file");
@@ -333,23 +380,26 @@ export function parseBackup(json: unknown): {
   const accounts = Array.isArray(obj.accounts) ? (obj.accounts as BackupAccount[]) : [];
   const categories = Array.isArray(obj.categories) ? (obj.categories as BackupCategory[]) : [];
   const transactions = Array.isArray(obj.transactions) ? (obj.transactions as BackupTransaction[]) : [];
+  const creditCards = Array.isArray(obj.creditCards) ? obj.creditCards : [];
   const unsupported = Object.keys(obj).filter(
     (k) =>
-      !["exportedAt", "formatVersion", "user", "accounts", "categories", "transactions"].includes(k)
+      !["exportedAt", "formatVersion", "user", "accounts", "categories", "transactions", "creditCards"].includes(k)
   );
-  return { formatVersion, accounts, categories, transactions, unsupported };
+  return { formatVersion, accounts, categories, transactions, creditCards, unsupported };
 }
 
 export async function previewBackupRestore(userId: string, json: unknown): Promise<BackupPreview> {
   const parsed = parseBackup(json);
-  const [existingAccounts, existingCategories, existingTx] = await Promise.all([
+  const [existingAccounts, existingCategories, existingTx, existingCards] = await Promise.all([
     prisma.account.findMany({ where: { userId }, select: { id: true, name: true, type: true } }),
     prisma.category.findMany({ where: { userId }, select: { id: true, name: true, kind: true } }),
     prisma.transaction.findMany({
       where: { userId, deletedAt: null },
       select: { occurredAt: true, amount: true, merchant: true },
     }),
+    prisma.creditCard.findMany({ where: { userId }, select: { nickname: true, last4: true } }),
   ]);
+  const cardPlan = planCreditCards(parsed.creditCards, existingCards);
   const plan = planRestore(parsed.accounts, parsed.categories, existingAccounts, existingCategories);
   const dupIndex = new DuplicateIndex(
     existingTx.map((t) => ({ ymd: toYMD(t.occurredAt), amountPaise: Number(t.amount), merchant: t.merchant }))
@@ -382,6 +432,8 @@ export async function previewBackupRestore(userId: string, json: unknown): Promi
     duplicateTransactions: duplicate,
     invalidTransactions: Object.values(breakdown).reduce((a, b) => a + b, 0),
     invalidBreakdown: breakdown,
+    newCreditCards: cardPlan.toCreate.length,
+    matchedCreditCards: cardPlan.matched,
     newAccounts: plan.accountsToCreate.length,
     matchedAccounts: plan.matchedAccounts,
     newCategories: plan.categoriesToCreate.length,
@@ -397,14 +449,16 @@ export async function previewBackupRestore(userId: string, json: unknown): Promi
 
 export async function commitBackupRestore(userId: string, json: unknown): Promise<BackupCommitResult> {
   const parsed = parseBackup(json);
-  const [existingAccounts, existingCategories, existingTx] = await Promise.all([
+  const [existingAccounts, existingCategories, existingTx, existingCards] = await Promise.all([
     prisma.account.findMany({ where: { userId } }),
     prisma.category.findMany({ where: { userId } }),
     prisma.transaction.findMany({
       where: { userId, deletedAt: null },
       select: { occurredAt: true, amount: true, merchant: true },
     }),
+    prisma.creditCard.findMany({ where: { userId }, select: { nickname: true, last4: true } }),
   ]);
+  const cardPlan = planCreditCards(parsed.creditCards, existingCards);
   const plan = planRestore(parsed.accounts, parsed.categories, existingAccounts, existingCategories);
   const dupIndex = new DuplicateIndex(
     existingTx.map((t) => ({ ymd: toYMD(t.occurredAt), amountPaise: Number(t.amount), merchant: t.merchant }))
@@ -493,6 +547,25 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
       imported++;
     }
 
+    // Cards go in exactly as they came out — sealed. Nothing here decrypts,
+    // so a restore works on an instance that doesn't have the key at all; those
+    // rows land with a foreign fingerprint and the gallery says so.
+    const createdCardIds: string[] = [];
+    const hasDefault = existingCards.length > 0 || (await db.creditCard.count({ where: { userId } })) > 0;
+    for (const card of cardPlan.toCreate) {
+      const created = await db.creditCard.create({
+        data: {
+          userId,
+          ...card,
+          // Only let a restored card claim default when there's nothing to
+          // conflict with — otherwise a restore silently changes which card the
+          // user's checkout flow reaches for first.
+          isDefault: card.isDefault && !hasDefault && createdCardIds.length === 0,
+        },
+      });
+      createdCardIds.push(created.id);
+    }
+
     // Record what this restore brought into existence so undo can reverse it.
     // Without this the accounts/categories a restore created outlived the undo,
     // leaving "fully undoable" false.
@@ -501,7 +574,11 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
       data: {
         importedCount: imported,
         skippedCount: skipped,
-        createdEntities: { accounts: createdAccountIds, categories: createdCategoryIds } as Prisma.InputJsonValue,
+        createdEntities: {
+          accounts: createdAccountIds,
+          categories: createdCategoryIds,
+          creditCards: createdCardIds,
+        } as Prisma.InputJsonValue,
       },
     });
     await audit(db, userId, "backup-restore", "ImportBatch", b.id, undefined, {
@@ -509,6 +586,7 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
       skipped,
       createdAccounts: createdAccountIds.length,
       createdCategories: createdCategoryIds.length,
+      createdCreditCards: createdCardIds.length,
     });
     return {
       batchId: b.id,
@@ -516,6 +594,7 @@ export async function commitBackupRestore(userId: string, json: unknown): Promis
       skipped,
       createdAccounts: createdAccountIds.length,
       createdCategories: createdCategoryIds.length,
+      createdCreditCards: createdCardIds.length,
     };
   }, TX_OPTIONS);
 }
