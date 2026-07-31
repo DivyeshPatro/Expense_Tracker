@@ -11,8 +11,8 @@
 // the client router cache after you navigate away.
 
 import { EmptyState } from "@/components/shell/empty-state";
-import { AddCardButton, CardActions } from "./card-actions";
-import { CardFace, KeyMismatchNotice } from "./card-face";
+import { AddCardButton } from "./card-actions";
+import { CardGallery } from "./card-gallery";
 import { listCreditCards } from "@/server/services/credit-cards";
 import { requireUser } from "@/server/session";
 
@@ -36,17 +36,7 @@ export default async function CardsPage() {
           />
         </div>
       ) : (
-        <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(290px,1fr))]">
-          {cards.map((card) => (
-            <div key={card.id} className="flex flex-col">
-              <CardFace card={card} />
-              {!card.keyMatches && <KeyMismatchNotice />}
-              <div className="mt-2.5">
-                <CardActions card={card} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <CardGallery cards={cards} />
       )}
     </div>
   );
