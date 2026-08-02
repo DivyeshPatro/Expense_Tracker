@@ -280,12 +280,14 @@ function ThemeToggle() {
 
 // lending-module-phase1: a genuine 6th primary slot (3 left + FAB + 2 right),
 // not tucked into the More sheet — Lending is as prominent as Transactions.
+// Two either side of the center quick-add, so the FAB sits dead-centre. Insights
+// (Analytics) lives in the More sheet — a tap away, and it keeps the bar
+// balanced around the raised action button.
 const MOBILE_NAV_LEFT = [
   { href: "/dashboard", icon: "home", label: "Home" },
   { href: "/transactions", icon: "txns", label: "Spends" },
-  { href: "/lending", icon: "lending", label: "Khata" },
 ];
-const MOBILE_NAV_RIGHT = [{ href: "/analytics", icon: "analytics", label: "Insights" }];
+const MOBILE_NAV_RIGHT = [{ href: "/lending", icon: "lending", label: "Khata" }];
 
 /** Clean line icons for the bottom nav — replaces the emoji glyphs. */
 function NavGlyph({ id }: { id: string }) {
@@ -326,7 +328,7 @@ function BottomNav({ badge }: { badge: number }) {
   // badge (spec §7: bottom nav shows nothing for routine pending, but the
   // existing More red-dot for needs-attention)
   const showDot = badge > 0 || needsAttention.length > 0;
-  const moreActive = ["/accounts", "/cards", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity"].some((h) => pathname.startsWith(h));
+  const moreActive = ["/accounts", "/cards", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity", "/analytics"].some((h) => pathname.startsWith(h));
   return (
     <>
       <nav
@@ -349,14 +351,15 @@ function BottomNav({ badge }: { badge: number }) {
             </Link>
           );
         })}
-        <div className="flex-none w-[72px] grid place-items-center">
+        {/* Raised center FAB: ~40% of the circle sits in the bar, ~60% above it. */}
+        <div className="flex-none w-[76px] grid place-items-center relative">
           <button
             aria-label="Quick add"
             onClick={() => setQuickAddOpen(true)}
-            className="w-[54px] h-[54px] -mt-5 rounded-[18px] text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform"
-            style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 10px 22px -8px color-mix(in oklab, var(--acc) 70%, transparent)" }}
+            className="w-[58px] h-[58px] rounded-full text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform absolute left-1/2 -translate-x-1/2 -top-[34px]"
+            style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 12px 26px -8px color-mix(in oklab, var(--acc) 72%, transparent), 0 0 0 5px var(--bg)" }}
           >
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
         </div>
         {MOBILE_NAV_RIGHT.map((n) => {
@@ -442,6 +445,7 @@ function MoreSheet({ close, params, badge }: { close: () => void; params: string
   useFocusTrap(panelRef, true);
   useEffect(() => panelRef.current?.focus(), []);
   const items = [
+    { href: "/analytics", icon: "◵", label: "Insights" },
     { href: "/shared", icon: "◫", label: "Shared" },
     { href: "/activity", icon: "◴", label: "Activity" },
     { href: "/accounts", icon: "▤", label: "Accounts" },
