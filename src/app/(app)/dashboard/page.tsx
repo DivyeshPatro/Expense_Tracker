@@ -23,6 +23,7 @@ import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonth
 import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
+import { MobileDashboard, type MobileDashboardData } from "./mobile-dashboard";
 import { billUrgencyColor } from "@/lib/urgency";
 import { listAccountRows } from "@/server/services/accounts";
 import { activityPage } from "@/server/services/activity";
@@ -157,8 +158,37 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         ? billChip(soonBill)
         : null;
 
+  // Mobile-native dashboard data — derived from the values already computed
+  // above; no new queries. The desktop tree below is unchanged.
+  const mobileNeeds: MobileDashboardData["needs"] = [];
+  for (const b of bills.filter((x) => x.days <= 7).slice(0, 2))
+    mobileNeeds.push({ icon: "💳", text: `${b.name} · ${formatPaise(b.amount)}`, sub: b.dueLabel, href: "/bills", sev: "red" });
+  for (const b of overBudgets.slice(0, 2))
+    mobileNeeds.push({ icon: "📊", text: `${b.category} over by ${formatPaise(b.spent - b.limit)}`, sub: `${formatPaise(b.spent)} of ${formatPaise(b.limit)}`, href: "/budgets", sev: "amber" });
+  for (const m of pending.slice(0, 2))
+    mobileNeeds.push({ icon: "🤝", text: `Settle with ${m.name}`, sub: m.net > 0 ? "they owe you" : "you owe them", href: "/shared", sev: "amber" });
+  const upcomingBills = bills.filter((b) => b.days >= 0 && b.days <= 10);
+  const mobileData: MobileDashboardData = {
+    greeting: greeting(now),
+    name: user.name,
+    netPosition: healthData.netPosition,
+    monthDelta: period.income - period.expense,
+    comp: { banks: bankTotal, owed: lending.youAreOwed, cash: cashTotal, cards: Math.max(0, -cardTotal) },
+    flow: { income: period.income, expense: period.expense },
+    needs: mobileNeeds.slice(0, 3),
+    lending: { owed: lending.youAreOwed, owe: lending.youOwe, net: lending.net, overdue: lending.overdueCount, people: lending.contacts.filter((cc) => cc.net > 0).length },
+    bills: upcomingBills.slice(0, 4).map((b) => ({ name: b.name, amount: b.amount, dueLabel: b.dueLabel })),
+    billsCount: upcomingBills.length,
+    billsTotal: upcomingBills.reduce((s, b) => s + b.amount, 0),
+    budgets: budgets.slice(0, 3).map((b) => ({ name: b.category, spent: b.spent, limit: b.limit, over: b.over })),
+    budgetsOver: overBudgets.length,
+    recent: recent.slice(0, 5).map((d) => ({ icon: d.icon, title: d.name, sub: d.meta, amtF: d.amtF, amtColor: d.amtColor })),
+  };
+
   return (
-    <div className="flex flex-col gap-4" style={{ animation: "rise .25s ease" }}>
+    <>
+      <MobileDashboard data={mobileData} />
+      <div className="hidden md:flex md:flex-col gap-4" style={{ animation: "rise .25s ease" }}>
       <div className="flex items-end justify-between flex-wrap gap-2">
         <div>
           <div className="text-[12.5px] text-mut font-medium">{greeting(now)}, {user.name}</div>
@@ -396,7 +426,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           ))}
         </section>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
