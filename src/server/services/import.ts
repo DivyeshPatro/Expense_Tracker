@@ -165,6 +165,11 @@ export interface UndoResult {
   retainedAccounts: string[];
   retainedCategories: string[];
   removedCreditCards: number;
+  /** Khatabook → Lending imports: entries hard-deleted and contacts removed. */
+  removedLendingEntries: number;
+  removedContacts: number;
+  /** Contacts kept because the user linked them to data outside this batch. */
+  retainedContacts: string[];
 }
 
 /**
@@ -259,6 +264,43 @@ export async function undoImport(userId: string, batchId: string): Promise<UndoR
       removedCreditCards = count;
     }
 
+    // Khatabook → Lending: the batch created participants, loan entries and
+    // allocations (never transactions), tracked in createdEntities. Reverse
+    // them hard — the same "undo is deletion of what the import created" rule
+    // backup restore uses. Allocations first (though deleting the entries would
+    // cascade them anyway), then the entries, then the contacts — but only
+    // contacts nothing outside this batch has since come to depend on.
+    let removedLendingEntries = 0;
+    let removedContacts = 0;
+    const retainedContacts: string[] = [];
+    if (created.loanAllocations.length > 0) {
+      await db.loanAllocation.deleteMany({ where: { id: { in: created.loanAllocations }, userId } });
+    }
+    if (created.loanEntries.length > 0) {
+      const { count } = await db.loanEntry.deleteMany({ where: { id: { in: created.loanEntries }, userId } });
+      removedLendingEntries = count;
+    }
+    for (const id of created.participants) {
+      const participant = await db.participant.findFirst({ where: { id, ownerId: userId } });
+      if (!participant) continue;
+      // A contact this import created is normally referenced only by the loan
+      // entries just deleted. Keep it only if the user has since linked it to
+      // something else — a manual loan, a split, a settlement, a group, a paid-by.
+      const [loanRefs, splitRefs, settleRefs, memberRefs, paidRefs] = await Promise.all([
+        db.loanEntry.count({ where: { participantId: id } }),
+        db.expenseSplit.count({ where: { participantId: id } }),
+        db.settlement.count({ where: { participantId: id } }),
+        db.groupMember.count({ where: { participantId: id } }),
+        db.transaction.count({ where: { paidByParticipantId: id } }),
+      ]);
+      if (loanRefs + splitRefs + settleRefs + memberRefs + paidRefs > 0) {
+        retainedContacts.push(participant.displayName);
+        continue;
+      }
+      await db.participant.delete({ where: { id } });
+      removedContacts++;
+    }
+
     await db.importBatch.update({ where: { id: batchId }, data: { status: "UNDONE", createdEntities: Prisma.DbNull } });
     const result: UndoResult = {
       reversed: txs.length,
@@ -267,18 +309,36 @@ export async function undoImport(userId: string, batchId: string): Promise<UndoR
       retainedAccounts,
       retainedCategories,
       removedCreditCards,
+      removedLendingEntries,
+      removedContacts,
+      retainedContacts,
     };
     await audit(db, userId, "undo-import", "ImportBatch", batchId, undefined, { ...result });
     return result;
   }, TX_OPTIONS);
 }
 
-function parseCreatedEntities(value: unknown): { accounts: string[]; categories: string[]; creditCards: string[] } {
-  const empty = { accounts: [], categories: [], creditCards: [] };
+function parseCreatedEntities(value: unknown): {
+  accounts: string[];
+  categories: string[];
+  creditCards: string[];
+  participants: string[];
+  loanEntries: string[];
+  loanAllocations: string[];
+} {
+  const empty = { accounts: [], categories: [], creditCards: [], participants: [], loanEntries: [], loanAllocations: [] };
   if (typeof value !== "object" || value === null) return empty;
   const v = value as Record<string, unknown>;
   const strings = (x: unknown) => (Array.isArray(x) ? x.filter((i): i is string => typeof i === "string") : []);
-  // creditCards is absent from batches recorded before v2 backups existed —
-  // those undo exactly as they always did.
-  return { accounts: strings(v.accounts), categories: strings(v.categories), creditCards: strings(v.creditCards) };
+  // creditCards is absent from batches recorded before v2 backups existed, and
+  // the lending keys from before v1.3.0 Khatabook imports — those batches undo
+  // exactly as they always did.
+  return {
+    accounts: strings(v.accounts),
+    categories: strings(v.categories),
+    creditCards: strings(v.creditCards),
+    participants: strings(v.participants),
+    loanEntries: strings(v.loanEntries),
+    loanAllocations: strings(v.loanAllocations),
+  };
 }

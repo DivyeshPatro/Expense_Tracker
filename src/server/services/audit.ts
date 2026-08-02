@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
-type Db = Prisma.TransactionClient;
+export type Db = Prisma.TransactionClient;
 
 /** Append an audit row inside the same DB transaction as the money-bearing write.
  * `userId` keeps its original meaning — whose ledger this is filed under — unchanged
