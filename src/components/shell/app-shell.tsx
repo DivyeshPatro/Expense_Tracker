@@ -281,11 +281,27 @@ function ThemeToggle() {
 // lending-module-phase1: a genuine 6th primary slot (3 left + FAB + 2 right),
 // not tucked into the More sheet — Lending is as prominent as Transactions.
 const MOBILE_NAV_LEFT = [
-  { href: "/dashboard", icon: "◧", label: "Home" },
-  { href: "/transactions", icon: "⇄", label: "Txns" },
-  { href: "/lending", icon: "🤝", label: "Lending" },
+  { href: "/dashboard", icon: "home", label: "Home" },
+  { href: "/transactions", icon: "txns", label: "Spends" },
+  { href: "/lending", icon: "lending", label: "Khata" },
 ];
-const MOBILE_NAV_RIGHT = [{ href: "/analytics", icon: "◵", label: "Analytics" }];
+const MOBILE_NAV_RIGHT = [{ href: "/analytics", icon: "analytics", label: "Insights" }];
+
+/** Clean line icons for the bottom nav — replaces the emoji glyphs. */
+function NavGlyph({ id }: { id: string }) {
+  const p: Record<string, React.ReactNode> = {
+    home: <path d="M3 11l9-8 9 8M5 10v10h14V10" />,
+    txns: <path d="M4 6h16M4 12h16M4 18h10" />,
+    lending: <><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 12 0M17 5a3 3 0 0 1 0 6" /></>,
+    analytics: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+    more: <><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></>,
+  };
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {p[id]}
+    </svg>
+  );
+}
 
 /** Escape-to-close for the sheet-style overlays below — MoreSheet and QuickAddSheet
  * both own local open/close state (not the global modal/palette in useUI()), so the
@@ -313,7 +329,10 @@ function BottomNav({ badge }: { badge: number }) {
   const moreActive = ["/accounts", "/cards", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity"].some((h) => pathname.startsWith(h));
   return (
     <>
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden">
+      <nav
+        className="md:hidden fixed bottom-0 inset-x-0 border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden"
+        style={{ background: "color-mix(in oklab, var(--card) 84%, transparent)", backdropFilter: "saturate(1.4) blur(18px)", WebkitBackdropFilter: "saturate(1.4) blur(18px)" }}
+      >
         {MOBILE_NAV_LEFT.map((n) => {
           const active = pathname.startsWith(n.href);
           return (
@@ -321,21 +340,23 @@ function BottomNav({ badge }: { badge: number }) {
               key={n.href}
               href={withPeriod(n.href, params)}
               onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
-              className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border no-underline relative"
+              aria-current={active ? "page" : undefined}
+              className="flex-1 flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border no-underline relative"
+              style={{ color: active ? "var(--acc)" : "var(--mut2)" }}
             >
-              <span className="text-[17px]" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.icon}</span>
-              <span className="text-[10px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
+              <NavGlyph id={n.icon} />
+              <span className="text-[10px] font-semibold">{n.label}</span>
             </Link>
           );
         })}
-        <div className="flex-1 flex flex-col items-center justify-end pb-[7px]">
+        <div className="flex-none w-[72px] grid place-items-center">
           <button
             aria-label="Quick add"
             onClick={() => setQuickAddOpen(true)}
-            className="w-[52px] h-[52px] -mt-[24px] rounded-full bg-acc text-white text-[26px] grid place-items-center cursor-pointer border-none select-none hover:brightness-108"
-            style={{ boxShadow: "0 6px 16px color-mix(in oklab, var(--acc) 50%, transparent)" }}
+            className="w-[54px] h-[54px] -mt-5 rounded-[18px] text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform"
+            style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 10px 22px -8px color-mix(in oklab, var(--acc) 70%, transparent)" }}
           >
-            ＋
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
         </div>
         {MOBILE_NAV_RIGHT.map((n) => {
@@ -345,17 +366,23 @@ function BottomNav({ badge }: { badge: number }) {
               key={n.href}
               href={withPeriod(n.href, params)}
               onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
-              className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border no-underline relative"
+              aria-current={active ? "page" : undefined}
+              className="flex-1 flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border no-underline relative"
+              style={{ color: active ? "var(--acc)" : "var(--mut2)" }}
             >
-              <span className="text-[17px]" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.icon}</span>
-              <span className="text-[10px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
+              <NavGlyph id={n.icon} />
+              <span className="text-[10px] font-semibold">{n.label}</span>
             </Link>
           );
         })}
-        <button onClick={() => setMoreOpen(true)} className="flex-1 flex flex-col items-center gap-[3px] pt-[9px] pb-[7px] min-h-[44px] box-border bg-transparent border-none cursor-pointer relative">
-          <span className="text-[17px]" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>⋯</span>
-          <span className="text-[10px] font-semibold" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>More</span>
-          {showDot && <span className="absolute top-1 right-[26%] w-2 h-2 rounded-full bg-red" />}
+        <button
+          onClick={() => setMoreOpen(true)}
+          className="flex-1 flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border bg-transparent border-none cursor-pointer relative"
+          style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}
+        >
+          <NavGlyph id="more" />
+          <span className="text-[10px] font-semibold">More</span>
+          {showDot && <span className="absolute top-1.5 right-[24%] w-2 h-2 rounded-full bg-red" />}
         </button>
       </nav>
       {quickAddOpen && <QuickAddSheet close={() => setQuickAddOpen(false)} />}
