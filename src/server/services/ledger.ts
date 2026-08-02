@@ -246,7 +246,9 @@ export interface TxPage {
 const PAGE_SIZE = 50;
 
 /** Paginated, DB-filtered transaction list — the "see everything" screen without loading everything at once. */
-export async function queryTransactions(userId: string, filter: TxListFilter, page: number): Promise<TxPage> {
+/** The WHERE for a ledger filter — shared by the paginated list and the
+ *  filtered totals so a summary can never disagree with the rows it sits above. */
+function txWhere(userId: string, filter: TxListFilter): Prisma.TransactionWhereInput {
   const where: Prisma.TransactionWhereInput = { userId, deletedAt: null };
   if (filter.type) where.type = filter.type;
   if (filter.categoryId) where.categoryId = filter.categoryId;
@@ -275,6 +277,38 @@ export async function queryTransactions(userId: string, filter: TxListFilter, pa
       ...(Number.isFinite(amountGuess) && amountGuess > 0 ? [{ amount: BigInt(Math.round(amountGuess * 100)) }] : []),
     ];
   }
+  return where;
+}
+
+export interface TxTotals {
+  income: number;
+  expense: number;
+  net: number;
+  count: number;
+}
+
+/** Income/expense/net + count for a filter, as DB aggregates — no rows loaded.
+ *  Transfers move money between your own accounts, so they're neither in nor out. */
+export async function txTotals(userId: string, filter: TxListFilter): Promise<TxTotals> {
+  const grouped = await prisma.transaction.groupBy({
+    by: ["type"],
+    where: txWhere(userId, filter),
+    _sum: { amount: true },
+    _count: { _all: true },
+  });
+  let income = 0;
+  let expense = 0;
+  let count = 0;
+  for (const g of grouped) {
+    count += g._count._all;
+    if (g.type === "INCOME") income = Number(g._sum.amount ?? 0);
+    else if (g.type === "EXPENSE") expense = Number(g._sum.amount ?? 0);
+  }
+  return { income, expense, net: income - expense, count };
+}
+
+export async function queryTransactions(userId: string, filter: TxListFilter, page: number): Promise<TxPage> {
+  const where = txWhere(userId, filter);
 
   const rows = await prisma.transaction.findMany({
     where,

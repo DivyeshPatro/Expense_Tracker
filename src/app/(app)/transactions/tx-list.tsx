@@ -10,13 +10,13 @@
 // more than one page of rows into the browser at a time.
 
 import { useEffect, useRef, useState } from "react";
-import { queryTransactionsAction } from "@/app/actions";
+import { queryTransactionsAction, txTotalsAction } from "@/app/actions";
 import { EmptyState } from "@/components/shell/empty-state";
 import { useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
-import type { LedgerRow } from "@/server/services/ledger";
+import type { LedgerRow, TxTotals } from "@/server/services/ledger";
 import { txDisplay } from "@/lib/tx-display";
 
 type TxType = "EXPENSE" | "INCOME" | "TRANSFER";
@@ -33,6 +33,7 @@ const TABS: { label: string; value: TxType | null }[] = [
 export function TransactionsList({
   initialRows,
   initialHasMore,
+  initialTotals,
   initialQ,
   initialTab,
   initialMonth,
@@ -44,6 +45,7 @@ export function TransactionsList({
 }: {
   initialRows: LedgerRow[];
   initialHasMore: boolean;
+  initialTotals: TxTotals;
   initialQ: string;
   initialTab: TxType | null;
   initialMonth: string | null;
@@ -67,6 +69,7 @@ export function TransactionsList({
   const { pending, needsAttention } = useOffline();
   const [rows, setRows] = useState(initialRows);
   const [hasMore, setHasMore] = useState(initialHasMore);
+  const [totals, setTotals] = useState(initialTotals);
   const [page, setPage] = useState(0);
   const [q, setQ] = useState(initialQ);
   const [tab, setTab] = useState<TxType | null>(initialTab);
@@ -88,20 +91,19 @@ export function TransactionsList({
 
   async function refetch(filter: { type?: TxType; monthKey?: string | null; categoryId?: string | null; accountId?: string | null; textQuery?: string; batch?: string | null }) {
     setLoading(true);
-    const result = await queryTransactionsAction(
-      {
-        type: filter.type,
-        monthKey: filter.monthKey ?? undefined,
-        categoryId: filter.categoryId ?? undefined,
-        accountId: filter.accountId ?? undefined,
-        period,
-        textQuery: filter.textQuery,
-        importBatchId: filter.batch ?? undefined,
-      },
-      0
-    );
+    const query = {
+      type: filter.type,
+      monthKey: filter.monthKey ?? undefined,
+      categoryId: filter.categoryId ?? undefined,
+      accountId: filter.accountId ?? undefined,
+      period,
+      textQuery: filter.textQuery,
+      importBatchId: filter.batch ?? undefined,
+    };
+    const [result, tot] = await Promise.all([queryTransactionsAction(query, 0), txTotalsAction(query)]);
     setRows(result.rows);
     setHasMore(result.hasMore);
+    setTotals(tot);
     setPage(0);
     setLoading(false);
   }
@@ -119,6 +121,7 @@ export function TransactionsList({
     setBatch(initialBatch);
     setRows(initialRows);
     setHasMore(initialHasMore);
+    setTotals(initialTotals);
     setPage(0);
     appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, accountId: initialAccount?.id ?? null, batch: initialBatch };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,6 +182,33 @@ export function TransactionsList({
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+      {/* Overall summary for the current view — income, expense and net update
+          with the tabs, month, account, category and search filters. */}
+      <section
+        className="rounded-[18px] p-4 border border-line2"
+        style={{ background: "radial-gradient(130% 120% at 90% -25%, color-mix(in oklab,var(--acc) 16%, transparent), transparent 55%), linear-gradient(160deg, var(--side), var(--card))", boxShadow: "var(--sh)" }}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-[10.5px] font-bold text-mut2 tracking-[.07em] uppercase">Net · this view</div>
+            <div className="text-[27px] font-extrabold tracking-[-.03em] tabular-nums leading-tight" style={{ color: totals.net < 0 ? "var(--red)" : "var(--green)" }}>
+              {totals.net < 0 ? "−" : "+"}{formatPaise(totals.net)}
+            </div>
+          </div>
+          <div className="text-[11px] text-mut2 font-semibold tabular-nums">{totals.count} txn{totals.count === 1 ? "" : "s"}</div>
+        </div>
+        <div className="flex gap-2.5 mt-3">
+          <div className="flex-1 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
+            <div className="text-[10px] uppercase tracking-wide font-bold text-mut2">In</div>
+            <div className="text-[15px] font-extrabold tabular-nums text-green">{formatPaise(totals.income)}</div>
+          </div>
+          <div className="flex-1 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
+            <div className="text-[10px] uppercase tracking-wide font-bold text-mut2">Out</div>
+            <div className="text-[15px] font-extrabold tabular-nums text-red">−{formatPaise(totals.expense)}</div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex gap-2.5 flex-wrap items-center">
         <div className="flex gap-1 bg-card border border-line rounded-[9px] p-[3px]">
           {TABS.map((t) => (

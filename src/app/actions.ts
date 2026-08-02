@@ -16,7 +16,7 @@ import {
 import { createBill, deleteBill, markBillPaid, updateBill } from "@/server/services/bills";
 import { deleteBudget, upsertBudget } from "@/server/services/budgets";
 import { changeCategoryKind, createCategory, createGroupCategory, deleteCategory, listGroupCategories, renameCategory } from "@/server/services/categories";
-import { queryTransactions, type TxListFilter } from "@/server/services/ledger";
+import { queryTransactions, txTotals, type TxListFilter } from "@/server/services/ledger";
 import { clearAllTransactions, deleteUserAccount } from "@/server/services/data-management";
 import {
   commitImport,
@@ -513,6 +513,11 @@ export async function loanDetailAction(loanEntryId: string) {
 export async function queryTransactionsAction(filter: TxListFilter, page: number) {
   const user = await requireUser();
   return queryTransactions(user.id, filter, page);
+}
+
+export async function txTotalsAction(filter: TxListFilter) {
+  const user = await requireUser();
+  return txTotals(user.id, filter);
 }
 
 export async function activityPageAction(input: {
