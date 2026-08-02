@@ -92,6 +92,33 @@ describe("assembleLendingPreview", () => {
     expect(p.contactsToCreate).toBe(0);
   });
 
+  it("applies an import-level default so every duplicate follows one rule hands-free", () => {
+    const existing: ExistingContact[] = [
+      { id: "p1", key: "ramesh", displayName: "Ramesh", netPaise: 0 },
+      { id: "p2", key: "suresh", displayName: "Suresh", netPaise: 0 },
+    ];
+    const p = assembleLendingPreview(
+      [r({ contact: "ramesh", kind: "GAVE", amountPaise: 100 }), r({ contact: "suresh", kind: "GAVE", amountPaise: 200 })],
+      existing,
+      NO_KEYS,
+      { defaultExistingDecision: "create" } // "always create new"
+    );
+    expect(p.contactsToCreate).toBe(2);
+    expect(p.contactsToMerge).toBe(0);
+  });
+
+  it("lets an explicit per-key decision override the import-level default", () => {
+    const existing: ExistingContact[] = [{ id: "p1", key: "ramesh", displayName: "Ramesh", netPaise: 0 }];
+    const p = assembleLendingPreview(
+      [r({ contact: "ramesh", kind: "GAVE", amountPaise: 100 })],
+      existing,
+      NO_KEYS,
+      { defaultExistingDecision: "create", decisions: { ramesh: "merge" } }
+    );
+    expect(p.contactsToMerge).toBe(1);
+    expect(p.contactsToCreate).toBe(0);
+  });
+
   it("honours a skip decision — nothing from that contact imports", () => {
     const existing: ExistingContact[] = [{ id: "p1", key: "ramesh", displayName: "Ramesh", netPaise: 0 }];
     const p = assembleLendingPreview(

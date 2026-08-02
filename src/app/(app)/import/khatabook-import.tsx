@@ -48,6 +48,9 @@ export function KhatabookImport({
   const [preview, setPreview] = useState<LendingPreviewResult | null>(null);
   const [decisions, setDecisions] = useState<Record<string, MergeDecision>>({});
   const [skipDuplicates, setSkipDuplicates] = useState(true);
+  // Import-level "always create new contacts for duplicates" — one toggle
+  // instead of a choice per existing contact, for hands-free large imports.
+  const [alwaysCreate, setAlwaysCreate] = useState(false);
 
   const [progressStep, setProgressStep] = useState(0);
   const [result, setResult] = useState<LendingPreviewResult | null>(null);
@@ -55,8 +58,12 @@ export function KhatabookImport({
   const [undone, setUndone] = useState(false);
 
   const loadPreview = useCallback(
-    async (opts: { decisions: Record<string, MergeDecision>; skipDuplicates: boolean }) => {
-      const p = await previewLendingImportAction(rows, adapterId, opts);
+    async (opts: { decisions: Record<string, MergeDecision>; skipDuplicates: boolean; alwaysCreate: boolean }) => {
+      const p = await previewLendingImportAction(rows, adapterId, {
+        decisions: opts.decisions,
+        skipDuplicates: opts.skipDuplicates,
+        defaultExistingDecision: opts.alwaysCreate ? "create" : "merge",
+      });
       setPreview(p);
       return p;
     },
@@ -68,7 +75,7 @@ export function KhatabookImport({
     let cancelled = false;
     (async () => {
       try {
-        const p = await loadPreview({ decisions: {}, skipDuplicates: true });
+        const p = await loadPreview({ decisions: {}, skipDuplicates: true, alwaysCreate: false });
         if (!cancelled) setPhase("ready");
         if (cancelled) return;
         void p;
@@ -84,12 +91,17 @@ export function KhatabookImport({
     };
   }, [loadPreview]);
 
-  // Re-preview when the user changes merge decisions or duplicate handling.
-  async function updateOptions(nextDecisions: Record<string, MergeDecision>, nextSkip: boolean) {
-    setDecisions(nextDecisions);
-    setSkipDuplicates(nextSkip);
+  // Re-preview when the user changes merge decisions, duplicate handling, or
+  // the import-level "always create new" toggle.
+  async function updateOptions(next: { decisions?: Record<string, MergeDecision>; skipDuplicates?: boolean; alwaysCreate?: boolean }) {
+    const d = next.decisions ?? decisions;
+    const s = next.skipDuplicates ?? skipDuplicates;
+    const a = next.alwaysCreate ?? alwaysCreate;
+    setDecisions(d);
+    setSkipDuplicates(s);
+    setAlwaysCreate(a);
     try {
-      await loadPreview({ decisions: nextDecisions, skipDuplicates: nextSkip });
+      await loadPreview({ decisions: d, skipDuplicates: s, alwaysCreate: a });
     } catch {
       /* keep the previous preview on a transient error */
     }
@@ -98,12 +110,12 @@ export function KhatabookImport({
   const existingContacts = (preview?.contacts ?? []).filter((c) => c.existingId);
 
   function setDecision(key: string, d: MergeDecision) {
-    void updateOptions({ ...decisions, [key]: d }, skipDuplicates);
+    void updateOptions({ decisions: { ...decisions, [key]: d } });
   }
   function applyToAll(d: MergeDecision) {
     const next: Record<string, MergeDecision> = { ...decisions };
     for (const c of existingContacts) next[c.key] = d;
-    void updateOptions(next, skipDuplicates);
+    void updateOptions({ decisions: next });
   }
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -113,7 +125,12 @@ export function KhatabookImport({
     setProgressStep(0);
     const started = Date.now();
     timerRef.current = setInterval(() => setProgressStep((s) => Math.min(s + 1, PROGRESS.length - 1)), 260);
-    const res = await commitLendingImportAction({ rows, adapterId, fileName, options: { decisions, skipDuplicates } });
+    const res = await commitLendingImportAction({
+      rows,
+      adapterId,
+      fileName,
+      options: { decisions, skipDuplicates, defaultExistingDecision: alwaysCreate ? "create" : "merge" },
+    });
     if (timerRef.current) clearInterval(timerRef.current);
     if (!res.ok || !res.result) {
       setError(res.ok ? "Import failed" : res.error);
@@ -206,6 +223,10 @@ export function KhatabookImport({
               ))}
             </div>
           </div>
+          <label className="flex items-center gap-2 text-[12px] font-semibold cursor-pointer text-mut">
+            <input type="checkbox" checked={alwaysCreate} onChange={(e) => void updateOptions({ alwaysCreate: e.target.checked })} />
+            Always create new contacts for duplicates in this import (hands-free)
+          </label>
           <div className="flex flex-col gap-1.5 max-h-[220px] overflow-auto">
             {existingContacts.map((c) => (
               <div key={c.key} className="flex items-center gap-2 text-[12.5px]">
@@ -229,7 +250,7 @@ export function KhatabookImport({
       {/* Duplicate handling */}
       {preview.counts.duplicateRows > 0 && (
         <label className="flex items-center gap-2 text-[12.5px] font-semibold cursor-pointer">
-          <input type="checkbox" checked={skipDuplicates} onChange={(e) => void updateOptions(decisions, e.target.checked)} />
+          <input type="checkbox" checked={skipDuplicates} onChange={(e) => void updateOptions({ skipDuplicates: e.target.checked })} />
           Skip {preview.counts.duplicateRows} duplicate row{preview.counts.duplicateRows === 1 ? "" : "s"} (same contact, date, amount and type)
         </label>
       )}
@@ -394,6 +415,19 @@ function MigrationReport({
           <Stat label="Total You Gave" value={formatPaise(report.totalGavePaise)} />
           <Stat label="Total You Got" value={formatPaise(report.totalGotPaise)} />
           <Stat label="Final outstanding" value={formatPaise(report.netOutstandingPaise)} tone={report.netOutstandingPaise >= 0 ? "green" : "red"} />
+        </div>
+      )}
+
+      {!undone && (
+        <div className="bg-side rounded-[12px] px-4 py-3.5">
+          <div className="font-bold text-[13px] mb-2">Next steps</div>
+          <ol className="flex flex-col gap-1.5 text-[12.5px] text-mut list-none m-0 p-0">
+            <li className="flex items-start gap-2"><span>①</span> Review your imported contacts in Lending</li>
+            <li className="flex items-start gap-2"><span>②</span> Assign funding sources to entries <span className="text-mut2">(optional)</span></li>
+            <li className="flex items-start gap-2"><span>③</span> Add phone numbers to contacts <span className="text-mut2">(optional)</span></li>
+            <li className="flex items-start gap-2"><span>④</span> Add profile photos <span className="text-mut2">(optional)</span></li>
+          </ol>
+          <div className="text-[11px] text-mut2 mt-2">Imported contacts are badged in Lending until you add a detail — so you can see at a glance what still needs a look.</div>
         </div>
       )}
 

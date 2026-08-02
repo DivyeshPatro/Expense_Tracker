@@ -24,6 +24,12 @@ export interface ExistingContact {
 export interface LendingImportOptions {
   /** Per-contactKey choice when the key matches an existing contact. Default: merge. */
   decisions?: Record<string, MergeDecision>;
+  /**
+   * Import-level fallback for every existing-contact match that has no explicit
+   * per-key decision — so "always create new contacts for this import" is one
+   * toggle instead of a choice per duplicate. Default: "merge".
+   */
+  defaultExistingDecision?: MergeDecision;
   /** Skip rows that duplicate another (within the file or already in the ledger). Default: true. */
   skipDuplicates?: boolean;
 }
@@ -90,6 +96,7 @@ export function assembleLendingPreview(
 ): LendingImportPreview {
   const skipDuplicates = options.skipDuplicates ?? true;
   const decisions = options.decisions ?? {};
+  const defaultExisting = options.defaultExistingDecision ?? "merge";
   const existingByKey = new Map(existing.map((c) => [c.key, c]));
 
   const invalid = rows.filter((r) => r.status === "invalid").map((r) => ({ rowIndex: r.rowIndex, reason: r.reason ?? "Invalid row" }));
@@ -113,7 +120,7 @@ export function assembleLendingPreview(
 
   for (const [key, group] of groups) {
     const existingContact = existingByKey.get(key) ?? null;
-    const decision: MergeDecision = existingContact ? (decisions[key] ?? "merge") : "create";
+    const decision: MergeDecision = existingContact ? (decisions[key] ?? defaultExisting) : "create";
 
     // Chronological order — the order entries would have been added by hand,
     // which is also the order FIFO settlement depends on.
