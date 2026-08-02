@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { unifiedSearchAction } from "@/app/actions";
 import { formatPaise } from "@/lib/money";
+import { applyAppearance, DEFAULT_SKIN, isSkin } from "@/lib/theme";
 import type { UnifiedResults } from "@/server/services/search";
 import { useUI } from "./ui-context";
 
@@ -80,8 +81,8 @@ export function CommandPalette() {
       hint: "",
       run: () => {
         const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-        document.documentElement.dataset.theme = next;
-        document.cookie = `ledgerly-theme=${next};path=/;max-age=31536000`;
+        const skin = isSkin(document.documentElement.dataset.skin) ? document.documentElement.dataset.skin! : DEFAULT_SKIN;
+        applyAppearance(next, skin);
         close();
       },
     },

@@ -54,6 +54,18 @@
   --ov: rgba(0, 0, 0, 0.55);
 }
 
+/* Accent skins (Appearance settings). Override only --acc: the *Soft mixes and
+   every Tailwind `*-acc` token resolve var(--acc) at use-time, so the whole
+   accent surface follows. Grounds are untouched — skins work on light and dark.
+   The default (indigo) is the base --acc above, so it needs no rule here. */
+:root[data-skin="violet"] { --acc: #7c5cff; }
+:root[data-skin="teal"] { --acc: #0d9e91; }
+:root[data-theme="dark"][data-skin="teal"] { --acc: #2fd4c4; }
+:root[data-skin="rose"] { --acc: #e6446f; }
+:root[data-theme="dark"][data-skin="rose"] { --acc: #fb6f92; }
+:root[data-skin="slate"] { --acc: #556275; }
+:root[data-theme="dark"][data-skin="slate"] { --acc: #8b9bb4; }
+
 @theme inline {
   --color-bg: var(--bg);
   --color-side: var(--side);

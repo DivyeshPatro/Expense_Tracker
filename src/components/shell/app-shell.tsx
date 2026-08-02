@@ -8,6 +8,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
+import { applyAppearance, DEFAULT_SKIN, isSkin } from "@/lib/theme";
 import { CommandPalette } from "./palette";
 import { Modals } from "./modals";
 import { OfflineDebug } from "./offline-debug";
@@ -266,8 +267,8 @@ function ThemeToggle() {
       aria-label="Toggle dark mode"
       onClick={() => {
         const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-        document.documentElement.dataset.theme = next;
-        document.cookie = `ledgerly-theme=${next};path=/;max-age=31536000`;
+        const skin = isSkin(document.documentElement.dataset.skin) ? document.documentElement.dataset.skin! : DEFAULT_SKIN;
+        applyAppearance(next, skin);
         setDark(next === "dark");
       }}
       className="w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer hover:border-acc"
