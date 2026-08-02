@@ -285,14 +285,27 @@ export interface TxTotals {
   expense: number;
   net: number;
   count: number;
+  /** Net of the same filter *before* the selected period began (0 for all-time). */
+  carryForward: number;
+  /** carryForward + net — the running position at the end of the view. */
+  balance: number;
 }
 
-/** Income/expense/net + count for a filter, as DB aggregates — no rows loaded.
- *  Transfers move money between your own accounts, so they're neither in nor out. */
+/** When the selected period begins, or null for an all-time view. */
+function periodStart(filter: TxListFilter): Date | null {
+  if (filter.monthKey) return monthRange(filter.monthKey).start;
+  if (filter.period) return parsePeriod(filter.period).range.start ?? null;
+  return null;
+}
+
+/** Income/expense/net + count for a filter, plus carry-forward and balance, as
+ *  DB aggregates — no rows loaded. Transfers move money between your own
+ *  accounts, so they're neither in nor out. */
 export async function txTotals(userId: string, filter: TxListFilter): Promise<TxTotals> {
+  const where = txWhere(userId, filter);
   const grouped = await prisma.transaction.groupBy({
     by: ["type"],
-    where: txWhere(userId, filter),
+    where,
     _sum: { amount: true },
     _count: { _all: true },
   });
@@ -304,7 +317,27 @@ export async function txTotals(userId: string, filter: TxListFilter): Promise<Tx
     if (g.type === "INCOME") income = Number(g._sum.amount ?? 0);
     else if (g.type === "EXPENSE") expense = Number(g._sum.amount ?? 0);
   }
-  return { income, expense, net: income - expense, count };
+  const net = income - expense;
+
+  // Carry forward: the same view's net accumulated before this period started,
+  // so balance = what you'd carried in + this period's movement.
+  let carryForward = 0;
+  const start = periodStart(filter);
+  if (start) {
+    const prior = await prisma.transaction.groupBy({
+      by: ["type"],
+      where: { ...where, occurredAt: { lt: start } },
+      _sum: { amount: true },
+    });
+    let pi = 0;
+    let pe = 0;
+    for (const g of prior) {
+      if (g.type === "INCOME") pi = Number(g._sum.amount ?? 0);
+      else if (g.type === "EXPENSE") pe = Number(g._sum.amount ?? 0);
+    }
+    carryForward = pi - pe;
+  }
+  return { income, expense, net, count, carryForward, balance: carryForward + net };
 }
 
 export async function queryTransactions(userId: string, filter: TxListFilter, page: number): Promise<TxPage> {

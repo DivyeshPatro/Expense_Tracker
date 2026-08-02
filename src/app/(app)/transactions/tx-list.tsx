@@ -207,6 +207,22 @@ export function TransactionsList({
             <div className="text-[15px] font-extrabold tabular-nums text-red">−{formatPaise(totals.expense)}</div>
           </div>
         </div>
+        {period.p !== "all" && (
+          <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-line2 text-[11.5px]">
+            <span className="text-mut">
+              Carry forward{" "}
+              <b className="tabular-nums" style={{ color: totals.carryForward < 0 ? "var(--red)" : "var(--ink)" }}>
+                {totals.carryForward < 0 ? "−" : "+"}{formatPaise(totals.carryForward)}
+              </b>
+            </span>
+            <span className="text-mut">
+              Balance{" "}
+              <b className="tabular-nums" style={{ color: totals.balance < 0 ? "var(--red)" : "var(--green)" }}>
+                {totals.balance < 0 ? "−" : "+"}{formatPaise(totals.balance)}
+              </b>
+            </span>
+          </div>
+        )}
       </section>
 
       <div className="flex gap-2.5 flex-wrap items-center">
