@@ -24,6 +24,18 @@ describe("parseFlexibleDate", () => {
     const serial = (Date.UTC(2026, 6, 10) - Date.UTC(1899, 11, 30)) / 86400000;
     expect(parseFlexibleDate(serial)).toBe("2026-07-10");
   });
+  it("parses a Unix epoch in seconds and milliseconds, as number or string", () => {
+    const secs = Math.floor(Date.UTC(2026, 6, 10) / 1000); // 10-digit
+    expect(parseFlexibleDate(secs)).toBe("2026-07-10");
+    expect(parseFlexibleDate(String(secs))).toBe("2026-07-10");
+    expect(parseFlexibleDate(Date.UTC(2026, 6, 10))).toBe("2026-07-10"); // 13-digit millis
+    expect(parseFlexibleDate(String(Date.UTC(2026, 6, 10)))).toBe("2026-07-10");
+  });
+  it("doesn't mistake an 8-digit YYYYMMDD-looking number for an epoch", () => {
+    // 20260710 is < 1e9, so it stays out of the epoch path (and isn't a valid
+    // serial either) rather than being read as a 1970 epoch second.
+    expect(parseFlexibleDate(20260710)).toBeNull();
+  });
   it("returns null for garbage", () => {
     expect(parseFlexibleDate("not a date")).toBeNull();
     expect(parseFlexibleDate("")).toBeNull();

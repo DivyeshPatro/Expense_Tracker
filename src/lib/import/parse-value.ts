@@ -18,13 +18,25 @@ function ymd(y: number, m: number, d: number): string | null {
   return `${y}-${pad(m)}-${pad(d)}`;
 }
 
-/** Parses a date cell (Date object from xlsx cellDates, Excel serial number, or string) to "YYYY-MM-DD". */
+/** Unix epoch seconds (~1e9 for dates from 2001) or milliseconds (~1e12) to "YYYY-MM-DD". */
+function fromEpoch(n: number): string | null {
+  // ≥1e11 is unmistakably milliseconds; smaller epoch values are seconds. Both
+  // are well past the Excel serial range (serial 100000 ≈ year 2173), so
+  // magnitude alone disambiguates epoch from serial.
+  const ms = n >= 1e11 ? n : n * 1000;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  return ymd(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+}
+
+/** Parses a date cell (Date object from xlsx cellDates, Excel serial number, epoch, or string) to "YYYY-MM-DD". */
 export function parseFlexibleDate(raw: unknown): string | null {
   if (raw instanceof Date) {
     if (isNaN(raw.getTime())) return null;
     return ymd(raw.getUTCFullYear(), raw.getUTCMonth() + 1, raw.getUTCDate());
   }
   if (typeof raw === "number") {
+    if (raw >= 1e9) return fromEpoch(raw); // epoch seconds/millis
     if (raw < 1 || raw > 100000) return null;
     const ms = EXCEL_EPOCH_MS + raw * 86400000;
     const d = new Date(ms);
@@ -32,6 +44,12 @@ export function parseFlexibleDate(raw: unknown): string | null {
   }
   const s = String(raw ?? "").trim();
   if (!s) return null;
+
+  // Bare epoch as a string: 10 digits (seconds) or 13 digits (millis).
+  if (/^\d{10}$/.test(s) || /^\d{13}$/.test(s)) {
+    const e = fromEpoch(Number(s));
+    if (e) return e;
+  }
 
   // ISO: 2026-07-10
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
