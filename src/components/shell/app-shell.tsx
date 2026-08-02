@@ -279,24 +279,37 @@ function ThemeToggle() {
 }
 
 // lending-module-phase1: a genuine 6th primary slot (3 left + FAB + 2 right),
-// not tucked into the More sheet — Lending is as prominent as Transactions.
-// Two either side of the center quick-add, so the FAB sits dead-centre. Insights
-// (Analytics) lives in the More sheet — a tap away, and it keeps the bar
-// balanced around the raised action button.
-const MOBILE_NAV_LEFT = [
+// Every section lives in the bar itself — no "More" sheet. The row scrolls
+// horizontally, with the quick-add pinned on the right so it's always reachable.
+const ALL_NAV = [
   { href: "/dashboard", icon: "home", label: "Home" },
   { href: "/transactions", icon: "txns", label: "Spends" },
+  { href: "/lending", icon: "lending", label: "Khata" },
+  { href: "/accounts", icon: "accounts", label: "Accounts" },
+  { href: "/cards", icon: "cards", label: "Cards" },
+  { href: "/budgets", icon: "budgets", label: "Budgets" },
+  { href: "/bills", icon: "bills", label: "Bills" },
+  { href: "/shared", icon: "shared", label: "Shared" },
+  { href: "/activity", icon: "activity", label: "Activity" },
+  { href: "/import", icon: "import", label: "Import" },
+  { href: "/settings", icon: "settings", label: "Settings" },
 ];
-const MOBILE_NAV_RIGHT = [{ href: "/lending", icon: "lending", label: "Khata" }];
 
-/** Clean line icons for the bottom nav — replaces the emoji glyphs. */
+/** Clean line icons for the bottom nav. */
 function NavGlyph({ id }: { id: string }) {
   const p: Record<string, React.ReactNode> = {
     home: <path d="M3 11l9-8 9 8M5 10v10h14V10" />,
     txns: <path d="M4 6h16M4 12h16M4 18h10" />,
     lending: <><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 12 0M17 5a3 3 0 0 1 0 6" /></>,
+    accounts: <path d="M4 10h16M4 10l8-6 8 6M6 10v9M18 10v9M4 19h16" />,
+    cards: <><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></>,
+    budgets: <><circle cx="12" cy="12" r="9" /><path d="M12 12V4M12 12l5 3" /></>,
+    bills: <path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" />,
+    shared: <><circle cx="8" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" /><path d="M2 20a6 6 0 0 1 12 0M15 15a5 5 0 0 1 6 5" /></>,
+    activity: <path d="M22 12h-4l-3 8L9 4l-3 8H2" />,
+    import: <path d="M12 3v12M8 11l4 4 4-4M4 21h16" />,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M3 12h2.5M18.5 12H21M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></>,
     analytics: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-    more: <><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></>,
   };
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -320,76 +333,49 @@ function useEscapeToClose(close: () => void) {
 
 function BottomNav({ badge }: { badge: number }) {
   const pathname = usePathname();
-  const [moreOpen, setMoreOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const params = useSearchParams().toString();
   const { needsAttention } = useOffline();
-  // needs-attention rides the same red-dot convention as the shared-balance
-  // badge (spec §7: bottom nav shows nothing for routine pending, but the
-  // existing More red-dot for needs-attention)
   const showDot = badge > 0 || needsAttention.length > 0;
-  const moreActive = ["/accounts", "/cards", "/budgets", "/bills", "/settings", "/import", "/shared", "/activity", "/analytics"].some((h) => pathname.startsWith(h));
   return (
     <>
       <nav
         className="md:hidden fixed bottom-0 inset-x-0 border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden"
         style={{ background: "color-mix(in oklab, var(--card) 84%, transparent)", backdropFilter: "saturate(1.4) blur(18px)", WebkitBackdropFilter: "saturate(1.4) blur(18px)" }}
       >
-        {MOBILE_NAV_LEFT.map((n) => {
-          const active = pathname.startsWith(n.href);
-          return (
-            <Link
-              key={n.href}
-              href={withPeriod(n.href, params)}
-              onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
-              aria-current={active ? "page" : undefined}
-              className="flex-1 flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border no-underline relative"
-              style={{ color: active ? "var(--acc)" : "var(--mut2)" }}
-            >
-              <NavGlyph id={n.icon} />
-              <span className="text-[10px] font-semibold">{n.label}</span>
-            </Link>
-          );
-        })}
-        {/* Raised center FAB: ~40% of the circle sits in the bar, ~60% above it. */}
-        <div className="flex-none w-[76px] grid place-items-center relative">
+        {/* Every section, scrollable — the row slides horizontally. */}
+        <div className="flex-1 min-w-0 flex overflow-x-auto no-scrollbar" style={{ scrollbarWidth: "none" }}>
+          {ALL_NAV.map((n) => {
+            const active = pathname.startsWith(n.href);
+            return (
+              <Link
+                key={n.href}
+                href={withPeriod(n.href, params)}
+                onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
+                aria-current={active ? "page" : undefined}
+                className="flex-none w-[62px] flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border no-underline relative"
+                style={{ color: active ? "var(--acc)" : "var(--mut2)" }}
+              >
+                <NavGlyph id={n.icon} />
+                <span className="text-[9.5px] font-semibold">{n.label}</span>
+                {showDot && n.href === "/settings" && <span className="absolute top-1.5 right-2.5 w-2 h-2 rounded-full bg-red" />}
+              </Link>
+            );
+          })}
+        </div>
+        {/* Quick-add pinned on the right, raised above the bar. */}
+        <div className="flex-none w-[70px] grid place-items-center relative border-l border-line">
           <button
             aria-label="Quick add"
             onClick={() => setQuickAddOpen(true)}
-            className="w-[58px] h-[58px] rounded-full text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform absolute left-1/2 -translate-x-1/2 -top-[34px]"
+            className="w-[54px] h-[54px] rounded-full text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform absolute left-1/2 -translate-x-1/2 -top-[28px]"
             style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 12px 26px -8px color-mix(in oklab, var(--acc) 72%, transparent), 0 0 0 5px var(--bg)" }}
           >
-            <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
         </div>
-        {MOBILE_NAV_RIGHT.map((n) => {
-          const active = pathname.startsWith(n.href);
-          return (
-            <Link
-              key={n.href}
-              href={withPeriod(n.href, params)}
-              onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
-              aria-current={active ? "page" : undefined}
-              className="flex-1 flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border no-underline relative"
-              style={{ color: active ? "var(--acc)" : "var(--mut2)" }}
-            >
-              <NavGlyph id={n.icon} />
-              <span className="text-[10px] font-semibold">{n.label}</span>
-            </Link>
-          );
-        })}
-        <button
-          onClick={() => setMoreOpen(true)}
-          className="flex-1 flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border bg-transparent border-none cursor-pointer relative"
-          style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}
-        >
-          <NavGlyph id="more" />
-          <span className="text-[10px] font-semibold">More</span>
-          {showDot && <span className="absolute top-1.5 right-[24%] w-2 h-2 rounded-full bg-red" />}
-        </button>
       </nav>
       {quickAddOpen && <QuickAddSheet close={() => setQuickAddOpen(false)} />}
-      {moreOpen && <MoreSheet close={() => setMoreOpen(false)} params={params} badge={badge} />}
     </>
   );
 }
@@ -438,101 +424,6 @@ function QuickAddSheet({ close }: { close: () => void }) {
   );
 }
 
-function MoreSheet({ close, params, badge }: { close: () => void; params: string; badge: number }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const { pending, needsAttention } = useOffline();
-  useEscapeToClose(close);
-  useFocusTrap(panelRef, true);
-  useEffect(() => panelRef.current?.focus(), []);
-  const items = [
-    { href: "/analytics", icon: "◵", label: "Insights" },
-    { href: "/shared", icon: "◫", label: "Shared" },
-    { href: "/activity", icon: "◴", label: "Activity" },
-    { href: "/accounts", icon: "▤", label: "Accounts" },
-    { href: "/cards", icon: "💳", label: "Cards" },
-    { href: "/budgets", icon: "◔", label: "Budgets" },
-    { href: "/bills", icon: "▦", label: "Bills" },
-    { href: "/import", icon: "📥", label: "Import" },
-    { href: "/settings", icon: "⚙", label: "Settings" },
-  ];
-  // spec §7 "More sheet / Settings row" — same three-state copy as the Sync Center hero
-  const syncLabel =
-    needsAttention.length > 0
-      ? `Sync — ${needsAttention.length} need${needsAttention.length === 1 ? "s" : ""} attention`
-      : pending.length > 0
-        ? `Sync — ${pending.length} waiting`
-        : "Sync — Up to date ✓";
-  return (
-    <div onClick={close} className="fixed inset-0 z-[55] flex items-end" style={{ background: "var(--ov)" }}>
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label="More"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full bg-card rounded-t-[18px] px-[18px] pt-[18px] pb-7 box-border flex flex-col gap-1 outline-none"
-        style={{ animation: "rise .22s ease", paddingBottom: "calc(28px + env(safe-area-inset-bottom))" }}
-      >
-        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-2.5" />
-        {items.map((i) => (
-          <Link
-            key={i.href}
-            href={withPeriod(i.href, params)}
-            onClick={() => {
-              close();
-              armStuckNavFallback(withPeriod(i.href, params));
-            }}
-            className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline text-ink hover:bg-accsoft"
-          >
-            <span className="w-5 text-center">{i.icon}</span>
-            <span className="flex-1">{i.label}</span>
-            {i.href === "/shared" && badge > 0 && (
-              <span className="text-[10.5px] bg-redsoft text-red px-[7px] py-0.5 rounded-full font-bold">{badge}</span>
-            )}
-          </Link>
-        ))}
-        <Link
-          href="/settings/sync"
-          onClick={() => {
-            close();
-            armStuckNavFallback("/settings/sync");
-          }}
-          className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold no-underline hover:bg-accsoft"
-          style={{ color: needsAttention.length > 0 ? "var(--red)" : "var(--ink)" }}
-        >
-          <span className="w-5 text-center">⟲</span>
-          <span className="flex-1">{syncLabel}</span>
-          {needsAttention.length > 0 && <span className="w-2 h-2 rounded-full bg-red" />}
-        </Link>
-        <ThemeRow close={close} />
-      </div>
-    </div>
-  );
-}
-
-function ThemeRow({ close }: { close: () => void }) {
-  const [dark, setDark] = useState(false);
-  useEffect(() => setDark(document.documentElement.dataset.theme === "dark"), []);
-  return (
-    <button
-      onClick={() => {
-        const next = dark ? "light" : "dark";
-        document.documentElement.dataset.theme = next;
-        document.cookie = `ledgerly-theme=${next};path=/;max-age=31536000`;
-        close();
-      }}
-      className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold cursor-pointer bg-transparent border-none text-ink hover:bg-accsoft w-full"
-    >
-      <span className="w-5 text-center">{dark ? "☀" : "☾"}</span>
-      {dark ? "Light mode" : "Dark mode"}
-    </button>
-  );
-}
-
-// Desktop-only quick-add chooser. On mobile this is replaced by the center
-// nav button + QuickAddSheet, so the floating corner FAB is hidden there
-// rather than duplicating it — see BottomNav above.
 function Fab() {
   const { openModal } = useUI();
   const [open, setOpen] = useState(false);

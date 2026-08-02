@@ -54,6 +54,10 @@
   --ov: rgba(0, 0, 0, 0.55);
 }
 
+/* Hide the scrollbar on horizontally-scrollable strips (e.g. the mobile nav). */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* Accent skins (Appearance settings). Override only --acc: the *Soft mixes and
    every Tailwind `*-acc` token resolve var(--acc) at use-time, so the whole
    accent surface follows. Grounds are untouched — skins work on light and dark.
