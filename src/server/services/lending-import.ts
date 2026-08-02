@@ -15,7 +15,7 @@
 import { toYMD } from "@/lib/dates";
 import { allocateFifo, type OpenLoan } from "@/lib/loan-settlement";
 import { computeLoanBalances, type LoanEntryForBalance } from "@/lib/lending";
-import { lendingAdapterById } from "@/lib/import/lending/adapters";
+import { LENDING_ADAPTERS, lendingAdapterById } from "@/lib/import/lending/adapters";
 import { resolveColumns } from "@/lib/import/lending/detect";
 import { mapLendingRows, normalizeContactName } from "@/lib/import/lending/map";
 import {
@@ -225,6 +225,30 @@ export async function commitLendingImport(userId: string, input: CommitLendingIn
       netOutstandingPaise: preview.totals.netPaise,
     };
   });
+}
+
+/**
+ * Contacts created by a still-committed lending import, mapped to a short
+ * source label ("Khatabook"). Derived entirely from ImportBatch.createdEntities
+ * — no schema change, no new column. The Contacts UI pairs this with the
+ * contact's own emptiness (no photo/phone/notes) to show a "freshly migrated"
+ * badge that clears the moment the user fills in any detail. Undone imports
+ * drop out (status filter), and so do the contacts themselves.
+ */
+export async function importedContactSources(userId: string): Promise<Record<string, string>> {
+  const ids = LENDING_ADAPTERS.map((a) => a.id);
+  const batches = await prisma.importBatch.findMany({
+    where: { userId, status: "COMMITTED", source: { in: ids } },
+    select: { source: true, createdEntities: true },
+  });
+  const out: Record<string, string> = {};
+  for (const b of batches) {
+    const ce = b.createdEntities as { participants?: unknown } | null;
+    const list = ce && Array.isArray(ce.participants) ? ce.participants : [];
+    const label = b.source.charAt(0).toUpperCase() + b.source.slice(1);
+    for (const pid of list) if (typeof pid === "string") out[pid] = label;
+  }
+  return out;
 }
 
 /** Existing open GAVE loans for a contact — the same shape/logic the manual path loads. */

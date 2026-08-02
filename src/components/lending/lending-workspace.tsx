@@ -20,7 +20,16 @@ import { EmptyState } from "@/components/shell/empty-state";
 
 const DESKTOP_QUERY = "(min-width: 768px)"; // Tailwind's md breakpoint
 
-export function LendingWorkspace({ contacts, recentEntries }: { contacts: LendingParticipantView[]; recentEntries: LoanEntryRow[] }) {
+export function LendingWorkspace({
+  contacts,
+  recentEntries,
+  importedContacts,
+}: {
+  contacts: LendingParticipantView[];
+  recentEntries: LoanEntryRow[];
+  /** participantId → source label ("Khatabook") for contacts an import created. */
+  importedContacts?: Record<string, string>;
+}) {
   const { openModal } = useUI();
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
   const searchParams = useSearchParams();
@@ -50,7 +59,7 @@ export function LendingWorkspace({ contacts, recentEntries }: { contacts: Lendin
 
   return (
     <div className="flex flex-wrap gap-3.5 items-start">
-      <LendingContactsList contacts={contacts} onSelect={handleSelect} selectedId={selected?.id} />
+      <LendingContactsList contacts={contacts} onSelect={handleSelect} selectedId={selected?.id} importedContacts={importedContacts} />
 
       {selected ? (
         <section className="card flex-[1.3_1_320px] p-[var(--pad)]" style={{ animation: "rise .2s ease" }}>

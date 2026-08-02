@@ -37,10 +37,22 @@ function highlight(text: string, needle: string): React.ReactNode {
   );
 }
 
+/** A migrated contact still shows its badge only until the user fills in any
+ * detail — photo, phone or a note (the exact follow-ups the migration report
+ * suggests). Participant has no timestamp, so this emptiness is the "untouched"
+ * signal; no schema change, and it clears itself the moment a detail is added. */
+function freshlyImported(c: LendingParticipantView, importedContacts?: Record<string, string>): string | null {
+  const source = importedContacts?.[c.id];
+  if (!source) return null;
+  if (c.photo || c.phone || (c.notes && c.notes.trim())) return null;
+  return source;
+}
+
 export function LendingContactsList({
   contacts,
   onSelect,
   selectedId,
+  importedContacts,
 }: {
   contacts: LendingParticipantView[];
   /** Called on row click. The caller decides what "select" means — open the
@@ -49,6 +61,8 @@ export function LendingContactsList({
   onSelect: (contact: LendingParticipantView) => void;
   /** Highlights the currently-selected row (desktop two-pane only). */
   selectedId?: string;
+  /** participantId → source label for contacts an import created (badge source). */
+  importedContacts?: Record<string, string>;
 }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
@@ -109,6 +123,18 @@ export function LendingContactsList({
                     {c.overdueCount} overdue
                   </span>
                 )}
+                {(() => {
+                  const src = freshlyImported(c, importedContacts);
+                  return src ? (
+                    <span
+                      className="text-[10px] font-bold px-[7px] py-px rounded-full"
+                      style={{ background: "var(--accsoft)", color: "var(--acc)" }}
+                      title={`Migrated from ${src} — add a photo, phone or note to clear this`}
+                    >
+                      📒 From {src}
+                    </span>
+                  ) : null;
+                })()}
               </div>
               <div className="text-[11px] text-mut2 mt-0.5 truncate">
                 {c.entryCount} {c.entryCount === 1 ? "entry" : "entries"}

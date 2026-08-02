@@ -21,18 +21,20 @@ import { LendingWorkspace } from "@/components/lending/lending-workspace";
 import { RemindersPanel } from "@/components/lending/reminders-panel";
 import { formatPaise } from "@/lib/money";
 import { cardRecoveryDashboard, lendingDashboardSummary, lendingReminders, lendingReportsData, listLoanEntries } from "@/server/services/lending";
+import { importedContactSources } from "@/server/services/lending-import";
 import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function LendingPage() {
   const user = await requireUser();
-  const [summary, recent, reminders, cardRecovery, reports] = await Promise.all([
+  const [summary, recent, reminders, cardRecovery, reports, importedContacts] = await Promise.all([
     lendingDashboardSummary(user.id),
     listLoanEntries(user.id, { limit: 8 }),
     lendingReminders(user.id),
     cardRecoveryDashboard(user.id),
     lendingReportsData(user.id),
+    importedContactSources(user.id),
   ]);
 
   return (
@@ -80,7 +82,7 @@ export default async function LendingPage() {
               </div>
             )}
             <div className="flex-[1_1_100%]">
-              <LendingWorkspace contacts={summary.contacts} recentEntries={recent} />
+              <LendingWorkspace contacts={summary.contacts} recentEntries={recent} importedContacts={importedContacts} />
             </div>
           </>
         }

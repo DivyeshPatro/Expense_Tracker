@@ -112,7 +112,9 @@ try {
   // ── Data appears immediately in Lending ──
   await page.goto(`${BASE}/lending`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(2500);
-  ok("an imported contact appears in Lending straight away", (await page.locator("body").innerText()).includes("ZZZ Ramesh"));
+  const lendingBody = await page.locator("body").innerText();
+  ok("an imported contact appears in Lending straight away", lendingBody.includes("ZZZ Ramesh"));
+  ok("imported contacts show a 'From Khatabook' migration badge", /from khatabook/i.test(lendingBody));
 
   // ── One lending event on the Activity Timeline ──
   await page.goto(`${BASE}/activity`, { waitUntil: "domcontentloaded", timeout: 60000 });

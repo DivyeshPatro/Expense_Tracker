@@ -6,7 +6,7 @@
 // and the whole thing atomic.
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { commitLendingImport, previewLendingImport } from "./lending-import";
+import { commitLendingImport, importedContactSources, previewLendingImport } from "./lending-import";
 import { undoImport } from "./import";
 import * as auditModule from "./audit";
 import { prisma } from "../db";
@@ -149,6 +149,16 @@ describe("commitLendingImport", () => {
     // Pre-existing contact survives; the imported new one is gone.
     expect(await prisma.participant.findFirst({ where: { id: preexisting.id } })).not.toBeNull();
     expect(await prisma.participant.count({ where: { ownerId: userId } })).toBe(1);
+  });
+
+  it("reports imported contacts (for the migration badge) and drops them after undo", async () => {
+    const res = await commitLendingImport(userId, { rawRows: [kb("Badgey", "01/07/2026", "1000", "", "")], adapterId: "khatabook", fileName: "kb.csv" });
+    const created = await prisma.participant.findFirst({ where: { ownerId: userId, displayName: "Badgey" } });
+    const before = await importedContactSources(userId);
+    expect(before[created!.id]).toBe("Khatabook");
+    await undoImport(userId, res.batchId);
+    const after = await importedContactSources(userId);
+    expect(after[created!.id]).toBeUndefined(); // undone batch no longer counts
   });
 
   it("is atomic — a failure late in the commit leaves nothing behind", async () => {
