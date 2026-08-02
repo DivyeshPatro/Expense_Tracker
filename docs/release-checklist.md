@@ -93,6 +93,16 @@ A clean exit code with a warning buried in the output is not a pass.
   table — not just one.
 - Confirm `BETTER_AUTH_URL` matches the actual production domain exactly
   (mismatches cause silent auth failures, not obvious errors).
+- **`CARD_ENCRYPTION_KEY` (required for the Credit Cards module, since
+  v1.2.0)** — a 64-hex-character key (`openssl rand -hex 32`). The module
+  refuses to start without a valid one, so a missing or malformed value
+  makes the `/cards` pages error (the rest of the app is unaffected).
+  Generate it **once**, set it, and **back it up in your password
+  manager**: it is not derivable and not recoverable, and losing it makes
+  every stored card permanently unreadable — a database backup will not
+  help. Never rotate it casually; cards are stamped with a fingerprint of
+  the key that sealed them and a new key orphans them all. See
+  [`docs/deployment.md`](deployment.md#backing-up-card_encryption_key).
 
 ## 9. Backup verification
 

@@ -4,6 +4,136 @@ All notable changes to Ledgerly are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-08-02
+
+The Secure Credit Cards module (Phase 3.1). Ledgerly can now hold your own
+cards so you never have to fetch the physical one to pay online — the
+signing goal being *"I should never need to take my credit card out of my
+wallet while shopping."* It is deliberately **not** a password manager, a
+document vault, or a card-spend tracker: the schema is card-specific and
+nothing generic (`Vault`, `SecureItem`) was introduced.
+
+One new migration, purely additive — a `CreditCard` table and a
+`CardNetwork` enum. Safe to apply to an existing database, which simply
+gains an empty table. **New required-for-cards environment variable:**
+`CARD_ENCRYPTION_KEY` (see Environment / Upgrade below). No breaking
+changes; the existing `Account.cardNetwork/cardLast4/statementDay/dueDay`
+fields used by Lending and Card Recovery are untouched.
+
+### Added
+
+- **Credit Cards, a first-class section** at `/cards` — its own sidebar
+  entry, mobile More-sheet item and command-palette destination, separate
+  from Accounts and the Finance Hub. A visual gallery renders each card as
+  its network-coloured plastic showing only the last four digits.
+- **Add & edit cards** with live network detection from the number
+  (Visa/Mastercard/RuPay/Amex/Diners via IIN), a Luhn checksum hint, and
+  CVV-length validation as you type. An explicit network choice overrides
+  detection for co-badged cards. CVV is required.
+- **Password-gated reveal.** Seeing a card's number, expiry, CVV or notes
+  requires re-entering your Ledgerly account password — a live session is
+  not sufficient, which is the point: a borrowed unlocked laptop is the
+  case this guards. Wrong attempts are rate-limited (five per 15 minutes,
+  counted from the audit trail) and recorded.
+- **30-second auto-hide.** A revealed card clears itself on an absolute
+  deadline — computed from a timestamp, not a decrementing counter, so a
+  backgrounded tab whose timers are throttled still hides on time. A
+  progress bar counts it down; "Hide now" clears it immediately.
+- **Per-field copy**, so a checkout form can be filled one field at a time
+  without ever displaying the whole number longer than needed. Copy works
+  over plain HTTP on a LAN (falls back from the Clipboard API to a
+  select-and-copy path when the page isn't a secure context).
+- **Mobile Checkout Helper** — the signature feature. "Copy card details"
+  hands off to a 60-second helper that keeps Number / Expiry / CVV / Name
+  one tap away while you switch to the shopping app. On Chromium desktop
+  it rides in a Document Picture-in-Picture window that floats above other
+  windows; elsewhere it's a bottom sheet that survives tab switches.
+- **Search and network filters** in the gallery, appearing only once you
+  have enough cards for them to help. Filtering happens in the browser and
+  never touches an encrypted field — nothing secret is searchable, by
+  design, so the search can't become an oracle — and the query stays out
+  of the URL, history and referrer headers.
+- **Encrypted cards in backup & restore** (backup format → v2). Cards
+  travel as sealed bytes: neither export nor restore decrypts one, so a
+  backup file never contains a card number and taking one doesn't require
+  `CARD_ENCRYPTION_KEY`. Restore dedupes on nickname + last four, is
+  undoable as one `ImportBatch`, and won't let a restored card steal an
+  existing default. Each card carries a fingerprint of the key that sealed
+  it, so restoring onto an instance with a different key surfaces
+  "encrypted with a different key" rather than an opaque failure.
+
+### Security
+
+- **Server-side AES-256-GCM** via Node's built-in `crypto`, per the
+  self-hosted deployment model. Encrypted at rest: card number, cardholder
+  name, expiry, CVV and notes. In the clear (for display and search):
+  nickname, bank, network, last four, colour, default flag. No custom
+  cryptography — a standard authenticated cipher, a random 96-bit IV per
+  field stored beside its ciphertext, and the GCM tag appended so a
+  tampered value fails to decrypt rather than rendering as a card number.
+- **`CARD_ENCRYPTION_KEY` is validated at startup** and the module refuses
+  to run without a valid 64-hex-character key — it never falls back to a
+  derived or default key, because a silent fallback is indistinguishable
+  from data loss the first time the process restarts.
+- **Stated threat model:** this defends database dumps, snapshots, a
+  leaked SQL export or an injection that reads rows — the realistic
+  exposures for a self-hosted app. It does **not** defend against an
+  attacker who can read the server environment and thus the key; server
+  compromise is game over by design, which is also why registration stays
+  closed by default.
+- No secret ever enters an RSC payload or the audit log; decrypted values
+  exist only in memory for the panel or form showing them and are dropped
+  when it closes.
+
+### Testing
+
+- **Unit: 350 tests across 28 files** (up from 282/23) — card identity and
+  Luhn, network detection, the search matcher, the backup card shape, and
+  the crypto core. The suite still needs no database.
+- **Integration: 110 tests across 6 files** (up from 79/5), including a
+  24-test credit-cards suite covering password re-auth, the reveal denial
+  trail, lockout and its expiry, and cross-user isolation; plus six new
+  backup-restore tests proving an export carries no plaintext, a restore
+  reads back byte-for-byte, and undo removes only what it created.
+- **E2E: a new credit-card lifecycle suite** (19 checks through the real
+  UI against a live server) — add, encryption-at-rest, a refused
+  wrong-password reveal, a successful reveal, edit through a fresh prompt,
+  moving the default between cards, and delete.
+
+### Fixed
+
+- **The first card added through the UI wasn't becoming the default.** The
+  add form always sends an explicit `isDefault` (false when unticked), so
+  the service's `?? isFirst` fallback never fired and a user's very first
+  card came in with no default at all. It now becomes the default
+  regardless; an explicit choice still wins.
+
+### CI
+
+- Actions bumped to `checkout@v5` / `setup-node@v5` (Node 24), clearing
+  the Node 20 deprecation warning; the integration job runs with a
+  throwaway `CARD_ENCRYPTION_KEY`.
+
+### Migrations
+
+One, additive and backward-compatible:
+
+- `20260730114432_credit_cards` — adds the `CardNetwork` enum and the
+  `CreditCard` table (with a `userId` index and an `ON DELETE CASCADE`
+  foreign key to `User`). No existing table is altered.
+
+### Known limitations
+
+- **Rotating `CARD_ENCRYPTION_KEY` is not an in-app re-encryption flow.**
+  Cards sealed under the old key report "encrypted with a different key"
+  and must be re-entered; there is no bulk re-encrypt.
+- **A true floating overlay over other apps is not possible from the
+  web.** The Checkout Helper is Document Picture-in-Picture on Chromium
+  desktop and a persistent bottom sheet elsewhere — it cannot hover over a
+  separate native shopping app on mobile, which the platform reserves.
+- **Reveal re-auth uses the account password, not a second factor.** It
+  raises the bar above session-only access; it is not MFA.
+
 ## [1.1.0] — 2026-07-27
 
 The first release after v1.0.0. It closes the gaps that stopped Ledgerly

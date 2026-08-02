@@ -209,6 +209,7 @@ Full reference with setup instructions for the two optional integrations:
 | `BETTER_AUTH_SECRET` | yes | Session signing secret (`openssl rand -hex 32`) |
 | `BETTER_AUTH_URL` | yes | The app's own public URL |
 | `CRON_SECRET` | yes | Authorizes the daily cron route |
+| `CARD_ENCRYPTION_KEY` | for Credit Cards | AES-256-GCM key for stored card details (`openssl rand -hex 32`, exactly 64 hex chars). The Credit Cards pages error without it; the rest of the app is unaffected. **Back it up — it is not recoverable.** |
 | `RESEND_API_KEY` / `RESEND_FROM` | no | Password-reset email; degrades to server-side logging if unset |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | no | Rate limiting; fails open (no limiting) if unset |
 
