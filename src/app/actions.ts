@@ -26,6 +26,8 @@ import {
   type CommitInput,
 } from "@/server/services/import";
 import { commitBackupRestore, previewBackupRestore } from "@/server/services/backup-restore";
+import { commitLendingImport, previewLendingImport, type CommitLendingResult, type LendingPreviewResult } from "@/server/services/lending-import";
+import type { LendingImportOptions } from "@/lib/import/lending/preview";
 import {
   createCreditCard,
   deleteCreditCard,
@@ -582,9 +584,50 @@ export async function undoImportAction(
       r.removedCategories > 0 ? `${r.removedCategories} categor${r.removedCategories === 1 ? "y" : "ies"}` : null,
     ].filter(Boolean);
     if (alsoRemoved.length) parts.push(`and ${alsoRemoved.join(" and ")}`);
+    // Khatabook → Lending imports remove entries and the contacts they created
+    // rather than transactions — surface those too.
+    if (r.removedLendingEntries > 0 || r.removedContacts > 0) {
+      parts.length = 0;
+      parts.push(`Removed ${r.removedLendingEntries} lending entr${r.removedLendingEntries === 1 ? "y" : "ies"}`);
+      if (r.removedContacts > 0) parts.push(`and ${r.removedContacts} contact${r.removedContacts === 1 ? "" : "s"}`);
+      if (r.retainedContacts.length) parts.push(`· kept ${r.retainedContacts.join(", ")} (still in use elsewhere)`);
+      return { ok: true, message: parts.join(" ") };
+    }
     const retained = [...r.retainedAccounts, ...r.retainedCategories];
     if (retained.length) parts.push(`· kept ${retained.join(", ")} (still in use elsewhere)`);
     return { ok: true, message: parts.join(" ") };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ─────────── Khatabook → Lending import ───────────
+
+export async function previewLendingImportAction(
+  rows: Record<string, unknown>[],
+  adapterId: string,
+  options?: LendingImportOptions
+): Promise<LendingPreviewResult> {
+  const user = await requireUser();
+  return previewLendingImport(user.id, rows, adapterId, options ?? {});
+}
+
+export async function commitLendingImportAction(input: {
+  rows: Record<string, unknown>[];
+  adapterId: string;
+  fileName: string;
+  options?: LendingImportOptions;
+}): Promise<ActionResult & { result?: CommitLendingResult }> {
+  try {
+    const user = await requireUser();
+    const result = await commitLendingImport(user.id, {
+      rawRows: input.rows,
+      adapterId: input.adapterId,
+      fileName: input.fileName,
+      options: input.options,
+    });
+    refresh();
+    return { ok: true, result };
   } catch (e) {
     return fail(e);
   }

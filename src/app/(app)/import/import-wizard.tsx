@@ -18,10 +18,12 @@ import {
 import { BACKUP_FORMAT_VERSION } from "@/lib/backup-format";
 import type { ColumnMapping, PreviewRow, TargetField } from "@/lib/import/types";
 import { emptyMapping, UNCATEGORIZED } from "@/lib/import/types";
+import { detectLendingSource } from "@/lib/import/lending/detect";
 import { formatPaise } from "@/lib/money";
 import { useUI } from "@/components/shell/ui-context";
+import { KhatabookImport } from "./khatabook-import";
 
-type Step = "upload" | "mapping" | "resolve" | "preview" | "backupPreview";
+type Step = "upload" | "mapping" | "resolve" | "preview" | "backupPreview" | "lending";
 
 const FIELD_LABELS: Record<TargetField, string> = {
   date: "Date",
@@ -84,6 +86,9 @@ export function ImportWizard() {
   // chosen file through previewBackupRestoreAction instead of the sheet parser.
   const [backupJson, setBackupJson] = useState<unknown>(null);
   const [backupPreview, setBackupPreview] = useState<Awaited<ReturnType<typeof previewBackupRestoreAction>> | null>(null);
+  // Set when an uploaded file is recognised as a lending ledger — routes to the
+  // Khatabook → Lending migration flow instead of the transaction mapping steps.
+  const [lending, setLending] = useState<{ adapterId: string; adapterLabel: string } | null>(null);
 
   const mapping = useMemo(() => columnFieldToMapping(assign, amountSign), [assign, amountSign]);
 
@@ -150,7 +155,16 @@ export function ImportWizard() {
       setAssign(mappingToColumnField(initialMapping));
       setAmountSign(initialMapping.amountSign ?? "negative-is-expense");
       if (saved) setCategoryMap(saved.categoryMap as unknown as Record<string, string>);
-      setStep("mapping");
+      // A lending ledger (Khatabook and friends) is not an expense CSV — route
+      // it into Lending. The generic mapping is still set up above, so "not a
+      // ledger?" can fall back to it without re-uploading.
+      const detection = detectLendingSource(data.headers);
+      if (detection && detection.auto) {
+        setLending({ adapterId: detection.adapter.id, adapterLabel: detection.adapter.label });
+        setStep("lending");
+      } else {
+        setStep("mapping");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -243,7 +257,7 @@ export function ImportWizard() {
 
   return (
     <div className="flex flex-col gap-4" style={{ animation: "rise .25s ease" }}>
-      <Steps current={step} />
+      {step !== "lending" && <Steps current={step} />}
       {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
 
       {step === "upload" && (
@@ -267,7 +281,7 @@ export function ImportWizard() {
               <SourceCard
                 icon="📒"
                 label="Khatabook"
-                detail="Gave / Got exports with party-name columns. We map Entry Type, Party Name and Remark for you."
+                detail="Gave / Got lending ledgers. Contacts, balances and history migrate straight into Lending."
                 selected={preset === "khatabook"}
                 onClick={() => setPreset("khatabook")}
               />
@@ -280,8 +294,8 @@ export function ImportWizard() {
               />
             </div>
             {preset === "khatabook" && (
-              <div className="text-[12px] text-amber bg-ambersoft rounded-lg px-3 py-2">
-                ⚠ Khatabook tracks people you lent to — Ledgerly imports those rows as plain income/expense transactions, not as lending entries. Lending parties live in a separate area.
+              <div className="text-[12px] text-mut bg-accsoft rounded-lg px-3 py-2">
+                Khatabook is a lending ledger, so its rows become Lending entries against contacts — not income/expense transactions. After upload we detect the format and open the migration preview.
               </div>
             )}
             {preset === "backup" && (
@@ -484,6 +498,19 @@ export function ImportWizard() {
             setStep("upload");
           }}
           onCommit={commitBackup}
+        />
+      )}
+
+      {step === "lending" && lending && (
+        <KhatabookImport
+          rows={rows}
+          fileName={fileName}
+          adapterId={lending.adapterId}
+          adapterLabel={lending.adapterLabel}
+          onSwitchToGeneric={() => {
+            setLending(null);
+            setStep("mapping");
+          }}
         />
       )}
     </div>
