@@ -284,6 +284,8 @@ function ThemeToggle() {
 const ALL_NAV = [
   { href: "/dashboard", icon: "home", label: "Home" },
   { href: "/transactions", icon: "txns", label: "Spends" },
+  // Insights (Analytics) is the Spends section's second tab (SpendInsightsTabs),
+  // not a top-level destination.
   { href: "/lending", icon: "lending", label: "Khata" },
   { href: "/accounts", icon: "accounts", label: "Accounts" },
   { href: "/cards", icon: "cards", label: "Cards" },

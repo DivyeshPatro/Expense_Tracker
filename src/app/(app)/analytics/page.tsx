@@ -1,4 +1,5 @@
 import { EmptyState } from "@/components/shell/empty-state";
+import { SpendInsightsTabs } from "@/components/shell/section-tabs";
 import { StatCard } from "@/components/shell/stat-card";
 import { currentMonthKey, daysBetweenYMD, monthName, shiftMonthKey, todayYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
@@ -87,7 +88,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <div className="flex justify-end">
+      <div className="flex justify-between items-center gap-2">
+        <SpendInsightsTabs />
         <PrintButton />
       </div>
       <div className="flex flex-wrap gap-3.5">
