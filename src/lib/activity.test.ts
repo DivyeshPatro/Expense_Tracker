@@ -206,6 +206,16 @@ describe("other entity kinds", () => {
     expect(undo.summary).toBe("Undid import");
   });
 
+  it("a Khatabook → Lending import reads as a lending event, not '0 transactions'", () => {
+    const ev = presentAuditRow(
+      row({ entity: "ImportBatch", action: "import", entityId: "batchK", after: { source: "khatabook", lendingEntries: 2483, contacts: 132 } }),
+      maps
+    )!;
+    expect(ev.summary).toBe("Imported 2483 lending entries from Khatabook");
+    expect(ev.detail).toBe("132 new contacts");
+    expect(ev.related).toEqual([{ label: "View import history", href: "/settings" }]);
+  });
+
   it("unknown kinds and malformed payloads are skipped, never thrown", () => {
     expect(presentAuditRow(row({ entity: "User", action: "clear-transactions" }), maps)).toBeNull();
     expect(presentAuditRow(row({ entity: "Transaction", action: "update", before: "garbage", after: 42 }), maps)).toBeNull();

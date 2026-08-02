@@ -284,7 +284,13 @@ function relatedFor(row: AuditRowInput, maps: LabelMaps): RelatedLink[] {
     return links;
   }
   if (row.entity === "ImportBatch" && row.action === "import") {
-    const imported = num(asSnap(row.after).imported) ?? 0;
+    const after = asSnap(row.after);
+    // A lending import points at Import History (its rows are in Lending, not
+    // the transactions ledger); a transaction import links to those rows.
+    if (num(after.lendingEntries) != null) {
+      return [{ label: "View import history", href: "/settings" }];
+    }
+    const imported = num(after.imported) ?? 0;
     return [{ label: `View ${imported} transaction${imported === 1 ? "" : "s"}`, href: `/transactions?batch=${row.entityId}&p=all` }];
   }
   if (row.entity === "LoanEntry") {
@@ -597,6 +603,25 @@ const REGISTRY: Record<string, Present> = {
   },
   "ImportBatch:import": (row) => {
     const p = asSnap(row.after);
+    // Khatabook → Lending imports record lendingEntries (never transactions);
+    // present them in lending language rather than "Imported 0 transactions".
+    const lendingEntries = num(p.lendingEntries);
+    if (lendingEntries != null) {
+      const contacts = num(p.contacts) ?? 0;
+      const src = str(p.source);
+      const from = src ? ` from ${src.charAt(0).toUpperCase()}${src.slice(1)}` : "";
+      return {
+        ...base(row),
+        verb: "imported",
+        entityType: "import",
+        entityLabel: `${lendingEntries} lending entr${lendingEntries === 1 ? "y" : "ies"}`,
+        icon: "📒",
+        summary: `Imported ${lendingEntries} lending entr${lendingEntries === 1 ? "y" : "ies"}${from}`,
+        detail: contacts > 0 ? `${contacts} new contact${contacts === 1 ? "" : "s"}` : undefined,
+        diff: [],
+        effects: [],
+      };
+    }
     const imported = num(p.imported) ?? 0;
     const skipped = num(p.skipped) ?? 0;
     return {

@@ -114,6 +114,11 @@ try {
   await page.waitForTimeout(2500);
   ok("an imported contact appears in Lending straight away", (await page.locator("body").innerText()).includes("ZZZ Ramesh"));
 
+  // ── One lending event on the Activity Timeline ──
+  await page.goto(`${BASE}/activity`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForTimeout(2500);
+  ok("the migration shows as a lending import on the Activity Timeline", /imported\s+7\s+lending entr/i.test(await page.locator("body").innerText()));
+
   // ── Undo removes exactly what was imported ──
   const batch = await prisma.importBatch.findFirst({ where: { userId: user.id, fileName: { contains: "khatabook-sample" } }, orderBy: { createdAt: "desc" } });
   ok("an import batch was recorded for history/undo", !!batch);

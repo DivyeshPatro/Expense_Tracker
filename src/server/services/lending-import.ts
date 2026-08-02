@@ -204,11 +204,12 @@ export async function commitLendingImport(userId: string, input: CommitLendingIn
 
     await verifyImportedBalances(db, userId, preview, pidByKey, createdEntries);
 
-    // One activity/audit event — "Imported N lending entries from Khatabook".
+    // One activity/audit event — the timeline renders this as "Imported N
+    // lending entries from Khatabook", linking to Import History.
     await audit(db, userId, "import", "ImportBatch", batch.id, undefined, {
       source: input.adapterId,
-      entries: createdEntries.length,
-      contactsCreated: createdParticipants.length,
+      lendingEntries: createdEntries.length,
+      contacts: createdParticipants.length,
     });
 
     return {
