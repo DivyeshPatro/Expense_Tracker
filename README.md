@@ -65,6 +65,10 @@ same schema — no rewrite between phases.
 **Lending**
 - A personal GAVE/GOT ledger per contact, separate from the group model.
 - FIFO automatic settlement with manual-allocation override.
+- **Khatabook migration** — import a Khatabook lending ledger (CSV/XLSX)
+  straight into Lending from the Import Center: auto-detected, one contact
+  per person, repayments settled by the same FIFO engine, an atomic
+  balance-verified import, and one-click undo. Not plain transactions.
 - Card Billing Intelligence — know exactly which statement cycle a
   card-funded loan belongs to and when to recover it before interest
   accrues.

@@ -4,6 +4,109 @@ All notable changes to Ledgerly are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-08-02
+
+Native **Khatabook → Lending migration**. The Import Center used to read a
+Khatabook file as plain income/expense transactions — which was wrong:
+Khatabook is a lending ledger, not an expense tracker. It now migrates
+directly into Lending, so every customer, balance and entry lands where it
+belongs. After importing, it should feel as though you'd always been using
+Ledgerly: chronological history, running balances, settlement status,
+reports, dashboard totals and search all work immediately, with no manual
+cleanup.
+
+**No breaking changes and no database migration** — the feature maps
+entirely onto the existing Lending stack (`Participant` contacts,
+`LoanEntry`, the FIFO settlement engine, `ImportBatch` undo). It is not a
+new lending engine; it reuses the one that already exists.
+
+### Added
+
+- **Khatabook → Lending import.** Upload a CSV/XLSX in the Import Center;
+  a lending ledger is detected and opens a **migration flow** instead of
+  the column-mapping steps. Rows become `LoanEntry` records against
+  `Participant` contacts — never transactions, categories or merchants.
+  Descriptions are kept as the entry note; funding source defaults to
+  cash and is never prompted for during import.
+- **Auto-detection.** Recognises Khatabook exports by their headers
+  (Name/Customer/Party + You Gave/You Got, or Debit/Credit, or a single
+  amount + type), tolerant of wording variations through aliases. Low
+  confidence falls back to the normal importer with a one-tap switch;
+  detection is generic over a registry of adapters so future ledgers
+  (OkCredit, Vyapar, …) are new adapters, not new pipelines.
+- **Smart contact merge.** Every unique person becomes one contact; a name
+  seen 67 times creates 1 contact and 67 entries, never duplicates. Merge
+  keys fold case and whitespace ("Rahul", "rahul", " Rahul " are one
+  contact) but never fuzzy-match, so "Rahul" and "Rahul Kumar" stay
+  distinct people. Existing contacts offer **Merge / Create new / Skip**
+  with apply-to-all and an import-level "always create new" toggle for
+  hands-free large imports.
+- **Migration preview.** Before importing: contacts to create/merge, total
+  and valid/duplicate/invalid/skipped row counts, total You Gave / You Got,
+  net outstanding, date range, the top contacts, and a row-by-row preview
+  with running balance. Invalid rows (empty contact, bad date/amount,
+  unknown type) are listed with reasons and skipped; the rest still import.
+- **Atomic, balance-verified import.** The whole import runs in one
+  transaction; after writing, each contact's net is recomputed by the
+  lending engine and checked against the preview to the paise. Any
+  mismatch rolls the entire import back — there is never a partial import.
+- **Repayment settlement.** GOT repayments are settled against prior GAVE
+  loans by the same `allocateFifo` engine manual entry uses — driven in
+  bulk per contact so the result is identical to entering each row by
+  hand. Over-repayment is allowed to go net-negative; excess is left
+  unallocated, exactly as manual entry leaves it.
+- **Undo.** Reuses `ImportBatch`, reversing the entries, allocations and
+  the contacts the import created — never contacts that existed before —
+  the same behaviour as backup restore.
+- **Activity Timeline.** One import event, "Imported N lending entries
+  from Khatabook", linking to Import History.
+- **Migration UX polish.** A "Next steps" section on the success report
+  (review contacts, assign funding, add phones/photos) and a subtle
+  **"From Khatabook"** badge on freshly imported contacts that clears once
+  you add a detail — so a migration is visibly confirmed without permanent
+  clutter.
+
+### Performance
+
+- **Bulk, no N+1.** One contact lookup, one existing-ledger read, then
+  `createMany` for contacts, entries and allocations, with FIFO settlement
+  computed in memory. A ~1,560-row import completes in **≈0.8 s**;
+  designed to handle 10,000+ rows in a fixed handful of statements.
+- The shared date/amount parser gained **Unix-epoch date** support
+  (magnitude-guarded, additive) alongside the existing DD/MM/YYYY,
+  DD-MM-YY and ISO formats.
+
+### Testing
+
+- **Unit: 385** (up from 350) — detection/confidence, column resolution,
+  row mapping, smart-merge key, validation, epoch dates, the preview/plan
+  assembler, and the activity event presenter.
+- **Integration: 127** (up from 110) — import, dedupe, FIFO settlement,
+  merge-into-existing, re-import dedupe, over-repayment, undo, **atomic
+  rollback**, a **large-file + downstream-surfaces** suite (perf, Global
+  Search, Activity), and the imported-contact badge source.
+- **E2E: a new Khatabook → Lending suite** (18 checks against a built
+  instance) — upload, detection, preview, import, DB reconciliation,
+  Lending page, the migration badge, Activity Timeline, Import History and
+  undo.
+
+### Migrations
+
+**None.** No schema change, no new columns or tables. `ImportBatch.created
+Entities` (already JSON) now also carries `participants`/`loanEntries`/
+`loanAllocations` for lending undo — same column, no migration.
+
+### Known limitations
+
+- **The "From Khatabook" badge clears on first *detail* edit** (photo,
+  phone or note), not on a bare rename — `Participant` has no timestamp
+  and a cosmetic badge didn't warrant a schema column. Deliberate.
+- **Contact-merge decisions re-preview from the full row set.** Only
+  matters when a large file collides with many pre-existing contacts (a
+  fresh migration has none); a candidate optimisation, not a defect.
+- **Smart merge is exact (case + whitespace), never fuzzy** — by design,
+  to avoid ever fusing two different people.
+
 ## [1.2.0] — 2026-08-02
 
 The Secure Credit Cards module (Phase 3.1). Ledgerly can now hold your own
