@@ -55,7 +55,7 @@ export function AuthForm({
         {mode === "sign-up" && (
           <div>
             <div className="label-caps">NAME</div>
-            <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="Arjun" required autoFocus />
+            <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" required autoFocus />
           </div>
         )}
         <div>
