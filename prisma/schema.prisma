@@ -676,6 +676,12 @@ model CreditCard {
   last4     String
   color     String?
   isDefault Boolean     @default(false)
+  // Cards UX 2.0 (#84/#85): plaintext organisation metadata, same tier as
+  // nickname/bank — none of it can transact. isFavorite pins a card to the top
+  // of the gallery; archivedAt (non-null ⇒ archived) tucks a retired card out
+  // of the way without deleting its encrypted details.
+  isFavorite Boolean   @default(false)
+  archivedAt DateTime?
 
   // AES-256-GCM ciphertext, one column pair per field. Separate IVs make reuse
   // structurally impossible, and per-field sealing means "Copy CVV" decrypts

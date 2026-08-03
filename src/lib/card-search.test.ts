@@ -11,6 +11,8 @@ function card(over: Partial<CreditCardListItem> = {}): CreditCardListItem {
     last4: "4242",
     color: null,
     isDefault: false,
+    isFavorite: false,
+    isArchived: false,
     cardholderName: "DIVYESH PATRO",
     isExpired: false,
     keyMatches: true,

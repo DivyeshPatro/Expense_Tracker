@@ -55,6 +55,8 @@ export interface CreditCardListItem {
   last4: string;
   color: string | null;
   isDefault: boolean;
+  isFavorite: boolean;
+  isArchived: boolean;
   cardholderName: string | null;
   isExpired: boolean;
   /** False when this row was sealed by a different CARD_ENCRYPTION_KEY. */
@@ -112,7 +114,9 @@ async function clearOtherDefaults(db: Parameters<Parameters<typeof prisma.$trans
 export async function listCreditCards(userId: string, now = new Date()): Promise<CreditCardListItem[]> {
   const rows = await prisma.creditCard.findMany({
     where: { userId },
-    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    // Favourites float up, then the default, then oldest-first. Archived cards
+    // carry the same order but are split out client-side into their own drawer.
+    orderBy: [{ isFavorite: "desc" }, { isDefault: "desc" }, { createdAt: "asc" }],
   });
   const fingerprint = cardKeyFingerprint();
 
@@ -129,6 +133,8 @@ export async function listCreditCards(userId: string, now = new Date()): Promise
         last4: r.last4,
         color: r.color,
         isDefault: r.isDefault,
+        isFavorite: r.isFavorite,
+        isArchived: r.archivedAt !== null,
         cardholderName: null,
         isExpired: false,
         keyMatches: false,
@@ -148,6 +154,8 @@ export async function listCreditCards(userId: string, now = new Date()): Promise
       last4: r.last4,
       color: r.color,
       isDefault: r.isDefault,
+      isFavorite: r.isFavorite,
+      isArchived: r.archivedAt !== null,
       cardholderName: openField({ cipher: r.holderCipher, iv: r.holderIv }),
       isExpired: expired?.ok ? expired.expired : false,
       keyMatches: true,
@@ -228,6 +236,39 @@ export async function setDefaultCreditCard(userId: string, id: string): Promise<
   await prisma.$transaction(async (db) => {
     await clearOtherDefaults(db, userId, id);
     await db.creditCard.update({ where: { id }, data: { isDefault: true } });
+  });
+}
+
+/** Cards UX 2.0 (#85): pin/unpin a card. Plaintext metadata, no reveal. */
+export async function setCreditCardFavorite(userId: string, id: string, favorite: boolean): Promise<void> {
+  const card = await prisma.creditCard.findFirst({ where: { id, userId } });
+  if (!card) throw new Error("Card not found");
+  await prisma.creditCard.update({ where: { id }, data: { isFavorite: favorite } });
+}
+
+/**
+ * Cards UX 2.0 (#84): archive/unarchive a card. Archiving only tucks the card
+ * away — the encrypted details are untouched, so it's fully reversible, unlike
+ * delete. Archiving the default promotes the oldest active card so the user is
+ * never left with an active gallery and no default (mirrors delete).
+ */
+export async function setCreditCardArchived(userId: string, id: string, archived: boolean): Promise<void> {
+  const card = await prisma.creditCard.findFirst({ where: { id, userId } });
+  if (!card) throw new Error("Card not found");
+  await prisma.$transaction(async (db) => {
+    await db.creditCard.update({
+      where: { id },
+      // An archived card can't stay the default, and it drops out of the
+      // favourites row too — both are "active gallery" states.
+      data: { archivedAt: archived ? new Date() : null, ...(archived ? { isDefault: false, isFavorite: false } : {}) },
+    });
+    if (archived && card.isDefault) {
+      const next = await db.creditCard.findFirst({
+        where: { userId, archivedAt: null, id: { not: id } },
+        orderBy: [{ isFavorite: "desc" }, { createdAt: "asc" }],
+      });
+      if (next) await db.creditCard.update({ where: { id: next.id }, data: { isDefault: true } });
+    }
   });
 }
 

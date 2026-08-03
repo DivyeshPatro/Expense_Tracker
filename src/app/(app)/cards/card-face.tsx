@@ -33,7 +33,9 @@ export function CardFace({
           <div className="text-[13.5px] font-extrabold truncate">{card.nickname}</div>
           <div className="text-[11.5px] opacity-80 truncate">{card.bank}</div>
         </div>
-        <div className="flex flex-col items-end gap-1">
+        {/* Right margin clears the favourite star the gallery overlays in the
+            top-right corner, so a Default/Expired badge never sits under it. */}
+        <div className="flex flex-col items-end gap-1 mr-9">
           {card.isDefault && (
             <span className="text-[10px] font-bold px-2 py-[3px] rounded-full bg-white/20 backdrop-blur-sm whitespace-nowrap">
               Default

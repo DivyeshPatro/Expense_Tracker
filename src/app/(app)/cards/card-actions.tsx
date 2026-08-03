@@ -10,7 +10,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteCreditCardAction, setDefaultCreditCardAction } from "@/app/actions";
+import {
+  deleteCreditCardAction,
+  setCreditCardArchivedAction,
+  setCreditCardFavoriteAction,
+  setDefaultCreditCardAction,
+} from "@/app/actions";
 import { useUI } from "@/components/shell/ui-context";
 import type { CreditCardListItem, RevealedCreditCard } from "@/server/services/credit-cards";
 import { CardForm, type CardFormInitial } from "./card-form";
@@ -71,7 +76,7 @@ export function CardActions({ card }: { card: CreditCardListItem }) {
         {/* A card sealed under a different key can't be decrypted, so revealing
             and editing are impossible — but deleting it is exactly what you'd
             want to do, so that button stays. */}
-        {card.keyMatches && (
+        {card.keyMatches && !card.isArchived && (
           <button
             onClick={() => setMode("unlock-reveal")}
             className="px-2.5 py-1.5 rounded-lg border-none bg-acc text-white text-[11.5px] font-bold cursor-pointer hover:brightness-108"
@@ -79,12 +84,21 @@ export function CardActions({ card }: { card: CreditCardListItem }) {
             Show details
           </button>
         )}
-        {card.keyMatches && (
+        {card.keyMatches && !card.isArchived && (
           <SmallButton onClick={() => setMode("unlock-edit")}>Edit</SmallButton>
         )}
-        {!card.isDefault && (
+        {!card.isArchived && !card.isDefault && (
           <SmallButton disabled={busy} onClick={() => void run(() => setDefaultCreditCardAction(card.id), "Default card updated")}>
             Make default
+          </SmallButton>
+        )}
+        {card.isArchived ? (
+          <SmallButton disabled={busy} onClick={() => void run(() => setCreditCardArchivedAction(card.id, false), "Card restored")}>
+            Unarchive
+          </SmallButton>
+        ) : (
+          <SmallButton disabled={busy} onClick={() => void run(() => setCreditCardArchivedAction(card.id, true), "Card archived")}>
+            Archive
           </SmallButton>
         )}
         <SmallButton onClick={() => setMode("confirm-delete")}>Delete</SmallButton>
@@ -163,6 +177,46 @@ function ConfirmDelete({
         <SmallButton onClick={onCancel}>Keep</SmallButton>
       </div>
     </div>
+  );
+}
+
+/**
+ * The star that pins a card (#85). Lives as an overlay on the card face so
+ * favouriting is a single tap on the card itself, not a trip into the action
+ * row. Archived cards don't show it — a pinned-but-hidden card is a
+ * contradiction, and archiving already clears the flag server-side.
+ */
+export function FavoriteToggle({ card }: { card: CreditCardListItem }) {
+  const router = useRouter();
+  const { showToast } = useUI();
+  const [busy, setBusy] = useState(false);
+
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    const next = !card.isFavorite;
+    const res = await setCreditCardFavoriteAction(card.id, next);
+    setBusy(false);
+    if (res.ok) {
+      showToast(next ? "Pinned to favorites" : "Removed from favorites");
+      router.refresh();
+    } else {
+      showToast(res.error ?? "Something went wrong");
+    }
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      aria-pressed={card.isFavorite}
+      aria-label={card.isFavorite ? "Remove from favorites" : "Add to favorites"}
+      title={card.isFavorite ? "Remove from favorites" : "Add to favorites"}
+      className="absolute top-2.5 right-2.5 w-8 h-8 grid place-items-center rounded-full text-[15px] leading-none cursor-pointer border-none bg-black/25 backdrop-blur-sm hover:bg-black/40 disabled:opacity-60 transition-colors"
+      style={{ color: card.isFavorite ? "#ffd34d" : "rgba(255,255,255,.85)" }}
+    >
+      {card.isFavorite ? "★" : "☆"}
+    </button>
   );
 }
 

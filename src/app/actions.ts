@@ -32,6 +32,8 @@ import {
   createCreditCard,
   deleteCreditCard,
   revealWithPassword,
+  setCreditCardArchived,
+  setCreditCardFavorite,
   setDefaultCreditCard,
   updateCreditCard,
   type RevealedCreditCard,
@@ -697,6 +699,28 @@ export async function setDefaultCreditCardAction(id: string): Promise<ActionResu
   try {
     const user = await requireUser();
     await setDefaultCreditCard(user.id, id);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function setCreditCardFavoriteAction(id: string, favorite: boolean): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await setCreditCardFavorite(user.id, id, favorite);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function setCreditCardArchivedAction(id: string, archived: boolean): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await setCreditCardArchived(user.id, id, archived);
     refresh();
     return { ok: true };
   } catch (e) {
