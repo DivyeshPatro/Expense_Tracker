@@ -31,6 +31,8 @@ import type { LendingImportOptions } from "@/lib/import/lending/preview";
 import {
   createCreditCard,
   deleteCreditCard,
+  isCardAccessAction,
+  logCardAccess,
   revealWithPassword,
   setCreditCardArchived,
   setCreditCardFavorite,
@@ -722,6 +724,23 @@ export async function setCreditCardArchivedAction(id: string, archived: boolean)
     const user = await requireUser();
     await setCreditCardArchived(user.id, id, archived);
     refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Records a card-access event (checkout helper opened, a field copied) into the
+ * audit log for the Cards Activity trail. Fire-and-forget from the client — it
+ * deliberately does NOT revalidate: the copy already happened locally, and
+ * refreshing mid-checkout would be pointless churn. Unknown actions are ignored.
+ */
+export async function logCardAccessAction(id: string, action: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    if (!isCardAccessAction(action)) return { ok: false, error: "Unknown card access action" };
+    await logCardAccess(user.id, id, action);
     return { ok: true };
   } catch (e) {
     return fail(e);

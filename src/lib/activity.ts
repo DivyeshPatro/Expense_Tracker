@@ -33,7 +33,7 @@ export interface TimelineEvent {
   activityId: string; // "ACT_<auditRowId>" / "ACT_N<notificationId>" — derived, stable, never stored
   ts: string; // ISO-8601, audit row `at`
   verb: string;
-  entityType: "transaction" | "transfer" | "account" | "category" | "budget" | "bill" | "import" | "settlement" | "loan";
+  entityType: "transaction" | "transfer" | "account" | "category" | "budget" | "bill" | "import" | "settlement" | "loan" | "card";
   entityId: string;
   entityLabel: string; // from snapshot — deleted entities keep their historical name
   icon: string;
@@ -89,15 +89,20 @@ export const ACTIVITY_ALLOWLIST: { entity: string; actions: string[] }[] = [
   { entity: "Bill", actions: ["create", "bill-paid"] },
   { entity: "ImportBatch", actions: ["import", "undo-import"] },
   { entity: "LoanEntry", actions: ["create", "update", "soft-delete", "restore"] },
+  // Cards (v2.0 completion): lifecycle + access. Access rows (reveal/checkout/
+  // copy-*) are the security trail — when card details were seen or copied —
+  // and store metadata only, never a secret.
+  { entity: "CreditCard", actions: ["create", "update", "archive", "restore", "delete", "reveal", "checkout", "copy-number", "copy-expiry", "copy-cvv", "copy-details"] },
 ];
 
-export const ACTIVITY_CHIPS = ["all", "money", "accounts", "budgets", "shared", "lending", "imports"] as const;
+export const ACTIVITY_CHIPS = ["all", "money", "accounts", "cards", "budgets", "shared", "lending", "imports"] as const;
 export type ActivityChip = (typeof ACTIVITY_CHIPS)[number];
 
 export const CHIP_LABELS: Record<ActivityChip, string> = {
   all: "All",
   money: "Money",
   accounts: "Accounts",
+  cards: "Cards",
   budgets: "Budgets & Bills",
   shared: "Shared",
   lending: "Lending",
@@ -107,6 +112,7 @@ export const CHIP_LABELS: Record<ActivityChip, string> = {
 export const CHIP_ENTITIES: Record<Exclude<ActivityChip, "all">, string[]> = {
   money: ["Transaction"],
   accounts: ["Account"],
+  cards: ["CreditCard"],
   budgets: ["Budget", "Bill"],
   shared: ["Settlement"],
   lending: ["LoanEntry"],
@@ -301,6 +307,43 @@ function relatedFor(row: AuditRowInput, maps: LabelMaps): RelatedLink[] {
     }
   }
   return [];
+}
+
+// ─────────── card helpers (Cards Activity, v2.0) ───────────
+
+const cardMask = (p: Snap): string | undefined => {
+  const last4 = str(p.last4);
+  return last4 ? `•••• ${last4}` : undefined;
+};
+
+const cardLabel = (p: Snap): string => {
+  const nick = str(p.nickname);
+  const mask = cardMask(p);
+  if (nick && mask) return `${nick} ${mask}`;
+  return nick ?? mask ?? "(card)";
+};
+
+const CARD_FIELDS: FieldSpec[] = [
+  { field: "nickname", fieldLabel: "Nickname", format: (v) => str(v) },
+  { field: "bank", fieldLabel: "Bank", format: (v) => str(v) },
+  { field: "network", fieldLabel: "Network", format: (v) => str(v) },
+  { field: "last4", fieldLabel: "Last 4", format: (v) => (str(v) ? `•••• ${str(v)}` : undefined) },
+];
+
+/** Shared core for every card event: the "card" entityType, a label from the
+ * snapshot, and no balance effects — the card vault never touches an account
+ * balance. Presenters spread this and override verb / icon / summary / diff. */
+function cardBase(row: AuditRowInput, p: Snap): PresentedCore {
+  return {
+    ...base(row),
+    entityType: "card",
+    entityLabel: cardLabel(p),
+    verb: "",
+    icon: "💳",
+    summary: "",
+    diff: [],
+    effects: [],
+  };
 }
 
 const REGISTRY: Record<string, Present> = {
@@ -650,6 +693,84 @@ const REGISTRY: Record<string, Present> = {
       effects: [],
     };
   },
+  "CreditCard:create": (row) => {
+    const p = asSnap(row.after);
+    return {
+      ...cardBase(row, p),
+      verb: "created",
+      icon: "💳",
+      summary: "Added card",
+      detail: [str(p.bank), str(p.network), cardMask(p)].filter(Boolean).join(" · ") || undefined,
+    };
+  },
+  "CreditCard:update": (row, maps) => {
+    const before = asSnap(row.before);
+    const after = asSnap(row.after);
+    // Only metadata (nickname/bank/network/last4) is in the audit payload, so a
+    // change limited to the encrypted fields (expiry/CVV/number) shows no diff
+    // rows — still a real edit, so unlike a transaction it isn't dropped.
+    return {
+      ...cardBase(row, after),
+      verb: "edited",
+      icon: "✏️",
+      summary: "Edited card",
+      diff: diffFields(CARD_FIELDS, before, after, maps),
+    };
+  },
+  "CreditCard:archive": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "archived",
+    icon: "🗃",
+    summary: "Archived card",
+  }),
+  "CreditCard:restore": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "restored",
+    icon: "↩️",
+    summary: "Restored card",
+  }),
+  "CreditCard:delete": (row) => ({
+    ...cardBase(row, asSnap(row.before)),
+    verb: "deleted",
+    icon: "🗑",
+    summary: "Deleted card",
+  }),
+  "CreditCard:reveal": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "revealed",
+    icon: "👁",
+    summary: "Revealed card details",
+  }),
+  "CreditCard:checkout": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "checked_out",
+    icon: "🛒",
+    summary: "Used checkout helper",
+  }),
+  "CreditCard:copy-number": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "copied",
+    icon: "📋",
+    summary: "Copied card number",
+  }),
+  "CreditCard:copy-expiry": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "copied",
+    icon: "📋",
+    summary: "Copied expiry",
+  }),
+  "CreditCard:copy-cvv": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "copied",
+    icon: "📋",
+    summary: "Copied CVV",
+  }),
+  "CreditCard:copy-details": (row) => ({
+    ...cardBase(row, asSnap(row.after)),
+    verb: "copied",
+    icon: "📋",
+    summary: "Copied full card details",
+  }),
 };
 
 // ─────────── presenter entry point ───────────

@@ -11,6 +11,7 @@
 // the client router cache after you navigate away.
 
 import { EmptyState } from "@/components/shell/empty-state";
+import { ModuleActivity } from "@/components/shell/module-activity";
 import { AddCardButton } from "./card-actions";
 import { CardGallery } from "./card-gallery";
 import { listCreditCards } from "@/server/services/credit-cards";
@@ -38,6 +39,7 @@ export default async function CardsPage() {
       ) : (
         <CardGallery cards={cards} />
       )}
+      {cards.length > 0 && <ModuleActivity entities={["CreditCard"]} />}
     </div>
   );
 }

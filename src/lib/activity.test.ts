@@ -381,3 +381,64 @@ describe("budget-exceeded notification events", () => {
     expect(presentNotificationRow({ id: "n3", kind: "BUDGET_EXCEEDED", payload: "garbage", createdAt: "2026-07-16T10:00:00.000Z" })).toBeNull();
   });
 });
+
+describe("credit card events (Cards Activity)", () => {
+  const cardRow = (partial: Partial<AuditRowInput>): AuditRowInput =>
+    row({ entity: "CreditCard", entityId: "card1", action: "create", ...partial });
+
+  it("create: label carries nickname + masked last4, detail has bank/network", () => {
+    const ev = presentAuditRow(
+      cardRow({ action: "create", after: { nickname: "Amazon Pay ICICI", bank: "ICICI Bank", network: "VISA", last4: "4242" } }),
+      maps
+    )!;
+    expect(ev.entityType).toBe("card");
+    expect(ev.summary).toBe("Added card");
+    expect(ev.entityLabel).toBe("Amazon Pay ICICI •••• 4242");
+    expect(ev.detail).toContain("ICICI Bank");
+    expect(ev.detail).toContain("4242");
+    expect(ev.effects).toEqual([]);
+  });
+
+  it("update: diffs the metadata that changed", () => {
+    const ev = presentAuditRow(
+      cardRow({
+        action: "update",
+        before: { nickname: "Old name", bank: "HDFC", network: "VISA", last4: "1111" },
+        after: { nickname: "New name", bank: "HDFC", network: "VISA", last4: "1111" },
+      }),
+      maps
+    )!;
+    expect(ev.summary).toBe("Edited card");
+    expect(ev.diff.map((d) => d.fieldLabel)).toEqual(["Nickname"]);
+    expect(ev.diff[0].formattedAfter).toBe("New name");
+  });
+
+  it("update with only encrypted-field changes still emits an event (empty diff, not dropped)", () => {
+    const same = { nickname: "Card", bank: "HDFC", network: "VISA", last4: "1111" };
+    const ev = presentAuditRow(cardRow({ action: "update", before: same, after: { ...same } }), maps);
+    expect(ev).not.toBeNull();
+    expect(ev!.summary).toBe("Edited card");
+    expect(ev!.diff).toEqual([]);
+  });
+
+  it("archive / restore / delete each present their own verb + summary", () => {
+    const snap = { nickname: "Axis Magnus", bank: "Axis", last4: "5556" };
+    expect(presentAuditRow(cardRow({ action: "archive", after: snap }), maps)!.summary).toBe("Archived card");
+    expect(presentAuditRow(cardRow({ action: "restore", after: snap }), maps)!.summary).toBe("Restored card");
+    expect(presentAuditRow(cardRow({ action: "delete", before: snap }), maps)!.summary).toBe("Deleted card");
+  });
+
+  it("access events (reveal / checkout / copies) present the security-trail summaries", () => {
+    const snap = { nickname: "SBI Cashback", last4: "9999" };
+    expect(presentAuditRow(cardRow({ action: "reveal", after: snap }), maps)!.summary).toBe("Revealed card details");
+    expect(presentAuditRow(cardRow({ action: "checkout", after: snap }), maps)!.summary).toBe("Used checkout helper");
+    expect(presentAuditRow(cardRow({ action: "copy-number", after: snap }), maps)!.summary).toBe("Copied card number");
+    expect(presentAuditRow(cardRow({ action: "copy-expiry", after: snap }), maps)!.summary).toBe("Copied expiry");
+    expect(presentAuditRow(cardRow({ action: "copy-cvv", after: snap }), maps)!.summary).toBe("Copied CVV");
+    expect(presentAuditRow(cardRow({ action: "copy-details", after: snap }), maps)!.summary).toBe("Copied full card details");
+  });
+
+  it("reveal-denied is not in the allowlist projection (stays out of the timeline)", () => {
+    expect(presentAuditRow(cardRow({ action: "reveal-denied", after: { last4: "9999" } }), maps)).toBeNull();
+  });
+});

@@ -17,7 +17,8 @@
 // cache. A reload asks for the password again, by construction.
 
 import { createPortal } from "react-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { logCardAccessAction } from "@/app/actions";
 import { useUI } from "@/components/shell/ui-context";
 import { formatCardNumber, formatExpiry } from "@/lib/card-identity";
 import { copyText } from "@/lib/clipboard";
@@ -39,6 +40,12 @@ export function CheckoutHelper({
 }) {
   const remaining = useCountdown(CHECKOUT_MS, onClose);
   const pip = useDocumentPip();
+
+  // One "checkout helper used" audit row per opening (Cards Activity, v2.0).
+  // Fire-and-forget; card.id is stable so this logs exactly once per mount.
+  useEffect(() => {
+    void logCardAccessAction(card.id, "checkout");
+  }, [card.id]);
 
   const body = <HelperBody card={card} revealed={revealed} remaining={remaining} onClose={onClose} pip={pip} />;
 
@@ -86,7 +93,8 @@ function HelperBody({
   const expiry = formatExpiry(revealed.expiryMonth, revealed.expiryYear);
   const seconds = Math.ceil(remaining / 1000);
 
-  async function copy(label: string, value: string) {
+  async function copy(label: string, value: string, access?: "copy-number" | "copy-expiry" | "copy-cvv") {
+    if (access) void logCardAccessAction(card.id, access);
     const ok = await copyText(value);
     if (!ok) {
       showToast("Couldn't copy — select the text instead");
@@ -137,9 +145,9 @@ function HelperBody({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">
-        <Chip label="Number" hint={formatCardNumber(revealed.cardNumber)} copied={copied === "Number"} onClick={() => void copy("Number", revealed.cardNumber)} wide />
-        <Chip label="Expiry" hint={expiry} copied={copied === "Expiry"} onClick={() => void copy("Expiry", expiry)} />
-        <Chip label="CVV" hint={revealed.cvv} copied={copied === "CVV"} onClick={() => void copy("CVV", revealed.cvv)} />
+        <Chip label="Number" hint={formatCardNumber(revealed.cardNumber)} copied={copied === "Number"} onClick={() => void copy("Number", revealed.cardNumber, "copy-number")} wide />
+        <Chip label="Expiry" hint={expiry} copied={copied === "Expiry"} onClick={() => void copy("Expiry", expiry, "copy-expiry")} />
+        <Chip label="CVV" hint={revealed.cvv} copied={copied === "CVV"} onClick={() => void copy("CVV", revealed.cvv, "copy-cvv")} />
         <Chip label="Name" hint={revealed.cardholderName} copied={copied === "Name"} onClick={() => void copy("Name", revealed.cardholderName)} wide />
       </div>
     </div>

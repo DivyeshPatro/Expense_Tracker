@@ -269,7 +269,36 @@ export async function setCreditCardArchived(userId: string, id: string, archived
       });
       if (next) await db.creditCard.update({ where: { id: next.id }, data: { isDefault: true } });
     }
+    // Metadata only, same as every other card audit row — the encrypted
+    // details never enter the log. "restore" mirrors the LoanEntry/Transaction
+    // restore verb so the timeline reads consistently across modules.
+    await audit(db, userId, archived ? "archive" : "restore", "CreditCard", id, undefined, {
+      nickname: card.nickname,
+      bank: card.bank,
+      last4: card.last4,
+    });
   });
+}
+
+/** The card-access actions the audit trail records (v2.0 completion: Cards
+ * Activity). Reveal is already logged server-side by revealWithPassword; these
+ * are the client-driven ones — the checkout helper opening and each field the
+ * user copies out of it. No secret is stored: the payload is metadata only. */
+export type CardAccessAction = "checkout" | "copy-number" | "copy-expiry" | "copy-cvv" | "copy-details";
+
+const CARD_ACCESS_ACTIONS = new Set<CardAccessAction>(["checkout", "copy-number", "copy-expiry", "copy-cvv", "copy-details"]);
+
+export function isCardAccessAction(v: string): v is CardAccessAction {
+  return CARD_ACCESS_ACTIONS.has(v as CardAccessAction);
+}
+
+/** Record that the user opened the checkout helper or copied a field out of a
+ * revealed card. One audit row per access; ownership is enforced by the where
+ * clause so a bad id logs nothing rather than throwing. */
+export async function logCardAccess(userId: string, id: string, action: CardAccessAction): Promise<void> {
+  const card = await prisma.creditCard.findFirst({ where: { id, userId }, select: { nickname: true, last4: true } });
+  if (!card) return;
+  await audit(prisma, userId, action, "CreditCard", id, undefined, { nickname: card.nickname, last4: card.last4 });
 }
 
 /**

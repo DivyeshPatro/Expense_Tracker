@@ -13,6 +13,7 @@
 // card would stay revealed for as long as you were away — the exact case the
 // timer exists for.
 
+import { logCardAccessAction } from "@/app/actions";
 import { useUI } from "@/components/shell/ui-context";
 import { copyText } from "@/lib/clipboard";
 import { useCountdown } from "./use-countdown";
@@ -41,7 +42,10 @@ export function RevealPanel({
   const number = formatCardNumber(revealed.cardNumber);
   const expiry = formatExpiry(revealed.expiryMonth, revealed.expiryYear);
 
-  async function copy(label: string, value: string) {
+  // The copy itself is local and instant; the audit ping is fire-and-forget so
+  // it never delays the clipboard write or blocks the checkout hand-off.
+  async function copy(label: string, value: string, access?: "copy-number" | "copy-expiry" | "copy-cvv" | "copy-details") {
+    if (access) void logCardAccessAction(card.id, access);
     showToast((await copyText(value)) ? `${label} copied` : "Couldn't copy — select the text instead");
   }
 
@@ -65,10 +69,10 @@ export function RevealPanel({
         />
       </div>
 
-      <SecretRow label="Card number" value={number} mono onCopy={() => copy("Card number", revealed.cardNumber)} />
+      <SecretRow label="Card number" value={number} mono onCopy={() => copy("Card number", revealed.cardNumber, "copy-number")} />
       <div className="flex gap-2">
-        <SecretRow label="Expiry" value={expiry} mono grow onCopy={() => copy("Expiry", expiry)} />
-        <SecretRow label="CVV" value={revealed.cvv} mono grow onCopy={() => copy("CVV", revealed.cvv)} />
+        <SecretRow label="Expiry" value={expiry} mono grow onCopy={() => copy("Expiry", expiry, "copy-expiry")} />
+        <SecretRow label="CVV" value={revealed.cvv} mono grow onCopy={() => copy("CVV", revealed.cvv, "copy-cvv")} />
       </div>
       <SecretRow label="Name" value={revealed.cardholderName} onCopy={() => copy("Cardholder name", revealed.cardholderName)} />
       {revealed.notes && <SecretRow label="Notes" value={revealed.notes} onCopy={() => copy("Notes", revealed.notes!)} />}
@@ -79,7 +83,8 @@ export function RevealPanel({
             "Card details",
             // The order a checkout form asks for them, so pasting into one
             // field at a time follows the same sequence top to bottom.
-            [revealed.cardNumber, expiry, revealed.cvv, revealed.cardholderName].join("\n")
+            [revealed.cardNumber, expiry, revealed.cvv, revealed.cardholderName].join("\n"),
+            "copy-details"
           );
           onCheckout();
         }}
