@@ -225,6 +225,16 @@ export async function entityHistory(actingUserId: string, entityId: string): Pro
   return { events, more };
 }
 
+/** Activity for a single lending contact (v2.0): every audited change to that
+ *  contact's loan entries — created / edited / deleted / restored. Reuses
+ *  activityPage's entityIds scope, so there's no second activity implementation. */
+export async function contactActivity(userId: string, participantId: string, limit = 20): Promise<TimelineEvent[]> {
+  const entries = await prisma.loanEntry.findMany({ where: { userId, participantId }, select: { id: true } });
+  if (entries.length === 0) return [];
+  const { events } = await activityPage(userId, { entityIds: entries.map((e) => e.id), limit });
+  return events;
+}
+
 /** The one bounded related-events query (RFC §7): top merchants of an import
  * batch, LIMIT 5, run only when the user expands an import event. */
 export async function importPreview(userId: string, batchId: string): Promise<{ merchants: string[] }> {

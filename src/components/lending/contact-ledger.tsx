@@ -10,8 +10,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryAction, updateParticipantDetailsAction } from "@/app/actions";
-import { friendlyDay } from "@/lib/dates";
+import { contactActivityAction, lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryAction, updateParticipantDetailsAction } from "@/app/actions";
+import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
+import type { TimelineEvent } from "@/lib/activity";
 import { balanceAfterLabel, computeContactSummary, type ContactSummary } from "@/lib/lending";
 import { formatPaise } from "@/lib/money";
 import { AccountOptions } from "@/components/shell/account-options";
@@ -30,6 +31,11 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   const [entries, setEntries] = useState<LoanEntryRow[] | undefined>(undefined);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDetails, setEditingDetails] = useState(false);
+  // v2.0 contact tabs: Overview / Transactions / Reports / Activity log.
+  const [tab, setTab] = useState<"overview" | "transactions" | "reports" | "activity">("overview");
+  const [search, setSearch] = useState("");
+  const [activity, setActivity] = useState<Awaited<ReturnType<typeof contactActivityAction>> | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
   // The full history is already in `entries` (needed for ContactSummaryCard's
   // all-time stats — see listLoanEntries' own comment on why that fetch isn't
   // capped), but a contact with a long history shouldn't render every row's
@@ -49,8 +55,20 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
     setEditingId(null);
     setEditingDetails(false);
     setVisibleCount(TIMELINE_PAGE_SIZE);
+    setTab("overview");
+    setActivity(null);
     void load();
   }, [load]);
+
+  // Lazy-load the Activity tab the first time it's opened (reuses activityPage
+  // via contactActivityAction — no second activity implementation).
+  useEffect(() => {
+    if (tab !== "activity" || activity !== null || activityLoading) return;
+    setActivityLoading(true);
+    contactActivityAction(participantId)
+      .then((ev) => setActivity(ev))
+      .finally(() => setActivityLoading(false));
+  }, [tab, activity, activityLoading, participantId]);
 
   const net = contact?.net ?? 0;
   // computed unconditionally (before any early return) so these hooks run in
@@ -73,17 +91,6 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
     }
     return map;
   }, [entries]);
-  const visibleEntries = useMemo(() => (entries ?? []).slice(0, visibleCount), [entries, visibleCount]);
-  const groups = useMemo(() => {
-    const g: { label: string; items: LoanEntryRow[] }[] = [];
-    for (const e of visibleEntries) {
-      const label = friendlyDay(e.ymd);
-      const last = g[g.length - 1];
-      if (!last || last.label !== label) g.push({ label, items: [e] });
-      else last.items.push(e);
-    }
-    return g;
-  }, [visibleEntries]);
 
   if (entries === undefined || summary === null) return <ContactLedgerSkeleton />;
   if (contact === null && entries.length === 0) {
@@ -172,83 +179,281 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
         </div>
       </div>
 
-      {entries.length > 0 && <ContactSummaryCard summary={summary} />}
-
-      <div className="flex gap-2">
-        <button
-          onClick={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GAVE" })}
-          className="flex-1 p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
-          style={{ background: "var(--acc)" }}
-        >
-          + You Gave
-        </button>
-        <button
-          onClick={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GOT" })}
-          className="flex-1 p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
-          style={{ background: "var(--green)" }}
-        >
-          + You Got
-        </button>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-card border border-line rounded-[9px] p-[3px]" role="tablist" aria-label="Contact sections">
+        {(["overview", "transactions", "reports", "activity"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className="flex-1 px-2 py-1.5 rounded-[7px] text-[11.5px] font-semibold cursor-pointer border-none capitalize"
+            style={{ background: tab === t ? "var(--acc)" : "transparent", color: tab === t ? "#fff" : "var(--mut)" }}
+          >
+            {t === "activity" ? "Activity" : t}
+          </button>
+        ))}
       </div>
 
-      {entries.length > 0 && (
-        <Link
-          href={`/lending/statement/${participantId}`}
-          className="flex items-center justify-center gap-1.5 h-9 rounded-[10px] border border-line2 bg-card text-[12px] font-semibold text-mut no-underline hover:bg-accsoft"
-        >
-          📄 View / share statement
-        </Link>
-      )}
-
-      {contact && (
+      {tab === "overview" && (
         <>
-          <button
-            onClick={() => setEditingDetails((v) => !v)}
-            className="text-[11.5px] font-semibold text-acc bg-transparent border-none cursor-pointer self-start p-0 hover:underline"
-          >
-            {editingDetails ? "Hide contact details" : "Edit contact details"}
-          </button>
-          {editingDetails && (
-            <ContactDetailsForm
-              contact={contact}
-              onSaved={() => {
-                setEditingDetails(false);
-                showToast("Contact updated");
-                void load();
-              }}
-            />
+          {entries.length > 0 && <ContactSummaryCard summary={summary} />}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GAVE" })}
+              className="p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
+              style={{ background: "var(--acc)" }}
+            >
+              + You gave
+            </button>
+            <button
+              onClick={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GOT" })}
+              className="p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
+              style={{ background: "var(--green)" }}
+            >
+              + You got
+            </button>
+            {Math.abs(net) > 100 && (
+              <button
+                onClick={() =>
+                  openModal("lendingEntry", {
+                    participantId,
+                    participantName: name,
+                    loanKind: net > 0 ? "GOT" : "GAVE",
+                    dupAmountRupees: String(Math.round(Math.abs(net) / 100)),
+                  })
+                }
+                className="p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border border-line2 bg-card text-acc hover:bg-accsoft"
+              >
+                ✓ Mark as paid
+              </button>
+            )}
+            {entries.length > 0 && (
+              <Link
+                href={`/lending/statement/${participantId}`}
+                className="p-2.5 rounded-[10px] text-[12.5px] font-bold text-center border border-line2 bg-card text-ink no-underline hover:bg-accsoft flex items-center justify-center gap-1.5"
+              >
+                📄 Export statement
+              </Link>
+            )}
+          </div>
+
+          {contact && (
+            <>
+              <button
+                onClick={() => setEditingDetails((v) => !v)}
+                className="text-[11.5px] font-semibold text-acc bg-transparent border-none cursor-pointer self-start p-0 hover:underline"
+              >
+                {editingDetails ? "Hide contact details" : "Edit contact details"}
+              </button>
+              {editingDetails && (
+                <ContactDetailsForm
+                  contact={contact}
+                  onSaved={() => {
+                    setEditingDetails(false);
+                    showToast("Contact updated");
+                    void load();
+                  }}
+                />
+              )}
+            </>
           )}
         </>
       )}
 
-      <div className="flex flex-col gap-0.5">
-        <div className="label-caps">Entries</div>
-        {entries.length === 0 && <EmptyState icon="📭" title="No entries yet" detail="Record what you gave or got to start the timeline." compact />}
-        {groups.map((g) => (
-          <div key={g.label}>
-            <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mt-3 mb-1 uppercase first:mt-0">{g.label}</div>
-            {g.items.map((e) => (
-              <EntryRow
-                key={e.id}
-                entry={e}
-                contactName={name}
-                balanceAfter={balanceAfterById.get(e.id) ?? 0}
-                onEdit={() => setEditingId(e.id)}
-                onDeleted={() => setEntries((es) => es?.filter((x) => x.id !== e.id))}
-                onRestored={() => void load()}
-              />
-            ))}
+      {tab === "transactions" && (
+        <TransactionsTab
+          entries={entries}
+          balanceAfterById={balanceAfterById}
+          search={search}
+          setSearch={setSearch}
+          visibleCount={visibleCount}
+          setVisibleCount={setVisibleCount}
+          contactName={name}
+          onEdit={setEditingId}
+          onDeleted={(id) => setEntries((es) => es?.filter((x) => x.id !== id))}
+          onRestored={() => void load()}
+          onQuickAdd={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GAVE" })}
+        />
+      )}
+
+      {tab === "reports" && <ReportsTab entries={entries} summary={summary} />}
+
+      {tab === "activity" && <ActivityTab loading={activityLoading} events={activity} />}
+    </div>
+  );
+}
+
+// ─────────── Transactions tab ───────────
+
+function TransactionsTab({
+  entries,
+  balanceAfterById,
+  search,
+  setSearch,
+  visibleCount,
+  setVisibleCount,
+  contactName,
+  onEdit,
+  onDeleted,
+  onRestored,
+  onQuickAdd,
+}: {
+  entries: LoanEntryRow[];
+  balanceAfterById: Map<string, number>;
+  search: string;
+  setSearch: (s: string) => void;
+  visibleCount: number;
+  setVisibleCount: (fn: (c: number) => number) => void;
+  contactName: string;
+  onEdit: (id: string) => void;
+  onDeleted: (id: string) => void;
+  onRestored: () => void;
+  onQuickAdd: () => void;
+}) {
+  if (entries.length === 0) {
+    return (
+      <EmptyState
+        icon="📭"
+        title="No transactions yet"
+        detail="Record money you gave or got from this person and it builds a running ledger — you never do the maths yourself."
+        action={
+          <button onClick={onQuickAdd} className="btn-primary">
+            Record money you gave
+          </button>
+        }
+      />
+    );
+  }
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? entries.filter((e) => (e.reason ?? "").toLowerCase().includes(q) || (e.notes ?? "").toLowerCase().includes(q) || String(e.amount / 100).includes(q))
+    : entries;
+  const visible = filtered.slice(0, visibleCount);
+  const groups: { label: string; items: LoanEntryRow[] }[] = [];
+  for (const e of visible) {
+    const label = `${MONTH_NAMES[Number(e.ymd.slice(5, 7)) - 1]} ${e.ymd.slice(0, 4)}`;
+    const last = groups[groups.length - 1];
+    if (last?.label === label) last.items.push(e);
+    else groups.push({ label, items: [e] });
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <input
+        className="field mb-1"
+        type="search"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by reason, note, or amount"
+        aria-label="Search transactions"
+      />
+      {filtered.length === 0 && <div className="text-[12.5px] text-mut2 py-4 text-center">No transactions match “{search}”.</div>}
+      {groups.map((g) => (
+        <div key={g.label}>
+          <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mt-3 mb-1 uppercase first:mt-0">{g.label}</div>
+          {g.items.map((e) => (
+            <EntryRow
+              key={e.id}
+              entry={e}
+              contactName={contactName}
+              balanceAfter={balanceAfterById.get(e.id) ?? 0}
+              onEdit={() => onEdit(e.id)}
+              onDeleted={() => onDeleted(e.id)}
+              onRestored={onRestored}
+            />
+          ))}
+        </div>
+      ))}
+      {visible.length < filtered.length && (
+        <button
+          onClick={() => setVisibleCount((c) => c + TIMELINE_PAGE_SIZE)}
+          className="mt-2 p-2 rounded-lg text-[12px] font-semibold text-acc text-center cursor-pointer border border-line2 bg-transparent hover:bg-accsoft"
+        >
+          Show more ({filtered.length - visible.length} older)
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─────────── Reports tab ───────────
+
+function ReportsTab({ entries, summary }: { entries: LoanEntryRow[]; summary: ContactSummary | null }) {
+  if (entries.length === 0 || !summary) {
+    return <EmptyState icon="📊" title="No report yet" detail="Once you record money given or received, the monthly totals and settlement summary show up here." compact />;
+  }
+  const m = new Map<string, { given: number; received: number }>();
+  for (const e of entries) {
+    const key = e.ymd.slice(0, 7);
+    const cur = m.get(key) ?? { given: 0, received: 0 };
+    if (e.kind === "GAVE") cur.given += e.amount;
+    else cur.received += e.amount;
+    m.set(key, cur);
+  }
+  const months = [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 bg-accsoft rounded-[10px] px-3.5 py-3">
+        <ReportStat label="Total given" value={formatPaise(summary.totalLent)} />
+        <ReportStat label="Total received" value={formatPaise(summary.totalRecovered)} />
+        <ReportStat label="Net" value={formatPaise(summary.totalLent - summary.totalRecovered)} />
+        <ReportStat label="Received so far" value={summary.totalLent > 0 ? `${summary.recoveryPercentage}%` : "—"} />
+      </div>
+      <div className="card p-[var(--pad)]">
+        <div className="label-caps mb-1">Monthly breakdown</div>
+        <div className="flex text-[10.5px] font-bold text-mut2 uppercase tracking-wide py-1">
+          <span className="flex-1">Month</span>
+          <span className="w-[84px] text-right">You gave</span>
+          <span className="w-[84px] text-right">You got</span>
+        </div>
+        {months.map(([key, v]) => (
+          <div key={key} className="flex items-center py-1.5 border-t border-line text-[12.5px]">
+            <span className="flex-1 font-semibold">{MONTH_NAMES[Number(key.slice(5, 7)) - 1]} {key.slice(0, 4)}</span>
+            <span className="w-[84px] text-right tabular-nums" style={{ color: "var(--acc)" }}>{v.given > 0 ? formatPaise(v.given) : "—"}</span>
+            <span className="w-[84px] text-right tabular-nums text-green">{v.received > 0 ? formatPaise(v.received) : "—"}</span>
           </div>
         ))}
-        {visibleEntries.length < entries.length && (
-          <button
-            onClick={() => setVisibleCount((c) => c + TIMELINE_PAGE_SIZE)}
-            className="mt-2 p-2 rounded-lg text-[12px] font-semibold text-acc text-center cursor-pointer border border-line2 bg-transparent hover:bg-accsoft"
-          >
-            Show more ({entries.length - visibleEntries.length} older)
-          </button>
-        )}
       </div>
+    </div>
+  );
+}
+
+function ReportStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold text-mut tracking-[.04em] uppercase">{label}</div>
+      <div className="text-[13px] font-bold text-ink mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+// ─────────── Activity tab ───────────
+
+function ActivityTab({ loading, events }: { loading: boolean; events: TimelineEvent[] | null }) {
+  if (loading || events === null) {
+    return (
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="skeleton h-[46px] rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+  if (events.length === 0) {
+    return <EmptyState icon="📋" title="No activity yet" detail="Changes to this contact — entries added, edited, deleted or restored — will show up here." compact />;
+  }
+  return (
+    <div className="flex flex-col">
+      {events.map((ev) => (
+        <div key={ev.activityId} className="flex items-start gap-3 py-2.5 border-t border-line first:border-t-0">
+          <span className="w-8 h-8 rounded-[10px] grid place-items-center text-[14px] flex-none bg-accsoft" aria-hidden>{ev.icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12.5px] font-semibold truncate">{ev.summary}</div>
+            {ev.detail && <div className="text-[11.5px] text-mut2 truncate">{ev.detail}</div>}
+          </div>
+          <time className="text-[10.5px] text-mut2 flex-none" dateTime={ev.ts}>{friendlyDay(ev.ts.slice(0, 10))}</time>
+        </div>
+      ))}
     </div>
   );
 }

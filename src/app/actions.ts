@@ -80,7 +80,7 @@ import {
   ConflictError,
 } from "@/server/services/transactions";
 import { unifiedSearch } from "@/server/services/search";
-import { activityPage, entityHistory, importPreview } from "@/server/services/activity";
+import { activityPage, contactActivity, entityHistory, importPreview } from "@/server/services/activity";
 import { ACTIVITY_CHIPS, type ActivityChip } from "@/lib/activity";
 import { parsePeriod } from "@/lib/period";
 import type { ColumnMapping } from "@/lib/import/types";
@@ -551,6 +551,12 @@ export async function activityPageAction(input: {
     end: range.end,
     cursor: typeof input.cursor === "string" && input.cursor ? input.cursor : undefined,
   });
+}
+
+/** A lending contact's own activity feed (v2.0 contact tabs). */
+export async function contactActivityAction(participantId: string) {
+  const user = await requireUser();
+  return contactActivity(user.id, participantId);
 }
 
 export async function entityHistoryAction(entityId: string) {
