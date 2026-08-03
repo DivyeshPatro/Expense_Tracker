@@ -5,6 +5,7 @@
 import ExcelJS from "exceljs";
 import { toYMD } from "@/lib/dates";
 import { prisma } from "../db";
+import { contactStatement } from "./lending";
 import { BACKUP_FORMAT_VERSION } from "./backup-restore";
 import { toBackupCard } from "./card-backup";
 
@@ -122,4 +123,55 @@ export async function exportFullJson(userId: string) {
       (_k, v) => (typeof v === "bigint" ? Number(v) : v)
     )
   );
+}
+
+/** Excel account statement for one lending contact (v2.1 Lending 2.0 #58).
+ * Mirrors the printable statement: meta header, opening balance, the You
+ * Gave / You Got entries with a running balance, totals and closing. Amounts
+ * are written as rupees (paise ÷ 100) with a currency number format. */
+export async function exportContactStatementXlsx(
+  userId: string,
+  participantId: string,
+  range: { from?: string; to?: string } = {}
+): Promise<{ buffer: Buffer; name: string }> {
+  const st = await contactStatement(userId, participantId, range);
+  const R = (paise: number) => paise / 100;
+  const periodLabel =
+    st.from && st.to ? `${st.from} to ${st.to}` : st.from ? `Since ${st.from}` : st.to ? `Up to ${st.to}` : "All time";
+
+  const book = new ExcelJS.Workbook();
+  const sheet = book.addWorksheet("Statement");
+
+  sheet.addRow(["Ledgerly — Account Statement"]).font = { bold: true, size: 14 };
+  sheet.addRow(["Contact", st.contact.name]);
+  if (st.contact.phone) sheet.addRow(["Phone", st.contact.phone]);
+  sheet.addRow(["Period", periodLabel]);
+  sheet.addRow(["Generated", toYMD(new Date())]);
+  sheet.addRow([]);
+  sheet.addRow(["Opening balance", "", "", "", R(st.openingBalancePaise)]);
+  sheet.addRow([]);
+
+  const head = sheet.addRow(["Date", "Details", "You Gave", "You Got", "Balance"]);
+  head.font = { bold: true };
+  for (const e of st.entries) {
+    sheet.addRow([
+      e.occurredAt,
+      e.reason ?? (e.kind === "GAVE" ? "You gave" : "You got"),
+      e.kind === "GAVE" ? R(e.amount) : null,
+      e.kind === "GOT" ? R(e.amount) : null,
+      R(e.balanceAfterPaise),
+    ]);
+  }
+  sheet.addRow(["Totals", "", R(st.totalGavePaise), R(st.totalGotPaise), ""]).font = { bold: true };
+  sheet.addRow([]);
+  sheet.addRow(["Closing balance", "", "", "", R(st.closingBalancePaise)]).font = { bold: true };
+
+  sheet.getColumn(1).width = 16;
+  sheet.getColumn(2).width = 34;
+  for (const c of [3, 4, 5]) {
+    sheet.getColumn(c).width = 14;
+    sheet.getColumn(c).numFmt = "#,##0.00";
+  }
+
+  return { buffer: Buffer.from(await book.xlsx.writeBuffer()), name: st.contact.name };
 }

@@ -35,9 +35,16 @@ export default async function StatementPage({
   const netLabel = net > 0 ? "owes you" : net < 0 ? "you owe" : "settled up";
   const netColor = net > 0 ? "var(--green)" : net < 0 ? "var(--red)" : "var(--mut2)";
 
+  const shareText = [
+    `Ledgerly statement — ${st.contact.name}`,
+    `Period: ${periodLabel}`,
+    `You gave: ${formatPaise(st.totalGavePaise)} · You got: ${formatPaise(st.totalGotPaise)}`,
+    `Closing balance: ${net < 0 ? "−" : ""}${formatPaise(Math.abs(net))} — ${st.contact.name.split(" ")[0]} ${netLabel}`,
+  ].join("\n");
+
   return (
     <div className="max-w-[760px] mx-auto flex flex-col gap-3.5">
-      <StatementActions participantId={participantId} from={from} to={to} today={todayYMD(now)} />
+      <StatementActions participantId={participantId} from={from} to={to} today={todayYMD(now)} shareText={shareText} />
 
       <div className="card p-[clamp(18px,5vw,32px)] print:shadow-none print:border-0" id="statement-sheet">
         {/* Brand + title */}

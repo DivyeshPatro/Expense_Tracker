@@ -15,16 +15,38 @@ export function StatementActions({
   from,
   to,
   today,
+  shareText,
 }: {
   participantId: string;
   from?: string;
   to?: string;
   today: string;
+  shareText: string;
 }) {
   const router = useRouter();
   const [f, setF] = useState(from ?? "");
   const [t, setT] = useState(to ?? "");
   const [open, setOpen] = useState(false);
+
+  const rangeQs = (() => {
+    const qs = new URLSearchParams();
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    const s = qs.toString();
+    return s ? `&${s}` : "";
+  })();
+
+  async function share() {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: "Ledgerly statement", text: shareText });
+        return;
+      } catch {
+        // user cancelled or share failed — fall through to WhatsApp
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener");
+  }
 
   function apply() {
     const qs = new URLSearchParams();
@@ -62,10 +84,22 @@ export function StatementActions({
         </button>
         <div className="flex-1" />
         <button
+          onClick={share}
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold text-ink cursor-pointer hover:bg-accsoft"
+        >
+          🔗 Share
+        </button>
+        <a
+          href={`/api/export/lending-statement?participant=${participantId}${rangeQs}`}
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold text-ink no-underline cursor-pointer hover:bg-accsoft"
+        >
+          ⬇ Excel
+        </a>
+        <button
           onClick={() => window.print()}
           className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-[12.5px] font-bold text-white cursor-pointer border-none bg-acc hover:brightness-108"
         >
-          🖨 Print / Save as PDF
+          🖨 PDF
         </button>
       </div>
 
