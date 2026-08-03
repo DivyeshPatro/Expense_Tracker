@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { clearTransactionsAction, deleteMyAccountAction } from "@/app/actions";
 import { authClient } from "@/lib/auth-client";
+import { BottomSheet } from "@/components/shell/bottom-sheet";
 import { useUI } from "@/components/shell/ui-context";
 
 export function DangerZone() {
@@ -67,26 +68,24 @@ function ConfirmModal({ mode, close }: { mode: "clear" | "delete"; close: () => 
   }
 
   return (
-    <div onClick={close} className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "var(--ov)" }}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[420px] bg-card rounded-2xl p-6 flex flex-col gap-3" style={{ boxShadow: "var(--shLg)" }}>
-        <div className="text-base font-extrabold">{title}</div>
-        <div className="text-[12.5px] text-mut">{desc}</div>
-        <div>
-          <label className="label-caps" htmlFor="confirm-word">Type {word} to confirm</label>
-          <input id="confirm-word" aria-label="Confirmation text" className="field" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
-        </div>
-        {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
-        <div className="flex gap-2 justify-end">
-          <button onClick={close} className="px-3.5 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold cursor-pointer">Cancel</button>
-          <button
-            disabled={text !== word || busy}
-            onClick={confirm}
-            className="px-3.5 py-2 rounded-lg bg-red text-white text-[12.5px] font-bold cursor-pointer border-none disabled:opacity-50"
-          >
-            {busy ? "…" : title}
-          </button>
-        </div>
+    <BottomSheet onClose={close} label={title} maxWidth={420} className="gap-3">
+      <div className="text-base font-extrabold">{title}</div>
+      <div className="text-[12.5px] text-mut">{desc}</div>
+      <div>
+        <label className="label-caps" htmlFor="confirm-word">Type {word} to confirm</label>
+        <input id="confirm-word" aria-label="Confirmation text" className="field" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
       </div>
-    </div>
+      {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
+      <div className="flex gap-2 justify-end">
+        <button onClick={close} className="px-3.5 py-2 rounded-lg border border-line2 bg-card text-[12.5px] font-semibold cursor-pointer">Cancel</button>
+        <button
+          disabled={text !== word || busy}
+          onClick={confirm}
+          className="px-3.5 py-2 rounded-lg bg-red text-white text-[12.5px] font-bold cursor-pointer border-none disabled:opacity-50"
+        >
+          {busy ? "…" : title}
+        </button>
+      </div>
+    </BottomSheet>
   );
 }

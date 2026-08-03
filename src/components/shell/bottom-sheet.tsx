@@ -43,7 +43,11 @@ export function BottomSheet({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   useEffect(() => {
-    ref.current?.focus();
+    const el = ref.current;
+    if (!el) return;
+    // Respect a control that autoFocused inside (e.g. a confirm input);
+    // otherwise take focus onto the panel so the trap has an anchor.
+    if (!el.contains(document.activeElement)) el.focus();
   }, []);
 
   return createPortal(
@@ -55,7 +59,7 @@ export function BottomSheet({
         aria-modal="true"
         aria-label={label}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none ${className}`}
+        className={`w-full max-h-[92dvh] md:max-h-[88vh] overflow-y-auto bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none ${className}`}
         style={{ animation: "rise .22s ease", paddingBottom: "calc(16px + env(safe-area-inset-bottom))", boxShadow: "var(--shLg)", maxWidth: `min(100%, ${maxWidth}px)` }}
       >
         <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-3 md:hidden" />
