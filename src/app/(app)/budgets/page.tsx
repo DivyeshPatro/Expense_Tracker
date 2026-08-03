@@ -1,5 +1,6 @@
 import { OpenModalButton } from "@/components/shell/buttons";
 import { EmptyState } from "@/components/shell/empty-state";
+import { ModuleActivity } from "@/components/shell/module-activity";
 import { BudgetActions } from "./budget-actions";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
@@ -43,6 +44,7 @@ export default async function BudgetsPage() {
           </div>
         ))}
       </div>
+      <ModuleActivity entities={["Budget"]} />
     </div>
   );
 }

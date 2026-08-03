@@ -13,6 +13,7 @@
 // under this same route rather than new top-level nav items.
 
 import { OpenModalButton } from "@/components/shell/buttons";
+import { ModuleActivity } from "@/components/shell/module-activity";
 import { StatCard } from "@/components/shell/stat-card";
 import { CardRecoveryDashboard } from "@/components/lending/card-recovery";
 import { LendingReports } from "@/components/lending/lending-reports";
@@ -97,6 +98,7 @@ export default async function LendingPage() {
           </div>
         }
       />
+      <ModuleActivity entities={["LoanEntry"]} />
     </div>
   );
 }

@@ -95,7 +95,7 @@ const toRowInput = (r: {
 
 export async function activityPage(
   userId: string,
-  opts: { chip?: ActivityChip; entityId?: string; start?: Date; end?: Date; cursor?: string; limit?: number } = {}
+  opts: { chip?: ActivityChip; entityId?: string; entities?: string[]; start?: Date; end?: Date; cursor?: string; limit?: number } = {}
 ): Promise<ActivityPageResult> {
   // Phase 2.5: `limit` caps both source fetches AND the emitted page — the
   // dashboard's Recent Activity panel needs 6 events, not 50. Chain
@@ -103,13 +103,19 @@ export async function activityPage(
   // so fetching limit+1 per stream still detects "has more" correctly.
   const pageSize = Math.min(opts.limit ?? PAGE_SIZE, PAGE_SIZE);
   const cursor = parseCursor(opts.cursor);
-  const entities = opts.chip && opts.chip !== "all" ? new Set(CHIP_ENTITIES[opts.chip]) : null;
+  // `entities` (explicit type list) wins over `chip` — the per-module Audit Log
+  // sections need e.g. just Bill (not the combined "Budgets & Bills" chip).
+  const entities = opts.entities
+    ? new Set(opts.entities)
+    : opts.chip && opts.chip !== "all"
+      ? new Set(CHIP_ENTITIES[opts.chip])
+      : null;
   const allow = ACTIVITY_ALLOWLIST.filter((a) => !entities || entities.has(a.entity));
   const timeRange =
     opts.start || opts.end ? { ...(opts.start ? { gte: opts.start } : {}), ...(opts.end ? { lt: opts.end } : {}) } : undefined;
-  // budget-exceeded rides the "all" and "budgets" chips; an entity filter is
-  // a transaction-history view, where notifications don't belong
-  const includeNotifs = !opts.entityId && (!opts.chip || opts.chip === "all" || opts.chip === "budgets");
+  // budget-exceeded rides the "all" and "budgets" chips; an entity filter (id
+  // or explicit type list) is a scoped view where those notifications don't belong
+  const includeNotifs = !opts.entityId && !opts.entities && (!opts.chip || opts.chip === "all" || opts.chip === "budgets");
 
   const [auditRows, notifRows, maps] = await Promise.all([
     prisma.auditLog.findMany({

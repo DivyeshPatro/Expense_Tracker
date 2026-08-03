@@ -2,6 +2,7 @@ import Link from "next/link";
 import { OpenModalButton } from "@/components/shell/buttons";
 import { GroupsPanel } from "@/components/shared/groups-panel";
 import { InviteButton } from "@/components/shared/invite-button";
+import { ModuleActivity } from "@/components/shell/module-activity";
 import { EmptyState } from "@/components/shell/empty-state";
 import { StatCard } from "@/components/shell/stat-card";
 import { friendlyDay, toYMD } from "@/lib/dates";
@@ -127,6 +128,7 @@ export default async function SharedPage() {
           ))}
         </section>
       </div>
+      <ModuleActivity entities={["Settlement"]} />
     </div>
   );
 }

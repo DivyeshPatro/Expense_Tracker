@@ -1,3 +1,4 @@
+import { ModuleActivity } from "@/components/shell/module-activity";
 import { prisma } from "@/server/db";
 import { queryTransactions, txTotals } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
@@ -28,18 +29,21 @@ export default async function TransactionsPage({
   ]);
 
   return (
-    <TransactionsList
-      initialRows={initialPage.rows}
-      initialHasMore={initialPage.hasMore}
-      initialTotals={initialTotals}
-      initialQ={params.q ?? ""}
-      initialTab={type ?? null}
-      initialMonth={params.month ?? null}
-      initialCategory={categoryId ? { id: categoryId, name: category?.name ?? "Category", icon: category?.icon ?? "📦" } : null}
-      initialAccount={accountId ? { id: accountId, name: account?.name ?? "Account", icon: account?.icon ?? "🏦" } : null}
-      initialBatch={batchId}
-      period={period}
-      initialOpenTransactionId={params.tx || null}
-    />
+    <div className="flex flex-col gap-3.5">
+      <TransactionsList
+        initialRows={initialPage.rows}
+        initialHasMore={initialPage.hasMore}
+        initialTotals={initialTotals}
+        initialQ={params.q ?? ""}
+        initialTab={type ?? null}
+        initialMonth={params.month ?? null}
+        initialCategory={categoryId ? { id: categoryId, name: category?.name ?? "Category", icon: category?.icon ?? "📦" } : null}
+        initialAccount={accountId ? { id: accountId, name: account?.name ?? "Account", icon: account?.icon ?? "🏦" } : null}
+        initialBatch={batchId}
+        period={period}
+        initialOpenTransactionId={params.tx || null}
+      />
+      <ModuleActivity entities={["Transaction"]} />
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { OpenModalButton, PayBillButton } from "@/components/shell/buttons";
 import { EmptyState } from "@/components/shell/empty-state";
+import { ModuleActivity } from "@/components/shell/module-activity";
 import { BillActions, MobileBills, PaidBills } from "./bill-actions";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
@@ -53,6 +54,7 @@ export default async function BillsPage() {
       )}
 
       <PaidBills bills={paidBills} />
+      <ModuleActivity entities={["Bill"]} />
     </div>
   );
 }
