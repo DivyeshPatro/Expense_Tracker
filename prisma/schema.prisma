@@ -406,6 +406,7 @@ model Group {
   transactions Transaction[]
   invitations  Invitation[]
   categories   Category[] // group-expenses-sprint: the group's own EXPENSE category namespace
+  settlements  Settlement[] // v2.0 P3: settlements attributed to this group
 
   @@index([createdById])
 }
@@ -491,8 +492,15 @@ model Settlement {
   method        SettleMethod
   settledAt     DateTime        @default(now())
   note          String?
+  // Group Dashboard (v2.0 P3): a settlement recorded to clear a specific
+  // group's balance is attributed to it, so one group's payments never leak
+  // into another group that shares the same member. Null = a general (shared
+  // page) settlement, counted in the global per-friend balance only.
+  groupId       String?
+  group         Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   @@index([userId, settledAt(sort: Desc)])
+  @@index([groupId])
 }
 
 // ───────────────────────── Lending module (Phase 1) ─────────────────────────

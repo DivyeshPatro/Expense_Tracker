@@ -11,6 +11,8 @@ import { parsePeriod } from "@/lib/period";
 import { groupDashboard, type GroupMemberView } from "@/server/services/group-dashboard";
 import { requireUser } from "@/server/session";
 import { GroupQuickActions, type SettleTarget } from "./group-actions";
+import { SettlementHistory } from "./settlement-history";
+import { SettlementSuggestions } from "./settlement-suggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -147,50 +149,11 @@ export default async function GroupDashboardPage({
         )}
       </section>
 
-      {/* Settlements */}
-      <section className="card p-[var(--pad)] flex flex-col gap-3">
-        <h2 className="text-[13.5px] font-bold m-0">Settlements</h2>
+      {/* Smart settlement suggestions (optimal plan) */}
+      <SettlementSuggestions suggestions={g.suggestions} groupId={g.id} />
 
-        {/* Outstanding — real balances now; P3 layers the optimal-payment suggestions on top. */}
-        {settleTargets.length > 0 ? (
-          <div className="flex flex-col gap-2">
-            <div className="text-[11px] font-bold text-mut2 uppercase tracking-wide">Outstanding</div>
-            {settleTargets.map((t) => {
-              const owesYou = t.net > 0;
-              return (
-                <div key={t.participantId} className="flex items-center justify-between gap-2 text-[12.5px]">
-                  <span className="font-semibold">{t.name}</span>
-                  <span className="font-bold" style={{ color: owesYou ? "var(--green)" : "var(--red)" }}>
-                    {owesYou ? "owes you " : "you owe "}
-                    {formatPaise(Math.abs(t.net))}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-[12.5px] text-mut2">Everyone is settled up. 🎉</div>
-        )}
-
-        <div className="border-t border-line pt-2.5">
-          <div className="text-[11px] font-bold text-mut2 uppercase tracking-wide mb-2">Recent settlements</div>
-          {g.settlements.length === 0 ? (
-            <EmptyState icon="🤝" title="No settlements yet" detail="When someone pays you back, record it and it shows here." compact />
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              {g.settlements.slice(0, 8).map((s) => (
-                <div key={s.id} className="flex justify-between text-xs py-0.5">
-                  <span className="text-mut">
-                    {s.direction === "TO_OWNER" ? `${s.participantName} paid you ` : `You paid ${s.participantName} `}
-                    {formatPaise(s.amount)} · {s.method}
-                  </span>
-                  <span className="text-mut2">{friendlyDay(s.settledAt.slice(0, 10))}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
+      {/* Settlement history — month-grouped, with delete */}
+      <SettlementHistory settlements={g.settlements} />
 
       {/* Activity — scoped to this group's transactions + settlements */}
       <ModuleActivity entityIds={g.activityEntityIds} />
@@ -202,6 +165,8 @@ function MemberRow({ m }: { m: GroupMemberView }) {
   const state = balanceState(m.net);
   const stateColor = state === "owes-you" ? "var(--green)" : state === "you-owe" ? "var(--red)" : "var(--mut2)";
   const isYou = m.participantId === null;
+  // "Partial" — still outstanding despite past settlements (v2.0 P3, F4).
+  const partial = !isYou && state !== "settled" && m.hasSettlements;
   const stateLabel = isYou
     ? m.net > 0
       ? "you are owed"
@@ -219,9 +184,14 @@ function MemberRow({ m }: { m: GroupMemberView }) {
         {m.initial}
       </span>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-bold truncate">
+        <div className="text-[13px] font-bold truncate flex items-center gap-1.5">
           {m.name}
-          {isYou && <span className="text-mut2 font-semibold"> · owner</span>}
+          {isYou && <span className="text-mut2 font-semibold">· owner</span>}
+          {partial && (
+            <span className="text-[9.5px] font-bold px-1.5 py-[1px] rounded-full" style={{ background: "var(--amberSoft)", color: "var(--amber)" }}>
+              PARTIAL
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-mut2 tabular-nums">
           paid {formatPaise(m.paid)} · share {formatPaise(m.owes)} · {m.contributionPct}%
@@ -231,7 +201,9 @@ function MemberRow({ m }: { m: GroupMemberView }) {
         <div className="text-[13px] font-extrabold tabular-nums" style={{ color: stateColor }}>
           {state === "settled" ? "—" : formatPaise(Math.abs(m.net))}
         </div>
-        <div className="text-[10.5px] font-semibold" style={{ color: stateColor }}>{stateLabel}</div>
+        <div className="text-[10.5px] font-semibold" style={{ color: stateColor }}>
+          {partial ? `partly settled · ${stateLabel}` : stateLabel}
+        </div>
       </div>
     </div>
   );

@@ -25,6 +25,12 @@ export interface ModalPrefill {
   participantName?: string;
   direction?: "TO_OWNER" | "FROM_OWNER";
   amountRupees?: string;
+  /** The member's current net before this settlement (paise; >0 they owe you,
+   *  <0 you owe them) — powers the settle form's live before/after preview. */
+  settleNetPaise?: number;
+  /** Attributes the settlement to a group (from the Group Dashboard) so it
+   *  clears that group's balance, not a shared one. */
+  settleGroupId?: string;
   transactionId?: string;
   intentId?: string;
   loanKind?: "GAVE" | "GOT"; // lending-module-phase1

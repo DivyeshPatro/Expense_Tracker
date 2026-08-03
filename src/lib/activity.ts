@@ -82,7 +82,7 @@ export interface LabelMaps {
 
 export const ACTIVITY_ALLOWLIST: { entity: string; actions: string[] }[] = [
   { entity: "Transaction", actions: ["create", "update", "soft-delete", "restore"] },
-  { entity: "Settlement", actions: ["create"] },
+  { entity: "Settlement", actions: ["create", "delete"] },
   { entity: "Category", actions: ["create", "rename", "kind-change", "delete"] },
   { entity: "Account", actions: ["create"] },
   { entity: "Budget", actions: ["create", "update"] },
@@ -424,6 +424,23 @@ const REGISTRY: Record<string, Present> = {
       detail: amount === undefined ? undefined : formatPaise(amount),
       diff: [],
       effects: [], // settlements adjust friend balances, not account balances
+    };
+  },
+  "Settlement:delete": (row, maps) => {
+    const p = asSnap(row.before);
+    const name = participantLabel(p.participantId, maps);
+    const amount = num(p.amount);
+    const toOwner = str(p.direction) === "TO_OWNER";
+    return {
+      ...base(row),
+      verb: "unsettled",
+      entityType: "settlement",
+      entityLabel: toOwner ? `${name} paid you` : `You paid ${name}`,
+      icon: "🗑",
+      summary: "Removed a settlement",
+      detail: amount === undefined ? undefined : formatPaise(amount),
+      diff: [],
+      effects: [],
     };
   },
   "LoanEntry:create": (row, maps) => {

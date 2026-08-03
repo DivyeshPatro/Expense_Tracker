@@ -7,6 +7,7 @@ import { currentMonthKey, monthName, shiftMonthKey, toYMD } from "@/lib/dates";
 import {
   computeMemberBalances,
   computeOverview,
+  computeSuggestions,
   groupCategoryTotals,
   groupMonthlyTrend,
   sumSpent,
@@ -14,6 +15,7 @@ import {
   type GroupExpenseRow,
   type GroupSettlementRow,
   type MemberBalance,
+  type SettlementSuggestion,
 } from "@/lib/group-dashboard";
 import type { Period } from "@/lib/period";
 import { prisma } from "../db";
@@ -25,6 +27,15 @@ export interface GroupMemberView extends MemberBalance {
   initial: string;
   color: string;
   role: "OWNER" | "ADMIN" | "MEMBER";
+  /** Has at least one recorded settlement — drives the "Partial" status when a
+   *  balance remains outstanding despite past settlements. */
+  hasSettlements: boolean;
+}
+
+/** A suggestion plus, for the You-involved ones, the exact prefill the settle
+ *  modal needs — so the client stays dumb and there's one settle flow. */
+export interface GroupSuggestion extends SettlementSuggestion {
+  settle?: { participantId: string; participantName: string; direction: "TO_OWNER" | "FROM_OWNER"; amountRupees: string; netPaise: number };
 }
 
 export interface GroupDashboardData {
@@ -38,12 +49,14 @@ export interface GroupDashboardData {
   youAreOwed: number;
   youOwe: number;
   members: GroupMemberView[];
+  /** Optimal payment plan (fewest transfers) from the same balances. */
+  suggestions: GroupSuggestion[];
   spending: {
     totalSpent: number;
     categories: CategorySlice[];
     trend: { key: string; label: string; total: number }[];
   };
-  settlements: { id: string; participantName: string; direction: "TO_OWNER" | "FROM_OWNER"; amount: number; method: string; settledAt: string }[];
+  settlements: { id: string; participantName: string; direction: "TO_OWNER" | "FROM_OWNER"; amount: number; method: string; note: string | null; settledAt: string }[];
   /** Audit entity ids (this group's transactions + settlements) for the
    *  per-group ModuleActivity feed. */
   activityEntityIds: string[];
@@ -72,8 +85,11 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
       },
       orderBy: { occurredAt: "desc" },
     }),
+    // Only settlements attributed to THIS group — a settlement recorded for
+    // another group (or a general shared-page one) never leaks in, even when
+    // the same friend is a member of both.
     prisma.settlement.findMany({
-      where: { userId, participant: { groupMembers: { some: { groupId } } } },
+      where: { userId, groupId },
       include: { participant: { select: { displayName: true } } },
       orderBy: { settledAt: "desc" },
     }),
@@ -100,6 +116,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
 
   const memberIds = group.members.map((m) => m.participantId);
   const { members: balances, youNet, youAreOwed, youOwe } = computeMemberBalances(expenses, settleRows, memberIds);
+  const settledPids = new Set(settleRows.map((s) => s.participantId));
 
   // attach display meta; the owner ("You") card leads
   const meta = new Map(
@@ -109,7 +126,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     ])
   );
   const members: GroupMemberView[] = balances.map((b) => {
-    if (b.participantId === null) return { ...b, name: "You", initial: "Y", color: "var(--acc)", role: "OWNER" as const };
+    if (b.participantId === null) return { ...b, name: "You", initial: "Y", color: "var(--acc)", role: "OWNER" as const, hasSettlements: false };
     const m = meta.get(b.participantId);
     return {
       ...b,
@@ -117,6 +134,27 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
       initial: m?.initial ?? "?",
       color: m?.color ?? "#94a3b8",
       role: m?.role ?? "MEMBER",
+      hasSettlements: settledPids.has(b.participantId),
+    };
+  });
+
+  // Optimal payment plan from the same member balances (single source of truth).
+  // You-involved rows carry the exact settle prefill (incl. the live-preview net).
+  const netByPid = new Map(members.map((m) => [m.participantId, m.net]));
+  const suggestions: GroupSuggestion[] = computeSuggestions(members.map((m) => ({ participantId: m.participantId, net: m.net, name: m.name }))).map((s) => {
+    if (!s.involvesYou) return s;
+    const youPay = s.fromId === "me";
+    const participantId = youPay ? s.toId : s.fromId;
+    const participantName = youPay ? s.toName : s.fromName;
+    return {
+      ...s,
+      settle: {
+        participantId,
+        participantName,
+        direction: youPay ? "FROM_OWNER" : "TO_OWNER",
+        amountRupees: String(Math.round(s.amount / 100)),
+        netPaise: netByPid.get(participantId) ?? 0,
+      },
     };
   });
 
@@ -142,6 +180,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     youAreOwed,
     youOwe,
     members,
+    suggestions,
     spending: {
       totalSpent: sumSpent(periodExpenses),
       categories: groupCategoryTotals(periodExpenses),
@@ -153,6 +192,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
       direction: s.direction,
       amount: Number(s.amount),
       method: s.method,
+      note: s.note,
       settledAt: s.settledAt.toISOString(),
     })),
     activityEntityIds: [...txs.map((t) => t.id), ...settlements.map((s) => s.id)],

@@ -6,6 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { currentMonthKey, istNoon } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
 import { groupDashboard } from "./group-dashboard";
+import { deleteSettlement } from "./shared";
 import { prisma } from "../db";
 
 const EMAIL = "group-dash-test@ledgerly.app";
@@ -60,7 +61,7 @@ describe("groupDashboard", () => {
     // You paid ₹900 split 3 ways; Karan paid ₹600 split 3 ways; Priya settled ₹100.
     await groupExpense(90000, null, [{ pid: null, owed: 30000 }, { pid: karanId, owed: 30000 }, { pid: priyaId, owed: 30000 }], food.id);
     await groupExpense(60000, karanId, [{ pid: null, owed: 20000 }, { pid: karanId, owed: 20000 }, { pid: priyaId, owed: 20000 }], food.id);
-    await prisma.settlement.create({ data: { userId, participantId: priyaId, direction: "TO_OWNER", amount: 10000, method: "UPI" } });
+    await prisma.settlement.create({ data: { userId, participantId: priyaId, groupId, direction: "TO_OWNER", amount: 10000, method: "UPI" } });
   });
 
   it("computes overview totals and last activity", async () => {
@@ -106,5 +107,47 @@ describe("groupDashboard", () => {
 
   it("hides the group from a user who can't see it", async () => {
     expect(await groupDashboard(otherUserId, groupId, parsePeriod({ p: "all" }))).toBeNull();
+  });
+
+  it("surfaces the optimal settlement suggestions with You-side settle prefills", async () => {
+    const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    // You +₹300, Karan +₹100, Priya +₹200 → both members pay You.
+    expect(g.suggestions).toHaveLength(2);
+    expect(g.suggestions.every((s) => s.involvesYou && s.toName === "You")).toBe(true);
+    const karan = g.suggestions.find((s) => s.fromName === "Karan")!;
+    expect(karan.settle).toMatchObject({ direction: "TO_OWNER", amountRupees: "100", netPaise: 10000 });
+  });
+
+  it("flags a member with settlement history as partially settled", async () => {
+    const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    expect(g.members.find((m) => m.name === "Priya")!.hasSettlements).toBe(true); // Priya settled ₹100
+    expect(g.members.find((m) => m.name === "Karan")!.hasSettlements).toBe(false);
+  });
+
+  it("a general (non-group) settlement with a group member does NOT leak into the group", async () => {
+    const before = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    const karanBefore = before.members.find((m) => m.name === "Karan")!.net;
+    // A settlement recorded with no groupId (e.g. from the shared page).
+    const leak = await prisma.settlement.create({ data: { userId, participantId: karanId, direction: "TO_OWNER", amount: 5000, method: "CASH" } });
+
+    const after = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    expect(after.members.find((m) => m.name === "Karan")!.net).toBe(karanBefore); // unchanged
+    expect(after.settlements.some((s) => s.id === leak.id)).toBe(false);
+
+    await prisma.settlement.delete({ where: { id: leak.id } });
+  });
+
+  it("deleteSettlement reverses the balance and audits it (run last — mutates state)", async () => {
+    const before = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    const settlementId = before.settlements[0].id;
+    await deleteSettlement(userId, settlementId);
+
+    const after = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    // Priya's ₹100 settlement gone → her net returns to the full ₹300 owed.
+    expect(after.members.find((m) => m.name === "Priya")!.net).toBe(30000);
+    expect(after.settlements).toHaveLength(0);
+
+    const auditRow = await prisma.auditLog.findFirst({ where: { userId, entity: "Settlement", action: "delete", entityId: settlementId } });
+    expect(auditRow).not.toBeNull();
   });
 });

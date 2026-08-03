@@ -46,7 +46,7 @@ import {
   setRecurringRulePaused,
   updateRecurringRule,
 } from "@/server/services/recurring";
-import { addParticipant, recordSettlement } from "@/server/services/shared";
+import { addParticipant, deleteSettlement, recordSettlement } from "@/server/services/shared";
 import {
   addLoanEntry,
   deleteLoanEntry,
@@ -261,7 +261,18 @@ export async function settleAction(input: unknown): Promise<ActionResult> {
   try {
     const user = await requireUser();
     const data = settlementSchema.parse(input);
-    await recordSettlement(user.id, data.participantId, data.direction, data.amount, data.method, data.note);
+    await recordSettlement(user.id, data.participantId, data.direction, data.amount, data.method, data.note, data.groupId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteSettlementAction(settlementId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    await deleteSettlement(user.id, settlementId);
     refresh();
     return { ok: true };
   } catch (e) {

@@ -108,6 +108,8 @@ export const settlementSchema = z.object({
   amount: paiseFromRupees,
   method: z.enum(["UPI", "CASH", "BANK"]),
   note: z.string().trim().max(200).optional(),
+  // v2.0 P3: attributes the settlement to a group (validated server-side).
+  groupId: z.string().min(1).optional(),
 });
 
 export const budgetSchema = z.object({

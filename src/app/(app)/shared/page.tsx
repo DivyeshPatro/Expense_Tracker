@@ -85,6 +85,7 @@ export default async function SharedPage() {
                       participantName: m.name,
                       direction: m.net > 0 ? "TO_OWNER" : "FROM_OWNER",
                       amountRupees: String(Math.round(Math.abs(m.net) / 100)),
+                      settleNetPaise: m.net,
                     }}
                     className="px-[11px] py-1.5 rounded-lg border border-line2 text-[11.5px] font-semibold text-acc cursor-pointer bg-transparent hover:bg-accsoft"
                   >

@@ -442,3 +442,21 @@ describe("credit card events (Cards Activity)", () => {
     expect(presentAuditRow(cardRow({ action: "reveal-denied", after: { last4: "9999" } }), maps)).toBeNull();
   });
 });
+
+describe("settlement delete event (P3)", () => {
+  it("presents a removed settlement from the before-snapshot", () => {
+    const ev = presentAuditRow(
+      row({
+        entity: "Settlement",
+        entityId: "st1",
+        action: "delete",
+        before: { participantId: "par-karan", direction: "TO_OWNER", amount: 50000, method: "UPI" },
+      }),
+      maps
+    )!;
+    expect(ev.summary).toBe("Removed a settlement");
+    expect(ev.entityType).toBe("settlement");
+    expect(ev.entityLabel).toBe("Karan paid you");
+    expect(ev.detail).toBe("₹500");
+  });
+});

@@ -3,6 +3,7 @@ import {
   balanceState,
   computeMemberBalances,
   computeOverview,
+  computeSuggestions,
   groupCategoryTotals,
   groupMonthlyTrend,
   sumSpent,
@@ -138,5 +139,45 @@ describe("helpers", () => {
     expect(ymdInRange("2026-07-10", "2026-07-01", "2026-07-31")).toBe(true);
     expect(ymdInRange("2026-08-01", "2026-07-01", "2026-07-31")).toBe(false);
     expect(ymdInRange("2026-07-10", null, null)).toBe(true);
+  });
+});
+
+describe("computeSuggestions (reuses the settlement engine)", () => {
+  it("routes members' debts to the owner when You are the sole creditor", () => {
+    // You owed +₹300; Karan owes you ₹100; Priya owes you ₹200.
+    const s = computeSuggestions([
+      { participantId: null, net: 30000, name: "You" },
+      { participantId: "karan", net: 10000, name: "Karan" },
+      { participantId: "priya", net: 20000, name: "Priya" },
+    ]);
+    expect(s).toHaveLength(2);
+    expect(s.every((x) => x.involvesYou)).toBe(true);
+    expect(s.every((x) => x.toId === "me" && x.toName === "You")).toBe(true);
+    expect(s.map((x) => [x.fromName, x.amount]).sort()).toEqual([["Karan", 10000], ["Priya", 20000]]);
+  });
+
+  it("produces member-to-member hops in the optimal plan (Splitwise-style)", () => {
+    // You owe overall −₹1200; you owe Rohan ₹3400; Karan/Priya owe you ₹1300/₹900.
+    const s = computeSuggestions([
+      { participantId: null, net: -120000, name: "You" },
+      { participantId: "rohan", net: -340000, name: "Rohan" },
+      { participantId: "karan", net: 130000, name: "Karan" },
+      { participantId: "priya", net: 90000, name: "Priya" },
+    ]);
+    // Everyone pays the single creditor (Rohan): Karan→Rohan, You→Rohan, Priya→Rohan.
+    expect(s).toHaveLength(3);
+    expect(s.every((x) => x.toName === "Rohan")).toBe(true);
+    expect(s.filter((x) => x.involvesYou)).toHaveLength(1); // only You→Rohan is recordable
+    expect(s.filter((x) => !x.involvesYou)).toHaveLength(2); // Karan→Rohan, Priya→Rohan
+    expect(s.reduce((t, x) => t + x.amount, 0)).toBe(340000); // clears Rohan exactly
+  });
+
+  it("no suggestions when everyone is within the settled threshold", () => {
+    expect(
+      computeSuggestions([
+        { participantId: null, net: 50, name: "You" },
+        { participantId: "karan", net: -50, name: "Karan" },
+      ])
+    ).toEqual([]);
   });
 });

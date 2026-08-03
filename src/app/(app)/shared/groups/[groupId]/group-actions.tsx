@@ -51,6 +51,8 @@ export function GroupQuickActions({
               participantName: t.name,
               direction: t.net > 0 ? "TO_OWNER" : "FROM_OWNER",
               amountRupees: String(Math.round(Math.abs(t.net) / 100)),
+              settleNetPaise: t.net,
+              settleGroupId: groupId,
             });
           }}
           onClose={() => setSheet(null)}

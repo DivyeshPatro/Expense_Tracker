@@ -119,15 +119,42 @@ export async function recordSettlement(
   direction: "TO_OWNER" | "FROM_OWNER",
   amount: number,
   method: "UPI" | "CASH" | "BANK",
-  note?: string
+  note?: string,
+  groupId?: string
 ) {
   await prisma.$transaction(async (db) => {
     const p = await db.participant.findFirst({ where: { id: participantId, ownerId: userId } });
     if (!p) throw new Error("Participant not found");
+    // A group-scoped settlement must belong to a group the caller owns and that
+    // this participant is actually in — otherwise it's ignored (recorded as a
+    // general settlement) rather than silently mis-attributed.
+    let scopedGroupId: string | null = null;
+    if (groupId) {
+      const member = await db.groupMember.findUnique({ where: { groupId_participantId: { groupId, participantId } }, include: { group: { select: { createdById: true } } } });
+      if (member && member.group.createdById === userId) scopedGroupId = groupId;
+    }
     const s = await db.settlement.create({
-      data: { userId, participantId, direction, amount, method, note: note || null },
+      data: { userId, participantId, direction, amount, method, note: note || null, groupId: scopedGroupId },
     });
     await audit(db, userId, "create", "Settlement", s.id, undefined, s);
+  });
+}
+
+/** Delete a settlement (v2.0 P3). Balances are read live from the settlement
+ * rows, so removing the row automatically reverses its effect — no separate
+ * balance write, single source of truth. Audited like every other mutation. */
+export async function deleteSettlement(userId: string, settlementId: string) {
+  await prisma.$transaction(async (db) => {
+    const s = await db.settlement.findFirst({ where: { id: settlementId, userId }, include: { participant: { select: { displayName: true } } } });
+    if (!s) throw new Error("Settlement not found");
+    await db.settlement.delete({ where: { id: settlementId } });
+    await audit(db, userId, "delete", "Settlement", settlementId, {
+      participantId: s.participantId,
+      participantName: s.participant.displayName,
+      direction: s.direction,
+      amount: Number(s.amount),
+      method: s.method,
+    }, undefined);
   });
 }
 

@@ -470,6 +470,7 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
   const { run, busy, error } = useSubmit();
   const [amount, setAmount] = useState(prefill?.amountRupees ?? "");
   const [method, setMethod] = useState<"UPI" | "CASH" | "BANK">("UPI");
+  const [note, setNote] = useState("");
   const direction = prefill?.direction ?? "TO_OWNER";
   const name = prefill?.participantName ?? "";
   return (
@@ -480,12 +481,16 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
       <Field label="AMOUNT (₹)">
         <AmountInput value={amount} onChange={setAmount} autoFocus />
       </Field>
+      {prefill?.settleNetPaise !== undefined && (
+        <SettlePreview netPaise={prefill.settleNetPaise} amountRupees={amount} direction={direction} name={name} />
+      )}
       <Field label="METHOD">
         <div className="flex gap-1.5">
           {(["UPI", "CASH", "BANK"] as const).map((m) => (
             <button
               key={m}
               onClick={() => setMethod(m)}
+              aria-pressed={method === m}
               className="px-[15px] py-[7px] rounded-lg text-[12.5px] font-semibold cursor-pointer border-none"
               style={{ background: method === m ? "var(--acc)" : "var(--accSoft)", color: method === m ? "#fff" : "var(--acc)" }}
             >
@@ -494,14 +499,76 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
           ))}
         </div>
       </Field>
+      <Field label="NOTE (OPTIONAL)">
+        <input className="field" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. UPI ref, cash in hand" />
+      </Field>
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
         color="var(--green)"
-        onClick={() => run(() => settleAction({ participantId: prefill?.participantId, direction, amount, method }), "Settlement recorded")}
+        onClick={() => run(() => settleAction({ participantId: prefill?.participantId, direction, amount, method, note: note.trim() || undefined, groupId: prefill?.settleGroupId }), "Settlement recorded")}
       >
         Record settlement
       </SubmitButton>
+    </div>
+  );
+}
+
+/** Live before/after balance for the settle form (v2.0 P3). Recomputes as the
+ * amount is typed: current balance → this payment → projected balance → status.
+ * Convention matches recordSettlement: TO_OWNER (they pay you) reduces net,
+ * FROM_OWNER (you pay them) raises it toward zero. */
+function SettlePreview({
+  netPaise,
+  amountRupees,
+  direction,
+  name,
+}: {
+  netPaise: number;
+  amountRupees: string;
+  direction: "TO_OWNER" | "FROM_OWNER";
+  name: string;
+}) {
+  const THRESHOLD = 100;
+  const pay = Math.round((parseFloat(amountRupees) || 0) * 100);
+  const projected = direction === "TO_OWNER" ? netPaise - pay : netPaise + pay;
+  const label = (n: number) => {
+    if (Math.abs(n) <= THRESHOLD) return { text: "Settled up", tone: "var(--mut2)" };
+    if (n > 0) return { text: `${name} owes you ${formatPaise(n)}`, tone: "var(--green)" };
+    return { text: `You owe ${name} ${formatPaise(-n)}`, tone: "var(--red)" };
+  };
+  const cur = label(netPaise);
+  const proj = label(projected);
+  const settledNow = Math.abs(projected) <= THRESHOLD;
+  const overshoot = Math.sign(projected) !== 0 && Math.sign(projected) !== Math.sign(netPaise) && !settledNow;
+  const Arrow = () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mut2)" strokeWidth="2.5" strokeLinecap="round" aria-hidden className="mx-auto">
+      <path d="M12 5v14M6 13l6 6 6-6" />
+    </svg>
+  );
+  return (
+    <div className="rounded-[10px] border border-line2 bg-side px-3 py-2.5 flex flex-col gap-1.5" aria-live="polite">
+      <Line label="Current" value={cur.text} tone={cur.tone} />
+      <Arrow />
+      <Line label={direction === "TO_OWNER" ? "Receive" : "Pay"} value={pay > 0 ? formatPaise(pay) : "—"} tone="var(--ink)" />
+      <Arrow />
+      <Line
+        label={settledNow ? "Status" : "Remaining"}
+        value={settledNow ? "Settled ✅" : overshoot ? `${proj.text} (overpaid)` : proj.text}
+        tone={settledNow ? "var(--green)" : proj.tone}
+        strong
+      />
+    </div>
+  );
+}
+
+function Line({ label, value, tone, strong }: { label: string; value: string; tone: string; strong?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-mut2">{label}</span>
+      <span className={`text-[12.5px] ${strong ? "font-extrabold" : "font-semibold"} tabular-nums text-right`} style={{ color: tone }}>
+        {value}
+      </span>
     </div>
   );
 }
