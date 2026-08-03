@@ -339,14 +339,36 @@ function BottomNav({ badge }: { badge: number }) {
   const params = useSearchParams().toString();
   const { needsAttention } = useOffline();
   const showDot = badge > 0 || needsAttention.length > 0;
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // scroll-hint: fade only the edge that still has hidden items, so the
+  // horizontal row reads as scrollable without a permanent gradient lying
+  // about content that isn't there.
+  const [edges, setEdges] = useState({ left: false, right: true });
+  const onScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    setEdges({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+  };
+  useEffect(() => {
+    onScroll();
+    window.addEventListener("resize", onScroll);
+    return () => window.removeEventListener("resize", onScroll);
+  }, []);
+  // keep the active tab in view when you land on a section deep in the row
+  useEffect(() => {
+    scrollerRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [pathname]);
+
   return (
     <>
       <nav
-        className="md:hidden fixed bottom-0 inset-x-0 border-t border-line flex z-40 pb-[env(safe-area-inset-bottom)] print:hidden"
+        className="md:hidden fixed bottom-0 inset-x-0 border-t border-line z-40 pb-[env(safe-area-inset-bottom)] print:hidden"
         style={{ background: "color-mix(in oklab, var(--card) 84%, transparent)", backdropFilter: "saturate(1.4) blur(18px)", WebkitBackdropFilter: "saturate(1.4) blur(18px)" }}
       >
-        {/* Every section, scrollable — the row slides horizontally. */}
-        <div className="flex-1 min-w-0 flex overflow-x-auto no-scrollbar" style={{ scrollbarWidth: "none" }}>
+        {/* Every section, in one horizontally-scrollable row. The center FAB
+            floats fully above the bar, so the row keeps the full width and no
+            tab hides behind it. */}
+        <div ref={scrollerRef} onScroll={onScroll} className="flex overflow-x-auto no-scrollbar px-1.5" style={{ scrollbarWidth: "none" }}>
           {ALL_NAV.map((n) => {
             const active = pathname.startsWith(n.href);
             return (
@@ -355,27 +377,33 @@ function BottomNav({ badge }: { badge: number }) {
                 href={withPeriod(n.href, params)}
                 onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
                 aria-current={active ? "page" : undefined}
-                className="flex-none w-[62px] flex flex-col items-center gap-[3px] pt-2.5 pb-1.5 min-h-[54px] box-border no-underline relative"
-                style={{ color: active ? "var(--acc)" : "var(--mut2)" }}
+                className="flex-none w-[64px] flex flex-col items-center gap-[3px] pt-2 pb-1.5 min-h-[56px] box-border no-underline"
               >
-                <NavGlyph id={n.icon} />
-                <span className="text-[9.5px] font-semibold">{n.label}</span>
-                {showDot && n.href === "/settings" && <span className="absolute top-1.5 right-2.5 w-2 h-2 rounded-full bg-red" />}
+                <span
+                  className="relative grid place-items-center w-[46px] h-[26px] rounded-full transition-colors"
+                  style={{ background: active ? "var(--accSoft2)" : "transparent", color: active ? "var(--acc)" : "var(--mut2)" }}
+                >
+                  <NavGlyph id={n.icon} />
+                  {showDot && n.href === "/settings" && <span className="absolute top-0 right-2 w-2 h-2 rounded-full bg-red ring-2 ring-[var(--card)]" />}
+                </span>
+                <span className="text-[9.5px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
               </Link>
             );
           })}
         </div>
-        {/* Quick-add pinned on the right, raised above the bar. */}
-        <div className="flex-none w-[70px] grid place-items-center relative border-l border-line">
-          <button
-            aria-label="Quick add"
-            onClick={() => setQuickAddOpen(true)}
-            className="w-[54px] h-[54px] rounded-full text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform absolute left-1/2 -translate-x-1/2 -top-[28px]"
-            style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 12px 26px -8px color-mix(in oklab, var(--acc) 72%, transparent), 0 0 0 5px var(--bg)" }}
-          >
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-          </button>
-        </div>
+        {/* Edge scroll-hints — each fades in only while that side has more. */}
+        <div className="pointer-events-none absolute top-0 bottom-0 left-0 w-7 transition-opacity" style={{ background: "linear-gradient(to right, var(--card), transparent)", opacity: edges.left ? 1 : 0 }} />
+        <div className="pointer-events-none absolute top-0 bottom-0 right-0 w-7 transition-opacity" style={{ background: "linear-gradient(to left, var(--card), transparent)", opacity: edges.right ? 1 : 0 }} />
+        {/* Center quick-add, docked above the bar with a ground ring so it reads
+            as raised, not floating loose. */}
+        <button
+          aria-label="Quick add"
+          onClick={() => setQuickAddOpen(true)}
+          className="absolute left-1/2 -translate-x-1/2 -top-[46px] w-[58px] h-[58px] rounded-full text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform"
+          style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 14px 28px -8px color-mix(in oklab, var(--acc) 72%, transparent), 0 0 0 6px var(--bg)" }}
+        >
+          <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
       </nav>
       {quickAddOpen && <QuickAddSheet close={() => setQuickAddOpen(false)} />}
     </>
