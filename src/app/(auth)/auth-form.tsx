@@ -66,7 +66,7 @@ export function AuthForm({
           <div className="flex items-center justify-between">
             <div className="label-caps">PASSWORD</div>
             {mode === "sign-in" && (
-              <a href="/forgot-password" className="text-[11.5px] font-semibold text-acc">
+              <a href="/forgot-password" className="text-[11.5px] font-semibold text-acc inline-flex items-center min-h-[24px]">
                 Forgot password?
               </a>
             )}
