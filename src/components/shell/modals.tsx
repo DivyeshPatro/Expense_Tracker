@@ -1054,12 +1054,41 @@ function FriendForm() {
 
 function GroupForm() {
   const { refData } = useUI();
-  // #69: groups are a Shared feature — offer Shared friends, not Lending-only contacts.
-  const sharedParticipants = refData.participants.filter((p) => !p.lendingOnly);
   const { run, busy, error } = useSubmit();
   const [name, setName] = useState("");
   const [parts, setParts] = useState<Record<string, boolean>>({});
-  const selected = sharedParticipants.filter((p) => parts[p.id]);
+  // #68: create a new member without leaving the group flow. As in the lending
+  // form, refData isn't refreshed by a server action mid-session, so a contact
+  // created here is tracked locally and merged into the member chips (and
+  // auto-selected) — the group create just needs the participant id.
+  const [justCreated, setJustCreated] = useState<{ id: string; name: string }[]>([]);
+  const [addingMember, setAddingMember] = useState(false);
+
+  // #69: groups are a Shared feature — offer Shared friends, not Lending-only
+  // contacts, plus anyone just created inline. If a revalidate has since folded
+  // the new contact into refData, drop the local copy so it isn't listed twice.
+  const shared = refData.participants.filter((p) => !p.lendingOnly);
+  const members = [
+    ...shared,
+    ...justCreated
+      .filter((p) => !shared.some((s) => s.id === p.id))
+      .map((p) => ({ id: p.id, name: p.name, initial: p.name.charAt(0).toUpperCase(), color: "var(--acc)", lendingOnly: false })),
+  ];
+  const selected = members.filter((p) => parts[p.id]);
+
+  if (addingMember) {
+    return (
+      <NewContactInline
+        onCreated={(p) => {
+          setJustCreated((list) => [...list, p]);
+          setParts((s) => ({ ...s, [p.id]: true }));
+          setAddingMember(false);
+        }}
+        onCancel={() => setAddingMember(false)}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <Field label="GROUP NAME">
@@ -1067,8 +1096,7 @@ function GroupForm() {
       </Field>
       <Field label="MEMBERS">
         <div className="flex gap-2 flex-wrap mt-1.5">
-          {sharedParticipants.length === 0 && <div className="text-[12.5px] text-mut2">Add a friend first.</div>}
-          {sharedParticipants.map((p) => {
+          {members.map((p) => {
             const on = !!parts[p.id];
             return (
               <button
@@ -1088,6 +1116,14 @@ function GroupForm() {
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => setAddingMember(true)}
+            className="flex items-center gap-[6px] px-3 py-[7px] rounded-full text-[12.5px] font-semibold cursor-pointer border border-dashed"
+            style={{ borderColor: "var(--line2)", color: "var(--mut)", background: "transparent" }}
+          >
+            <span className="text-[14px] leading-none">＋</span> New member
+          </button>
         </div>
       </Field>
       <ErrorNote error={error} />
