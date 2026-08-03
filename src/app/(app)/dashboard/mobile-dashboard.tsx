@@ -6,12 +6,12 @@
 // secondary detail behind expandable cards. Quick actions open the same modals
 // the rest of the app uses.
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPaise } from "@/lib/money";
 import { useUI } from "@/components/shell/ui-context";
-import { useFocusTrap } from "@/components/shell/use-focus-trap";
+import { BottomSheet } from "@/components/shell/bottom-sheet";
+import { Toggle } from "@/components/shell/toggle";
 
 // Widgets the user can show/hide (stored on the device). The hero standing
 // card and quick actions are the dashboard's spine and stay put; everything
@@ -262,52 +262,29 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
 }
 
 function CustomizeSheet({ hidden, onToggle, close }: { hidden: Set<string>; onToggle: (k: string) => void; close: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(ref, true);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [close]);
-  useEffect(() => ref.current?.focus(), []);
-  return createPortal(
-    <div onClick={close} className="fixed inset-0 z-[55] flex items-end md:items-center md:justify-center" style={{ background: "var(--ov)" }}>
-      <div
-        ref={ref}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Customize dashboard"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full md:max-w-[420px] bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none"
-        style={{ animation: "rise .22s ease", paddingBottom: "calc(16px + env(safe-area-inset-bottom))", boxShadow: "var(--shLg)" }}
-      >
-        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-3 md:hidden" />
-        <h2 className="text-[13px] font-bold text-mut2 uppercase tracking-wide px-1 pb-1">Show on dashboard</h2>
-        <p className="text-[11.5px] text-mut2 px-1 pb-2">Your standing and quick actions always stay. Pick what else appears.</p>
-        <div className="flex flex-col">
-          {TOGGLEABLE.map((w) => {
-            const on = !hidden.has(w.key);
-            return (
-              <button
-                key={w.key}
-                role="switch"
-                aria-checked={on}
-                onClick={() => onToggle(w.key)}
-                className="flex items-center justify-between gap-3 min-h-[48px] px-2 py-2 rounded-[11px] cursor-pointer bg-transparent border-none hover:bg-accsoft text-left"
-              >
-                <span className="text-[13.5px] font-semibold text-ink">{w.label}</span>
-                <span className="w-[42px] h-[25px] rounded-full flex-none relative transition-colors" style={{ background: on ? "var(--acc)" : "var(--line2)" }}>
-                  <span className="absolute top-[3px] w-[19px] h-[19px] rounded-full bg-white transition-all" style={{ left: on ? "20px" : "3px", boxShadow: "var(--sh)" }} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <button onClick={close} className="mt-3 h-11 rounded-[12px] text-[13.5px] font-bold text-white bg-acc border-none cursor-pointer">Done</button>
+  return (
+    <BottomSheet onClose={close} label="Customize dashboard" maxWidth={420}>
+      <h2 className="text-[13px] font-bold text-mut2 uppercase tracking-wide px-1 pb-1">Show on dashboard</h2>
+      <p className="text-[11.5px] text-mut2 px-1 pb-2">Your standing and quick actions always stay. Pick what else appears.</p>
+      <div className="flex flex-col">
+        {TOGGLEABLE.map((w) => {
+          const on = !hidden.has(w.key);
+          return (
+            <button
+              key={w.key}
+              role="switch"
+              aria-checked={on}
+              onClick={() => onToggle(w.key)}
+              className="flex items-center justify-between gap-3 min-h-[48px] px-2 py-2 rounded-[11px] cursor-pointer bg-transparent border-none hover:bg-accsoft text-left"
+            >
+              <span className="text-[13.5px] font-semibold text-ink">{w.label}</span>
+              <Toggle on={on} />
+            </button>
+          );
+        })}
       </div>
-    </div>,
-    document.body,
+      <button onClick={close} className="mt-3 h-11 rounded-[12px] text-[13.5px] font-bold text-white bg-acc border-none cursor-pointer">Done</button>
+    </BottomSheet>
   );
 }
 

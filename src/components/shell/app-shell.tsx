@@ -16,7 +16,7 @@ import { OfflineProvider, useOffline } from "./offline-context";
 import { NotificationBell } from "./notifications";
 import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type RefData } from "./ui-context";
-import { useFocusTrap } from "./use-focus-trap";
+import { BottomSheet } from "./bottom-sheet";
 
 const NAV = [
   { href: "/dashboard", icon: "◧", label: "Dashboard" },
@@ -320,19 +320,6 @@ function NavGlyph({ id }: { id: string }) {
   );
 }
 
-/** Escape-to-close for the sheet-style overlays below — MoreSheet and QuickAddSheet
- * both own local open/close state (not the global modal/palette in useUI()), so the
- * shell's global keydown handler can't reach them; each sheet arms its own listener. */
-function useEscapeToClose(close: () => void) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
-}
-
 function BottomNav({ badge }: { badge: number }) {
   const pathname = usePathname();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -412,10 +399,6 @@ function BottomNav({ badge }: { badge: number }) {
 
 function QuickAddSheet({ close }: { close: () => void }) {
   const { openModal } = useUI();
-  const panelRef = useRef<HTMLDivElement>(null);
-  useEscapeToClose(close);
-  useFocusTrap(panelRef, true);
-  useEffect(() => panelRef.current?.focus(), []);
   const items = [
     { icon: "🧾", label: "Expense", act: () => openModal("exp") },
     { icon: "💰", label: "Income", act: () => openModal("inc") },
@@ -424,33 +407,21 @@ function QuickAddSheet({ close }: { close: () => void }) {
     { icon: "🤝", label: "Lending entry", act: () => openModal("lendingEntry") },
   ];
   return (
-    <div onClick={close} className="fixed inset-0 z-[55] flex items-end" style={{ background: "var(--ov)" }}>
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Quick add"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full bg-card rounded-t-[18px] px-[18px] pt-[18px] pb-7 box-border flex flex-col gap-1 outline-none"
-        style={{ animation: "rise .22s ease", paddingBottom: "calc(28px + env(safe-area-inset-bottom))" }}
-      >
-        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-2.5" />
-        {items.map((i) => (
-          <button
-            key={i.label}
-            onClick={() => {
-              close();
-              i.act();
-            }}
-            className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold text-left cursor-pointer bg-transparent border-none text-ink hover:bg-accsoft w-full min-h-[44px]"
-          >
-            <span className="w-5 text-center text-[16px]">{i.icon}</span>
-            {i.label}
-          </button>
-        ))}
-      </div>
-    </div>
+    <BottomSheet onClose={close} label="Quick add" className="gap-1">
+      {items.map((i) => (
+        <button
+          key={i.label}
+          onClick={() => {
+            close();
+            i.act();
+          }}
+          className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold text-left cursor-pointer bg-transparent border-none text-ink hover:bg-accsoft w-full min-h-[44px]"
+        >
+          <span className="w-5 text-center text-[16px]">{i.icon}</span>
+          {i.label}
+        </button>
+      ))}
+    </BottomSheet>
   );
 }
 

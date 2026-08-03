@@ -8,6 +8,7 @@
 // place.
 
 import { formatPaise } from "@/lib/money";
+import { Toggle } from "./toggle";
 
 export interface SplitEditorState {
   split: boolean;
@@ -87,11 +88,9 @@ export function SplitEditor({
 
   return (
     <div className="border-t border-line pt-3">
-      <button onClick={() => setSplit(!split)} className="flex items-center justify-between cursor-pointer w-full bg-transparent border-none p-0">
+      <button onClick={() => setSplit(!split)} role="switch" aria-checked={split} className="flex items-center justify-between cursor-pointer w-full bg-transparent border-none p-0">
         <span className="text-[13px] font-bold text-ink">👥 Split with friends</span>
-        <span className="w-10 h-[23px] rounded-full relative transition-colors" style={{ background: split ? "var(--acc)" : "var(--line2)" }}>
-          <span className="w-[17px] h-[17px] rounded-full bg-white absolute top-[3px] transition-all shadow" style={{ left: split ? 20 : 3 }} />
-        </span>
+        <Toggle on={split} />
       </button>
       {split && (
         <div className="flex flex-col gap-3 mt-3">

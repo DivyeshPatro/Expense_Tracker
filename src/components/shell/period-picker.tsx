@@ -21,6 +21,7 @@ import { createPortal } from "react-dom";
 import { currentMonthKey, MONTH_NAMES, shiftMonthKey, todayYMD } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
+import { BottomSheet } from "./bottom-sheet";
 import { DateField } from "./date-field";
 import { useFocusTrap } from "./use-focus-trap";
 
@@ -154,9 +155,9 @@ function PeriodControl({
             <PanelBody period={period} sel={sel} currentKey={currentKey} today={today} onNavigate={navigate} desktop />
           </DesktopPopover>
         ) : (
-          <MobileSheet close={() => setOpen(false)}>
+          <BottomSheet onClose={() => setOpen(false)} label="Select period">
             <PanelBody period={period} sel={sel} currentKey={currentKey} today={today} onNavigate={navigate} />
-          </MobileSheet>
+          </BottomSheet>
         ))}
     </div>
   );
@@ -221,38 +222,6 @@ function DesktopPopover({ triggerRef, close, children }: { triggerRef: React.Ref
       style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? "visible" : "hidden", boxShadow: "var(--shLg)", animation: "pop .16s ease" }}
     >
       {children}
-    </div>,
-    document.body,
-  );
-}
-
-// ── mobile: bottom sheet ──────────────────────────────────────────────────
-
-function MobileSheet({ close, children }: { close: () => void; children: React.ReactNode }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(panelRef, true);
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") close();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [close]);
-
-  return createPortal(
-    <div onClick={close} className="fixed inset-0 z-[55] flex items-end md:hidden" style={{ background: "var(--ov)" }}>
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Select period"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full bg-card rounded-t-[20px] px-4 pt-3 box-border flex flex-col outline-none"
-        style={{ animation: "rise .22s ease", paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}
-      >
-        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-3" />
-        {children}
-      </div>
     </div>,
     document.body,
   );

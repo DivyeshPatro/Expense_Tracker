@@ -8,13 +8,12 @@
 // stays.
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { deleteBillAction, payBillAction, updateBillAction } from "@/app/actions";
+import { BottomSheet } from "@/components/shell/bottom-sheet";
 import { DateField } from "@/components/shell/date-field";
 import { AmountInput, ErrorNote, Field } from "@/components/shell/form-primitives";
 import { useUI } from "@/components/shell/ui-context";
-import { useFocusTrap } from "@/components/shell/use-focus-trap";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
 import { billUrgencyBackground, billUrgencyColor } from "@/lib/urgency";
@@ -102,42 +101,12 @@ function MobileBillRow({ bill }: { bill: BillView }) {
   );
 }
 
-/** Bottom sheet on mobile, centred dialog on desktop — the actions for one bill. */
-function Sheet({ label, close, children }: { label: string; close: () => void; children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(ref, true);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [close]);
-  useEffect(() => ref.current?.focus(), []);
-  return createPortal(
-    <div onClick={close} className="fixed inset-0 z-[55] flex items-end md:items-center md:justify-center" style={{ background: "var(--ov)" }}>
-      <div
-        ref={ref}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full md:max-w-[440px] bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none"
-        style={{ animation: "rise .22s ease", paddingBottom: "calc(16px + env(safe-area-inset-bottom))", boxShadow: "var(--shLg)" }}
-      >
-        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-3 md:hidden" />
-        {children}
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
 function BillSheet({ bill, close }: { bill: BillView; close: () => void }) {
   const [view, setView] = useState<"actions" | "edit" | "confirm">("actions");
   const { busy, run } = useBillAction();
 
   return (
-    <Sheet label={`${bill.name} options`} close={close}>
+    <BottomSheet onClose={close} label={`${bill.name} options`}>
       {/* Header — the bill at a glance, shared across every view. */}
       <div className="flex items-center gap-3 pb-3">
         <span className="w-[44px] h-[44px] rounded-xl grid place-items-center text-[18px] flex-none" style={{ background: soft(bill.color) }}>{bill.icon}</span>
@@ -197,7 +166,7 @@ function BillSheet({ bill, close }: { bill: BillView; close: () => void }) {
           </div>
         </div>
       )}
-    </Sheet>
+    </BottomSheet>
   );
 }
 
