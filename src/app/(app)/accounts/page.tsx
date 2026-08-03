@@ -1,4 +1,5 @@
 import { OpenModalButton } from "@/components/shell/buttons";
+import { EmptyState } from "@/components/shell/empty-state";
 import { AccountCardActions, ArchivedAccounts } from "./account-actions";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
@@ -33,6 +34,16 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         <OpenModalButton type="tr" className="btn-primary">⇄ Transfer money</OpenModalButton>
       </div>
       <div className="flex flex-wrap gap-3.5">
+        {accounts.length === 0 && (
+          <div className="card flex-[1_1_100%] px-4 py-1.5">
+            <EmptyState
+              icon="🏦"
+              title="Add your accounts and wallets"
+              detail="Track balances across your bank, cash, and UPI wallets so every expense knows where the money came from."
+              action={<OpenModalButton type="account" className="btn-primary">Add your first account</OpenModalButton>}
+            />
+          </div>
+        )}
         {accounts.map((a) => (
           <div key={a.id} className="card flex-[1_1_220px] p-[var(--pad)]">
             <div className="flex items-center gap-2.5">

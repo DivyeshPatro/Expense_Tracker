@@ -20,7 +20,12 @@ export default async function BudgetsPage() {
       </div>
       <div className="card p-[var(--pad)] flex flex-col gap-[18px]">
         {budgets.length === 0 && (
-          <EmptyState icon="◔" title="No budgets yet" detail="Create one to keep a category in check." />
+          <EmptyState
+            icon="◔"
+            title="Set a monthly limit, spend with confidence"
+            detail="Pick a category and a monthly cap — Ledgerly tracks your spending against it and warns you before you go over."
+            action={<OpenModalButton type="budget" className="btn-primary">Set your first budget</OpenModalButton>}
+          />
         )}
         {budgets.map((b) => (
           <div key={b.id}>

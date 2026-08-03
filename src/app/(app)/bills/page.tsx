@@ -22,7 +22,12 @@ export default async function BillsPage() {
 
       {bills.length === 0 && (
         <div className="card px-4 py-1.5">
-          <EmptyState icon="🧾" title="No bills tracked yet" detail="Add rent, electricity, subscriptions — anything with a due date." />
+          <EmptyState
+            icon="🧾"
+            title="Never miss a due date again"
+            detail="Add your recurring bills — rent, electricity, subscriptions — and Ledgerly reminds you before each one is due."
+            action={<OpenModalButton type="bill" className="btn-primary">Add your first bill</OpenModalButton>}
+          />
         </div>
       )}
 

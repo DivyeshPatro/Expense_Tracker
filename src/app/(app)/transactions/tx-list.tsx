@@ -278,7 +278,16 @@ export function TransactionsList({
       <PendingRows />
 
       {!loading && rows.length === 0 && (
-        <EmptyState icon="🔎" title="Nothing matches" detail="Try a different search or filter." />
+        (q || tab || month || category || account || batch) ? (
+          <EmptyState icon="🔎" title="Nothing matches" detail="Try a different search, category, or date range." />
+        ) : (
+          <EmptyState
+            icon="🧾"
+            title="Track where your money goes"
+            detail="Record an expense, income, or transfer and it lands here — searchable, categorised, and reconciled across your accounts."
+            action={<button onClick={() => openModal("exp")} className="btn-primary">Add your first expense</button>}
+          />
+        )
       )}
 
       {groups.map((g) => (
