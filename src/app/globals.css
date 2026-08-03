@@ -106,6 +106,13 @@
   --color-ambersoft: var(--amberSoft);
   --breakpoint-md: 760px;
   --font-sans: var(--font-schibsted), system-ui, sans-serif;
+  /* Named radii for the most-repeated corner values — the go-forward scale so
+     new surfaces stop re-deriving arbitrary rounding. Generates rounded-sheet
+     / rounded-card / rounded-control / rounded-field. See docs/design-system.md. */
+  --radius-sheet: 20px;
+  --radius-card: 14px;
+  --radius-control: 12px;
+  --radius-field: 9px;
 }
 
 /* element defaults live in the base layer so Tailwind utilities always win */
