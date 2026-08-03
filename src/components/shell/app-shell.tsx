@@ -17,6 +17,9 @@ import { OfflineProvider, useOffline } from "./offline-context";
 import { NotificationBell } from "./notifications";
 import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type ModalPrefill, type ModalType, type RefData } from "./ui-context";
+import { useNavPrefs } from "./use-nav-prefs";
+import { NavGlyph } from "./nav-glyph";
+import { bottomNav, sidebarItems } from "@/lib/nav-prefs";
 import { BottomSheet } from "./bottom-sheet";
 
 const NAV = [
@@ -193,6 +196,12 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const params = useSearchParams().toString();
+  const { prefs } = useNavPrefs();
+  // Follow the user's navigation order + visibility (per device), keeping the
+  // sidebar's own icons/labels and the Transactions sub-tabs.
+  const items = sidebarItems(prefs)
+    .map((i) => NAV.find((n) => n.href === i.id))
+    .filter((n): n is (typeof NAV)[number] => !!n);
 
   return (
     <aside className="hidden md:flex w-[216px] flex-none border-r border-line bg-side px-3 py-5 flex-col gap-0.5 sticky top-0 h-screen box-border print:hidden">
@@ -200,7 +209,7 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
         <BrandMark size={28} />
         <div className="font-extrabold text-[15px] tracking-tight">Ledgerly</div>
       </div>
-      {NAV.map((n) => {
+      {items.map((n) => {
         const active = pathname.startsWith(n.href);
         return (
           <div key={n.href}>
@@ -280,57 +289,21 @@ function ThemeToggle() {
   );
 }
 
-// lending-module-phase1: a genuine 6th primary slot (3 left + FAB + 2 right),
-// Every section lives in the bar itself — no "More" sheet. The row scrolls
-// horizontally, with the quick-add pinned on the right so it's always reachable.
-const ALL_NAV = [
-  { href: "/dashboard", icon: "home", label: "Home" },
-  { href: "/transactions", icon: "txns", label: "Spends" },
-  // Insights (Analytics) is the Spends section's second tab (SpendInsightsTabs),
-  // not a top-level destination.
-  { href: "/lending", icon: "lending", label: "Khata" },
-  { href: "/accounts", icon: "accounts", label: "Accounts" },
-  { href: "/cards", icon: "cards", label: "Cards" },
-  { href: "/budgets", icon: "budgets", label: "Budgets" },
-  { href: "/bills", icon: "bills", label: "Bills" },
-  { href: "/shared", icon: "shared", label: "Shared" },
-  { href: "/activity", icon: "activity", label: "Audit Log" },
-  { href: "/import", icon: "import", label: "Import" },
-  { href: "/settings", icon: "settings", label: "Settings" },
-];
-
-/** Clean line icons for the bottom nav. */
-function NavGlyph({ id }: { id: string }) {
-  const p: Record<string, React.ReactNode> = {
-    home: <path d="M3 11l9-8 9 8M5 10v10h14V10" />,
-    txns: <path d="M4 6h16M4 12h16M4 18h10" />,
-    lending: <><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 12 0M17 5a3 3 0 0 1 0 6" /></>,
-    accounts: <path d="M4 10h16M4 10l8-6 8 6M6 10v9M18 10v9M4 19h16" />,
-    cards: <><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></>,
-    budgets: <><circle cx="12" cy="12" r="9" /><path d="M12 12V4M12 12l5 3" /></>,
-    bills: <path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" />,
-    shared: <><circle cx="8" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" /><path d="M2 20a6 6 0 0 1 12 0M15 15a5 5 0 0 1 6 5" /></>,
-    activity: <path d="M22 12h-4l-3 8L9 4l-3 8H2" />,
-    import: <path d="M12 3v12M8 11l4 4 4-4M4 21h16" />,
-    settings: <><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M3 12h2.5M18.5 12H21M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></>,
-    analytics: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-  };
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      {p[id]}
-    </svg>
-  );
-}
 
 function BottomNav({ badge }: { badge: number }) {
   const pathname = usePathname();
   const { openModal } = useUI();
+  const { prefs } = useNavPrefs();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const params = useSearchParams().toString();
   const { needsAttention } = useOffline();
   // Context-aware quick add: options follow the current module; null hides the
   // FAB entirely on view-only screens (Dashboard, Audit Log, Settings, Import).
   const fab = quickAddConfig(pathname, openModal);
+  // Per-device customised tab set: the first N in the bar, the rest under More.
+  const { visible, more } = bottomNav(prefs);
+  const moreActive = more.some((m) => pathname.startsWith(m.id));
   const showDot = badge > 0 || needsAttention.length > 0;
   const scrollerRef = useRef<HTMLDivElement>(null);
   // scroll-hint: fade only the edge that still has hidden items, so the
@@ -362,27 +335,44 @@ function BottomNav({ badge }: { badge: number }) {
             floats fully above the bar, so the row keeps the full width and no
             tab hides behind it. */}
         <div ref={scrollerRef} onScroll={onScroll} className="flex overflow-x-auto no-scrollbar px-1.5" style={{ scrollbarWidth: "none" }}>
-          {ALL_NAV.map((n) => {
-            const active = pathname.startsWith(n.href);
+          {visible.map((n) => {
+            const active = pathname.startsWith(n.id);
             return (
               <Link
-                key={n.href}
-                href={withPeriod(n.href, params)}
-                onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
+                key={n.id}
+                href={withPeriod(n.id, params)}
+                onClick={() => armStuckNavFallback(withPeriod(n.id, params))}
                 aria-current={active ? "page" : undefined}
-                className="flex-none w-[64px] flex flex-col items-center gap-[3px] pt-2 pb-1.5 min-h-[56px] box-border no-underline"
+                className="flex-1 min-w-[58px] flex flex-col items-center gap-[3px] pt-2 pb-1.5 min-h-[56px] box-border no-underline"
               >
                 <span
                   className="relative grid place-items-center w-[46px] h-[26px] rounded-full transition-colors"
                   style={{ background: active ? "var(--accSoft2)" : "transparent", color: active ? "var(--acc)" : "var(--mut2)" }}
                 >
                   <NavGlyph id={n.icon} />
-                  {showDot && n.href === "/settings" && <span className="absolute top-0 right-2 w-2 h-2 rounded-full bg-red ring-2 ring-[var(--card)]" />}
+                  {showDot && n.id === "/settings" && <span className="absolute top-0 right-2 w-2 h-2 rounded-full bg-red ring-2 ring-[var(--card)]" />}
                 </span>
                 <span className="text-[9.5px] font-semibold" style={{ color: active ? "var(--acc)" : "var(--mut2)" }}>{n.label}</span>
               </Link>
             );
           })}
+          {more.length > 0 && (
+            <button
+              onClick={() => setMoreOpen(true)}
+              aria-label="More sections"
+              aria-haspopup="dialog"
+              className="flex-1 min-w-[58px] flex flex-col items-center gap-[3px] pt-2 pb-1.5 min-h-[56px] box-border bg-transparent border-none cursor-pointer"
+            >
+              <span
+                className="relative grid place-items-center w-[46px] h-[26px] rounded-full transition-colors"
+                style={{ background: moreActive ? "var(--accSoft2)" : "transparent", color: moreActive ? "var(--acc)" : "var(--mut2)" }}
+              >
+                <NavGlyph id="more" />
+                {showDot && more.some((m) => m.id === "/settings") && <span className="absolute top-0 right-2 w-2 h-2 rounded-full bg-red ring-2 ring-[var(--card)]" />}
+              </span>
+              <span className="text-[9.5px] font-semibold" style={{ color: moreActive ? "var(--acc)" : "var(--mut2)" }}>More</span>
+            </button>
+          )}
         </div>
         {/* Edge scroll-hints — each fades in only while that side has more. */}
         <div className="pointer-events-none absolute top-0 bottom-0 left-0 w-7 transition-opacity" style={{ background: "linear-gradient(to right, var(--card), transparent)", opacity: edges.left ? 1 : 0 }} />
@@ -402,7 +392,38 @@ function BottomNav({ badge }: { badge: number }) {
         )}
       </nav>
       {quickAddOpen && fab && <QuickAddSheet label={fab.label} actions={fab.actions} close={() => setQuickAddOpen(false)} />}
+      {moreOpen && <MoreSheet items={more} params={params} close={() => setMoreOpen(false)} />}
     </>
+  );
+}
+
+function MoreSheet({ items, params, close }: { items: { id: string; icon: string; label: string }[]; params: string; close: () => void }) {
+  const pathname = usePathname();
+  return (
+    <BottomSheet onClose={close} label="More sections" className="gap-1">
+      <h2 className="text-[12px] font-bold text-mut2 uppercase tracking-wide px-1 pb-1">More</h2>
+      <div className="grid grid-cols-4 gap-1.5">
+        {items.map((n) => {
+          const active = pathname.startsWith(n.id);
+          return (
+            <Link
+              key={n.id}
+              href={withPeriod(n.id, params)}
+              onClick={() => {
+                armStuckNavFallback(withPeriod(n.id, params));
+                close();
+              }}
+              aria-current={active ? "page" : undefined}
+              className="flex flex-col items-center gap-1.5 py-3 rounded-[12px] no-underline border border-line2 min-h-[64px] justify-center"
+              style={{ background: active ? "var(--accSoft)" : "var(--card)", color: active ? "var(--acc)" : "var(--ink)" }}
+            >
+              <NavGlyph id={n.icon} />
+              <span className="text-[11px] font-semibold">{n.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </BottomSheet>
   );
 }
 

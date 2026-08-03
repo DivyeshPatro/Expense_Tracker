@@ -37,6 +37,17 @@ export default async function SettingsPage() {
     <div className="flex flex-col gap-4 max-w-[640px]" style={{ animation: "rise .25s ease" }}>
       <SyncCard />
 
+      <Link href="/settings/navigation" className="card p-6 flex items-center gap-3 no-underline text-ink hover:border-acc" style={{ transition: "border-color .15s" }}>
+        <span className="w-10 h-10 rounded-[11px] grid place-items-center bg-accsoft text-acc flex-none">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="13" r="3" /></svg>
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[13.5px] font-bold">Navigation</span>
+          <span className="block text-[12px] text-mut">Reorder, hide, and pin the modules in your bottom bar and sidebar.</span>
+        </span>
+        <span aria-hidden className="text-mut2 text-[18px]">›</span>
+      </Link>
+
       <section className="card p-6 flex flex-col gap-3">
         <h2 className="text-[13.5px] font-bold m-0">Appearance</h2>
         <div className="text-[12.5px] text-mut">Choose a mode and an accent. It applies everywhere and sticks to this device.</div>
