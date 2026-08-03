@@ -782,6 +782,8 @@ function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail
 
 function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDetail; prefill?: Record<string, unknown>; onCancel: () => void }) {
   const { refData } = useUI();
+  // #69: split among Shared friends only (Lending-only contacts excluded).
+  const sharedParticipants = refData.participants.filter((p) => !p.lendingOnly);
   const { enqueueMutation } = useOffline();
   const { run, busy, error } = useSubmit();
   const pre = prefill as { amount?: string; accountId?: string | null; categoryId?: string | null; merchant?: string; date?: string; notes?: string } | undefined;
@@ -811,7 +813,7 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
   const [payerId, setPayerId] = useState<string | null>(detail.paidByParticipantId);
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
-  const selected = refData.participants.filter((p) => parts[p.id]);
+  const selected = sharedParticipants.filter((p) => parts[p.id]);
   const amtPaise = Math.round((Number(amount) || 0) * 100);
 
   return (
@@ -855,7 +857,7 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
       </Field>
 
-      <SplitEditor state={splitState} amtPaise={amtPaise} participants={refData.participants} />
+      <SplitEditor state={splitState} amtPaise={amtPaise} participants={sharedParticipants} />
 
       <ErrorNote error={error} />
       <div className="flex gap-2.5">

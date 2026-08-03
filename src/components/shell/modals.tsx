@@ -148,6 +148,9 @@ export function Modals() {
 
 function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
+  // #69: split with Shared friends only — Lending-only contacts (imported
+  // khatas) don't belong in the split picker.
+  const sharedParticipants = refData.participants.filter((p) => !p.lendingOnly);
   const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
   const [amount, setAmount] = useState(prefill?.dupAmountRupees ?? "");
@@ -162,7 +165,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const [split, setSplit] = useState(!!prefill?.split);
   const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">("EQUAL");
   const [parts, setParts] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(refData.participants.slice(0, 2).map((p) => [p.id, !!prefill?.split]))
+    Object.fromEntries(sharedParticipants.slice(0, 2).map((p) => [p.id, !!prefill?.split]))
   );
   const [exact, setExact] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
@@ -176,7 +179,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   let scheduleError: string | null = null;
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
-  const selected = refData.participants.filter((p) => parts[p.id]);
+  const selected = sharedParticipants.filter((p) => parts[p.id]);
   const amtPaise = Math.round((Number(amount) || 0) * 100);
 
   function selectGroup(id: string) {
@@ -227,7 +230,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
         </Field>
       )}
 
-      <SplitEditor state={splitState} amtPaise={amtPaise} participants={refData.participants} />
+      <SplitEditor state={splitState} amtPaise={amtPaise} participants={sharedParticipants} />
 
       {/* A rule's template carries neither splits nor a group, so repeating is
           offered only for a plain personal expense rather than silently
@@ -1040,10 +1043,12 @@ function FriendForm() {
 
 function GroupForm() {
   const { refData } = useUI();
+  // #69: groups are a Shared feature — offer Shared friends, not Lending-only contacts.
+  const sharedParticipants = refData.participants.filter((p) => !p.lendingOnly);
   const { run, busy, error } = useSubmit();
   const [name, setName] = useState("");
   const [parts, setParts] = useState<Record<string, boolean>>({});
-  const selected = refData.participants.filter((p) => parts[p.id]);
+  const selected = sharedParticipants.filter((p) => parts[p.id]);
   return (
     <div className="flex flex-col gap-3">
       <Field label="GROUP NAME">
@@ -1051,8 +1056,8 @@ function GroupForm() {
       </Field>
       <Field label="MEMBERS">
         <div className="flex gap-2 flex-wrap mt-1.5">
-          {refData.participants.length === 0 && <div className="text-[12.5px] text-mut2">Add a friend first.</div>}
-          {refData.participants.map((p) => {
+          {sharedParticipants.length === 0 && <div className="text-[12.5px] text-mut2">Add a friend first.</div>}
+          {sharedParticipants.map((p) => {
             const on = !!parts[p.id];
             return (
               <button

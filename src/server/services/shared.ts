@@ -24,6 +24,20 @@ export const listParticipants = cache(async (userId: string) => {
   return prisma.participant.findMany({ where: { ownerId: userId }, orderBy: { displayName: "asc" } });
 });
 
+/** Participants with relation counts so callers can tell a Shared friend from a
+ * Lending-only contact (v2.1 #69). A contact imported for lending has loan
+ * entries but no splits / group memberships / settlements — Shared surfaces
+ * (the split picker) hide those, while the Lending entry form still sees all.
+ * Counts on the small participant table, not a transaction scan, so the
+ * per-navigation layout stays cheap. */
+export const listParticipantsWithUsage = cache(async (userId: string) => {
+  return prisma.participant.findMany({
+    where: { ownerId: userId },
+    orderBy: { displayName: "asc" },
+    include: { _count: { select: { loanEntries: true, splits: true, groupMembers: true, settlements: true } } },
+  });
+});
+
 export async function addParticipant(userId: string, displayName: string) {
   const count = await prisma.participant.count({ where: { ownerId: userId } });
   return prisma.participant.create({

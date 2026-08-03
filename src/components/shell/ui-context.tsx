@@ -62,7 +62,7 @@ export interface RefData {
   }[];
   expenseCategories: { id: string; name: string; icon: string }[];
   incomeCategories: { id: string; name: string; icon: string }[];
-  participants: { id: string; name: string; initial: string; color: string }[];
+  participants: { id: string; name: string; initial: string; color: string; lendingOnly: boolean }[];
   groups: { id: string; name: string; role: "OWNER" | "ADMIN" | "MEMBER" }[];
   userName: string;
 }

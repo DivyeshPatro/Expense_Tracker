@@ -3,7 +3,7 @@ import type { RefData } from "@/components/shell/ui-context";
 import { listAccountRows } from "@/server/services/accounts";
 import { listCategories } from "@/server/services/categories";
 import { listGroups } from "@/server/services/groups";
-import { netBalances, listParticipants } from "@/server/services/shared";
+import { netBalances, listParticipantsWithUsage } from "@/server/services/shared";
 import { unreadCount } from "@/server/services/notifications";
 import { requireUser } from "@/server/session";
 
@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [accounts, categories, participants, groups, nets, notifBadge] = await Promise.all([
     listAccountRows(user.id),
     listCategories(user.id),
-    listParticipants(user.id),
+    listParticipantsWithUsage(user.id),
     listGroups(user.id),
     netBalances(user.id),
     unreadCount(user.id),
@@ -42,7 +42,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     })),
     expenseCategories: categories.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "📦" })),
     incomeCategories: categories.filter((c) => c.kind === "INCOME").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "💼" })),
-    participants: participants.map((p) => ({ id: p.id, name: p.displayName, initial: p.displayName.charAt(0).toUpperCase(), color: p.color ?? "#6d5ae6" })),
+    participants: participants.map((p) => ({
+      id: p.id,
+      name: p.displayName,
+      initial: p.displayName.charAt(0).toUpperCase(),
+      color: p.color ?? "#6d5ae6",
+      // #69: a contact with loan entries but no shared activity is Lending-only
+      // — hidden from Shared's split picker, still shown in the Lending flow.
+      lendingOnly: p._count.loanEntries > 0 && p._count.splits === 0 && p._count.groupMembers === 0 && p._count.settlements === 0,
+    })),
     // collaboration-architecture-rfc §2/§4 (migration step 4): every group
     // the user can create INTO — owned or joined, any role (MEMBER is the
     // floor for creating), populated by the same listGroups() already
