@@ -25,7 +25,7 @@ import { BottomSheet } from "./bottom-sheet";
 import { DateField } from "./date-field";
 import { useFocusTrap } from "./use-focus-trap";
 
-const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics"];
+const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics", "/shared/groups"];
 
 export function HeaderPeriodPicker() {
   const pathname = usePathname();

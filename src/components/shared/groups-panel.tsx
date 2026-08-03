@@ -2,6 +2,7 @@
 
 // Group CRUD for the Shared page — replaces the old read-only firstGroup() chip.
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
@@ -69,9 +70,17 @@ function GroupChip({
           className="absolute left-0 top-[36px] w-[260px] bg-card border border-line rounded-[12px] p-3 flex flex-col gap-2.5 z-[75]"
           style={{ boxShadow: "var(--shLg)" }}
         >
+          <Link
+            href={`/shared/groups/${group.id}`}
+            className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-[9px] bg-accsoft text-acc text-[12.5px] font-bold no-underline hover:brightness-105"
+          >
+            📊 Open group dashboard
+            <span aria-hidden>→</span>
+          </Link>
           <div className="flex gap-1.5">
             <input
               className="field !py-1.5 !text-[12.5px] flex-1"
+              aria-label="Group name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               onBlur={() => {

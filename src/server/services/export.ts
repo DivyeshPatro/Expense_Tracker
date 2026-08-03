@@ -4,8 +4,10 @@
 
 import ExcelJS from "exceljs";
 import { toYMD } from "@/lib/dates";
+import { parsePeriod } from "@/lib/period";
 import { prisma } from "../db";
 import { contactStatement } from "./lending";
+import { groupDashboard } from "./group-dashboard";
 import { BACKUP_FORMAT_VERSION } from "./backup-restore";
 import { toBackupCard } from "./card-backup";
 
@@ -174,4 +176,48 @@ export async function exportContactStatementXlsx(
   }
 
   return { buffer: Buffer.from(await book.xlsx.writeBuffer()), name: st.contact.name };
+}
+
+/** Excel statement for a shared-expense group (v2.0 Group Dashboard). All-time:
+ * a statement of record, so it reuses groupDashboard with an "all" period and
+ * lays out the overview, per-member balances and the settlement history. */
+export async function exportGroupStatementXlsx(userId: string, groupId: string): Promise<{ buffer: Buffer; name: string } | null> {
+  const g = await groupDashboard(userId, groupId, parsePeriod({ p: "all" }));
+  if (!g) return null;
+  const R = (paise: number) => paise / 100;
+
+  const book = new ExcelJS.Workbook();
+  const sheet = book.addWorksheet("Group");
+
+  sheet.addRow(["Ledgerly — Group Statement"]).font = { bold: true, size: 14 };
+  sheet.addRow(["Group", g.name]);
+  sheet.addRow(["Members", g.memberCount]);
+  sheet.addRow(["Created", toYMD(new Date(g.createdAt))]);
+  sheet.addRow(["Generated", toYMD(new Date())]);
+  sheet.addRow([]);
+  sheet.addRow(["Total expenses", "", g.overview.totalExpenseCount, R(g.overview.totalExpenseSum)]);
+  sheet.addRow(["Total settlements", "", g.overview.totalSettlementCount, R(g.overview.totalSettlementSum)]);
+  sheet.addRow(["You are owed", "", "", R(g.youAreOwed)]);
+  sheet.addRow(["You owe", "", "", R(g.youOwe)]);
+  sheet.addRow([]);
+
+  const mHead = sheet.addRow(["Member", "Paid", "Share", "Net (+owes you / −you owe)"]);
+  mHead.font = { bold: true };
+  for (const m of g.members) sheet.addRow([m.name, R(m.paid), R(m.owes), R(m.net)]);
+  sheet.addRow([]);
+
+  const sHead = sheet.addRow(["Settlement date", "Member", "Direction", "Amount", "Method"]);
+  sHead.font = { bold: true };
+  for (const s of g.settlements) {
+    sheet.addRow([toYMD(new Date(s.settledAt)), s.participantName, s.direction === "TO_OWNER" ? "Paid you" : "You paid", R(s.amount), s.method]);
+  }
+  if (g.settlements.length === 0) sheet.addRow(["No settlements yet"]);
+
+  sheet.getColumn(1).width = 20;
+  sheet.getColumn(2).width = 18;
+  for (const c of [3, 4, 5]) {
+    sheet.getColumn(c).width = 16;
+    sheet.getColumn(c).numFmt = "#,##0.00";
+  }
+  return { buffer: Buffer.from(await book.xlsx.writeBuffer()), name: g.name };
 }

@@ -10,9 +10,24 @@ function timeOfDay(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
 }
 
-export async function ModuleActivity({ entities, limit = 6 }: { entities: string[]; limit?: number }) {
+/**
+ * A module's recent audited changes. Scope it either by entity TYPE (`entities`,
+ * e.g. the Cards / Bills sections) or by an explicit set of entity IDS
+ * (`entityIds`, the Group Dashboard's per-group feed) — the latter wins when
+ * both are given. An empty `entityIds` array is a real answer (a group with no
+ * activity yet), not "unfiltered", so it correctly shows the empty state.
+ */
+export async function ModuleActivity({
+  entities,
+  entityIds,
+  limit = 6,
+}: {
+  entities?: string[];
+  entityIds?: string[];
+  limit?: number;
+}) {
   const user = await requireUser();
-  const { events } = await activityPage(user.id, { entities, limit });
+  const { events } = await activityPage(user.id, entityIds ? { entityIds, limit } : { entities, limit });
 
   return (
     <section className="card p-[var(--pad)]">

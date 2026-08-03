@@ -98,7 +98,7 @@ export function CategoryBreakdown({
 // matches its bar below — the bar list is the legend/table, identity is never
 // colour-alone), everything past that folds into "Other". A 2px surface gap
 // separates slices; the centre carries the period total.
-function CategoryDonut({ rows, total }: { rows: CategoryRow[]; total: number }) {
+export function CategoryDonut({ rows, total }: { rows: CategoryRow[]; total: number }) {
   const TOP = 6;
   const top = rows.slice(0, TOP);
   const otherTotal = rows.slice(TOP).reduce((s, c) => s + c.total, 0);

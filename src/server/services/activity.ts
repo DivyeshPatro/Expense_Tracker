@@ -95,7 +95,7 @@ const toRowInput = (r: {
 
 export async function activityPage(
   userId: string,
-  opts: { chip?: ActivityChip; entityId?: string; entities?: string[]; start?: Date; end?: Date; cursor?: string; limit?: number } = {}
+  opts: { chip?: ActivityChip; entityId?: string; entityIds?: string[]; entities?: string[]; start?: Date; end?: Date; cursor?: string; limit?: number } = {}
 ): Promise<ActivityPageResult> {
   // Phase 2.5: `limit` caps both source fetches AND the emitted page — the
   // dashboard's Recent Activity panel needs 6 events, not 50. Chain
@@ -113,9 +113,11 @@ export async function activityPage(
   const allow = ACTIVITY_ALLOWLIST.filter((a) => !entities || entities.has(a.entity));
   const timeRange =
     opts.start || opts.end ? { ...(opts.start ? { gte: opts.start } : {}), ...(opts.end ? { lt: opts.end } : {}) } : undefined;
-  // budget-exceeded rides the "all" and "budgets" chips; an entity filter (id
-  // or explicit type list) is a scoped view where those notifications don't belong
-  const includeNotifs = !opts.entityId && !opts.entities && (!opts.chip || opts.chip === "all" || opts.chip === "budgets");
+  // budget-exceeded rides the "all" and "budgets" chips; an entity filter (single
+  // id, explicit id set, or type list) is a scoped view where those notifications
+  // don't belong — the Group Dashboard's per-group feed is one such scoped view.
+  const includeNotifs =
+    !opts.entityId && !opts.entityIds && !opts.entities && (!opts.chip || opts.chip === "all" || opts.chip === "budgets");
 
   const [auditRows, notifRows, maps] = await Promise.all([
     prisma.auditLog.findMany({
@@ -123,6 +125,7 @@ export async function activityPage(
         userId,
         OR: allow.map((a) => ({ entity: a.entity, action: { in: a.actions } })),
         ...(opts.entityId ? { entityId: opts.entityId } : {}),
+        ...(opts.entityIds ? { entityId: { in: opts.entityIds } } : {}),
         ...(timeRange ? { at: timeRange } : {}),
       },
       orderBy: [{ at: "desc" }, { id: "desc" }],

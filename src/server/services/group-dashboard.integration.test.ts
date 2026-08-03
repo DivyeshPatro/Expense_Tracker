@@ -1,0 +1,110 @@
+// Database-backed tests for the Group Dashboard read model: balances, overview,
+// period-scoped spending, settlement history and per-group activity ids, plus
+// the visibility rule. Run with `npm run test:integration`.
+
+import { beforeAll, describe, expect, it } from "vitest";
+import { currentMonthKey, istNoon } from "@/lib/dates";
+import { parsePeriod } from "@/lib/period";
+import { groupDashboard } from "./group-dashboard";
+import { prisma } from "../db";
+
+const EMAIL = "group-dash-test@ledgerly.app";
+const OTHER_EMAIL = "group-dash-other@ledgerly.app";
+const KEY = currentMonthKey();
+const YMD = `${KEY}-05`;
+
+let userId: string;
+let otherUserId: string;
+let groupId: string;
+let karanId: string;
+let priyaId: string;
+
+async function groupExpense(amount: number, paidBy: string | null, shares: { pid: string | null; owed: number }[], categoryId: string) {
+  return prisma.transaction.create({
+    data: {
+      userId,
+      type: "EXPENSE",
+      amount,
+      groupId,
+      categoryId,
+      paidByParticipantId: paidBy,
+      merchant: "Group spend",
+      occurredAt: istNoon(YMD),
+      splits: { create: shares.map((s) => ({ participantId: s.pid, owedAmount: s.owed })) },
+    },
+  });
+}
+
+describe("groupDashboard", () => {
+  beforeAll(async () => {
+    for (const e of [EMAIL, OTHER_EMAIL]) {
+      const ex = await prisma.user.findUnique({ where: { email: e } });
+      if (ex) await prisma.user.delete({ where: { id: ex.id } });
+    }
+    const user = await prisma.user.create({ data: { name: "Owner", email: EMAIL, emailVerified: true } });
+    userId = user.id;
+    const other = await prisma.user.create({ data: { name: "Other", email: OTHER_EMAIL, emailVerified: true } });
+    otherUserId = other.id;
+
+    const karan = await prisma.participant.create({ data: { ownerId: userId, displayName: "Karan", color: "#0f766e" } });
+    const priya = await prisma.participant.create({ data: { ownerId: userId, displayName: "Priya", color: "#d1497e" } });
+    karanId = karan.id;
+    priyaId = priya.id;
+
+    const group = await prisma.group.create({
+      data: { name: "Flat 402", createdById: userId, members: { create: [{ participantId: karanId }, { participantId: priyaId }] } },
+    });
+    groupId = group.id;
+    const food = await prisma.category.create({ data: { groupId, name: "Food", kind: "EXPENSE", icon: "🍔", color: "#f43f5e" } });
+
+    // You paid ₹900 split 3 ways; Karan paid ₹600 split 3 ways; Priya settled ₹100.
+    await groupExpense(90000, null, [{ pid: null, owed: 30000 }, { pid: karanId, owed: 30000 }, { pid: priyaId, owed: 30000 }], food.id);
+    await groupExpense(60000, karanId, [{ pid: null, owed: 20000 }, { pid: karanId, owed: 20000 }, { pid: priyaId, owed: 20000 }], food.id);
+    await prisma.settlement.create({ data: { userId, participantId: priyaId, direction: "TO_OWNER", amount: 10000, method: "UPI" } });
+  });
+
+  it("computes overview totals and last activity", async () => {
+    const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    expect(g.name).toBe("Flat 402");
+    expect(g.memberCount).toBe(2);
+    expect(g.overview.totalExpenseCount).toBe(2);
+    expect(g.overview.totalExpenseSum).toBe(150000);
+    expect(g.overview.totalSettlementCount).toBe(1);
+    expect(g.overview.totalSettlementSum).toBe(10000);
+  });
+
+  it("computes settlement-aware member balances", async () => {
+    const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    const by = (name: string) => g.members.find((m) => m.name === name)!;
+    expect(g.youNet).toBe(30000);
+    expect(g.youAreOwed).toBe(30000);
+    expect(g.youOwe).toBe(0);
+    expect(by("Karan").net).toBe(10000);
+    expect(by("Priya").net).toBe(20000);
+    expect(by("You").contributionPct).toBe(60);
+  });
+
+  it("scopes spending to the period and exposes the category pie", async () => {
+    const thisMonth = (await groupDashboard(userId, groupId, parsePeriod({ p: KEY })))!;
+    expect(thisMonth.spending.totalSpent).toBe(150000);
+    expect(thisMonth.spending.categories[0]).toMatchObject({ name: "Food", total: 150000 });
+
+    // A past month with no group spend → empty pie, zero total.
+    const past = KEY.endsWith("-01") ? `${Number(KEY.slice(0, 4)) - 1}-12` : `${KEY.slice(0, 4)}-01`;
+    const empty = (await groupDashboard(userId, groupId, parsePeriod({ p: past })))!;
+    expect(empty.spending.totalSpent).toBe(0);
+    expect(empty.spending.categories).toEqual([]);
+  });
+
+  it("returns the settlement history and per-group activity ids", async () => {
+    const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
+    expect(g.settlements).toHaveLength(1);
+    expect(g.settlements[0]).toMatchObject({ participantName: "Priya", direction: "TO_OWNER", amount: 10000 });
+    // 2 transactions + 1 settlement feed the scoped ModuleActivity.
+    expect(g.activityEntityIds).toHaveLength(3);
+  });
+
+  it("hides the group from a user who can't see it", async () => {
+    expect(await groupDashboard(otherUserId, groupId, parsePeriod({ p: "all" }))).toBeNull();
+  });
+});
