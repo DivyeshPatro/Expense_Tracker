@@ -104,15 +104,22 @@ export function SubmitButton({
   children: React.ReactNode;
   onClick: () => void;
 }) {
+  // Sticky footer flush to the bottom of the modal's scroll body: `-mb`
+  // cancels the body's bottom padding so it sits at the true edge, a matching
+  // background + hairline lets the form scroll under it, and it stays put when
+  // the keyboard is open (the panel is sized to the visible viewport). The
+  // 48px min height is a comfortable one-thumb target.
   return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className="p-3 rounded-[10px] text-white text-[13.5px] font-bold text-center cursor-pointer border-none hover:brightness-108 disabled:opacity-60"
-      style={{ background: color ?? "var(--acc)" }}
-    >
-      {busy ? "…" : children}
-    </button>
+    <div className="sticky bottom-0 -mx-[22px] -mb-[22px] mt-1 px-[22px] pt-2.5 bg-card border-t border-line z-10" style={{ paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}>
+      <button
+        onClick={onClick}
+        disabled={busy}
+        className="w-full min-h-[48px] p-3.5 rounded-[12px] text-white text-[14px] font-bold text-center cursor-pointer border-none hover:brightness-108 disabled:opacity-60"
+        style={{ background: color ?? "var(--acc)" }}
+      >
+        {busy ? "…" : children}
+      </button>
+    </div>
   );
 }
 

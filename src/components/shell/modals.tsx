@@ -52,16 +52,58 @@ const TITLES: Record<string, string> = {
   accountCardDetails: "Card details",
 };
 
+/**
+ * Tracks the on-screen keyboard via the visualViewport API. `inset` is the
+ * keyboard height (0 when closed); `height` is the visible viewport height.
+ * A modal that lifts by `inset` and caps its height at `height` keeps its
+ * sticky Save above the keyboard instead of behind it — the core of the
+ * mobile keyboard-aware layout (Phase 3).
+ */
+function useKeyboardInset() {
+  const [state, setState] = useState({ inset: 0, height: 0 });
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setState({ inset, height: vv.height });
+    };
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
+  return state;
+}
+
 export function Modals() {
   const { modal, closeModal } = useUI();
   const panelRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const { inset, height } = useKeyboardInset();
   useFocusTrap(panelRef, !!modal);
   useEffect(() => {
     if (modal) panelRef.current?.focus();
   }, [modal]);
   if (!modal) return null;
+  // Bring the just-focused control into view inside the scroll body once the
+  // keyboard has had a moment to animate in — so typing never happens under
+  // the fold or behind the keyboard.
+  const onFocusIn = (e: React.FocusEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.matches("input, select, textarea")) {
+      setTimeout(() => t.scrollIntoView({ block: "center", behavior: "smooth" }), 120);
+    }
+  };
   return (
-    <div onClick={closeModal} className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-4" style={{ background: "var(--ov)" }}>
+    <div
+      onClick={closeModal}
+      className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-4"
+      style={{ background: "var(--ov)", paddingBottom: inset > 0 ? inset : undefined }}
+    >
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -69,15 +111,17 @@ export function Modals() {
         aria-modal="true"
         aria-label={TITLES[modal.type]}
         onClick={(e) => e.stopPropagation()}
-        className="w-full md:w-[min(460px,100%)] max-h-[92vh] md:max-h-[88vh] overflow-auto bg-card rounded-t-[18px] rounded-b-none md:rounded-2xl p-[22px] box-border flex flex-col gap-[13px] outline-none"
-        style={{ boxShadow: "var(--shLg)", animation: "rise .22s ease", paddingBottom: "calc(22px + env(safe-area-inset-bottom))" }}
+        onFocus={onFocusIn}
+        className="w-full md:w-[min(460px,100%)] max-h-[92dvh] md:max-h-[88vh] bg-card rounded-t-[18px] rounded-b-none md:rounded-2xl box-border flex flex-col outline-none overflow-hidden"
+        style={{ boxShadow: "var(--shLg)", animation: "rise .22s ease", maxHeight: inset > 0 && height ? `${height - 12}px` : undefined }}
       >
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center flex-none px-[22px] pt-[18px] pb-2">
           <div className="text-base font-extrabold tracking-tight">{TITLES[modal.type]}</div>
-          <button onClick={closeModal} aria-label="Close" className="w-7 h-7 rounded-lg grid place-items-center text-mut cursor-pointer bg-transparent border-none hover:bg-accsoft">
+          <button onClick={closeModal} aria-label="Close" className="w-8 h-8 rounded-lg grid place-items-center text-mut cursor-pointer bg-transparent border-none hover:bg-accsoft">
             ✕
           </button>
         </div>
+        <div ref={bodyRef} className="flex-1 overflow-auto px-[22px] pb-[22px] flex flex-col gap-[13px]">
         {modal.type === "exp" && <ExpenseForm prefill={modal.prefill} />}
         {modal.type === "inc" && <IncomeForm prefill={modal.prefill} />}
         {modal.type === "tr" && <TransferForm prefill={modal.prefill} />}
@@ -93,6 +137,7 @@ export function Modals() {
         {modal.type === "lendingContact" && modal.prefill?.participantId && <LendingContactSheet participantId={modal.prefill.participantId} />}
         {modal.type === "loanDetail" && modal.prefill?.loanEntryId && <LoanDetailModal loanEntryId={modal.prefill.loanEntryId} />}
         {modal.type === "accountCardDetails" && modal.prefill?.accountId && <AccountCardDetailsForm accountId={modal.prefill.accountId} />}
+        </div>
       </div>
     </div>
   );
