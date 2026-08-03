@@ -22,6 +22,7 @@ export function BottomSheet({
   children,
   maxWidth = 440,
   className = "",
+  z = 55,
 }: {
   /** Backdrop tap and Escape both call this. */
   onClose: () => void;
@@ -32,6 +33,9 @@ export function BottomSheet({
   maxWidth?: number;
   /** Extra classes for the panel (e.g. gap/spacing overrides). */
   className?: string;
+  /** Overlay z-index. Default 55; raise it above another overlay when the
+   * sheet opens from within one (e.g. a picker inside the z-60 modal). */
+  z?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useFocusTrap(ref, true);
@@ -51,7 +55,7 @@ export function BottomSheet({
   }, []);
 
   return createPortal(
-    <div onClick={onClose} className="fixed inset-0 z-[55] flex items-end md:items-center md:justify-center" style={{ background: "var(--ov)" }}>
+    <div onClick={onClose} className="fixed inset-0 flex items-end md:items-center md:justify-center" style={{ background: "var(--ov)", zIndex: z }}>
       <div
         ref={ref}
         tabIndex={-1}

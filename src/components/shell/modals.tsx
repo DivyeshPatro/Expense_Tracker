@@ -24,6 +24,7 @@ import { AccountOptions } from "./account-options";
 import { DateField } from "./date-field";
 import { createRuleFor, RepeatBlock, useRepeat } from "./repeat-block";
 import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
+import { CategoryPicker } from "./category-picker";
 import { GroupCategorySelect } from "./group-category-select";
 import { LendingContactSheet } from "./lending-detail";
 import { LoanDetailModal } from "@/components/lending/loan-detail";
@@ -200,11 +201,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
           {groupId ? (
             <GroupCategorySelect groupId={groupId} value={categoryId} onChange={setCategoryId} />
           ) : (
-            <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              {refData.expenseCategories.map((c) => (
-                <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-              ))}
-            </select>
+            <CategoryPicker categories={refData.expenseCategories} value={categoryId} onChange={setCategoryId} recentKey="ledgerly-recent-cat-expense" />
           )}
         </Field>
       </div>
@@ -337,11 +334,7 @@ function IncomeForm({ prefill }: { prefill?: ModalPrefill }) {
           </select>
         </Field>
         <Field label="SOURCE">
-          <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            {refData.incomeCategories.map((c) => (
-              <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-            ))}
-          </select>
+          <CategoryPicker categories={refData.incomeCategories} value={categoryId} onChange={setCategoryId} recentKey="ledgerly-recent-cat-income" label="Choose a source" />
         </Field>
       </div>
       <div className="flex gap-2.5 flex-wrap">
