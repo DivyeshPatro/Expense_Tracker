@@ -187,6 +187,17 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
     // group-expenses-sprint: a category id from the wrong namespace (personal,
     // or a different group) must never silently ride along across a group switch
     setCategoryId("");
+    // #66 group-first: picking a group splits among its members by default —
+    // turn split on and pre-select the group's (Shared) members, which the
+    // user can still adjust before saving.
+    if (id) {
+      const g = refData.groups.find((gr) => gr.id === id);
+      const memberIds = (g?.memberIds ?? []).filter((mid) => sharedParticipants.some((p) => p.id === mid));
+      if (memberIds.length) {
+        setSplit(true);
+        setParts(Object.fromEntries(memberIds.map((mid) => [mid, true])));
+      }
+    }
   }
 
   return (

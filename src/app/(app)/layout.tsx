@@ -55,7 +55,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // the user can create INTO — owned or joined, any role (MEMBER is the
     // floor for creating), populated by the same listGroups() already
     // extended in the authorization foundation (migration step 3)
-    groups: groups.map((g) => ({ id: g.id, name: g.name, role: g.role })),
+    groups: groups.map((g) => ({ id: g.id, name: g.name, role: g.role, memberIds: g.members.map((m) => m.participantId) })),
   };
   const badge = nets.filter((n) => Math.abs(n.net) > 100).length;
 
