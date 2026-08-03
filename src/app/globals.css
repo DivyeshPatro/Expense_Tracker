@@ -21,7 +21,7 @@
   --acc: #2358e6;
   --accSoft: color-mix(in oklab, var(--acc) 10%, var(--card));
   --accSoft2: color-mix(in oklab, var(--acc) 24%, var(--card));
-  --green: #0f8249;
+  --green: #0b7240;
   --greenSoft: #e5f5ec;
   --red: #c23139;
   --redSoft: #fdecec;
