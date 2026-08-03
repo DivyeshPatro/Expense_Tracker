@@ -32,6 +32,7 @@ export function CategoryBreakdown({
   const [tab, setTab] = useState<"EXPENSE" | "INCOME">("EXPENSE");
   const rows = tab === "EXPENSE" ? expense : income;
   const max = rows[0]?.total ?? 1;
+  const total = rows.reduce((s, c) => s + c.total, 0);
 
   const txHref = (categoryId: string, txTab: "EXPENSE" | "INCOME") => {
     const params = new URLSearchParams(periodQuery);
@@ -58,6 +59,7 @@ export function CategoryBreakdown({
           ))}
         </div>
       </div>
+      {rows.length > 0 && <CategoryDonut rows={rows} total={total} />}
       <div className="flex flex-col gap-3 max-h-[340px] overflow-auto pr-1">
         {rows.map((c) => {
           const content = (
@@ -89,5 +91,53 @@ export function CategoryBreakdown({
         )}
       </div>
     </section>
+  );
+}
+
+// Composition donut: the top 6 categories keep their own colour (so a slice
+// matches its bar below — the bar list is the legend/table, identity is never
+// colour-alone), everything past that folds into "Other". A 2px surface gap
+// separates slices; the centre carries the period total.
+function CategoryDonut({ rows, total }: { rows: CategoryRow[]; total: number }) {
+  const TOP = 6;
+  const top = rows.slice(0, TOP);
+  const otherTotal = rows.slice(TOP).reduce((s, c) => s + c.total, 0);
+  const segments = otherTotal > 0 ? [...top, { id: null, name: "Other", icon: "", color: "var(--mut2)", total: otherTotal }] : top;
+  const sum = segments.reduce((s, c) => s + c.total, 0) || 1;
+
+  const R = 52;
+  const C = 2 * Math.PI * R;
+  const GAP = 2; // px of surface between slices
+  let acc = 0;
+
+  return (
+    <div className="flex justify-center py-1" role="img" aria-label={`Category composition, total ${formatPaise(total)}`}>
+      <svg width="150" height="150" viewBox="0 0 140 140">
+        <circle cx="70" cy="70" r={R} fill="none" stroke="var(--side)" strokeWidth="16" />
+        {segments.map((c) => {
+          const frac = c.total / sum;
+          const len = Math.max(0, frac * C - GAP);
+          const seg = (
+            <circle
+              key={c.name}
+              cx="70"
+              cy="70"
+              r={R}
+              fill="none"
+              stroke={c.color}
+              strokeWidth="16"
+              strokeDasharray={`${len} ${C - len}`}
+              transform={`rotate(${acc * 360 - 90} 70 70)`}
+            >
+              <title>{`${c.icon ? c.icon + " " : ""}${c.name} · ${formatPaise(c.total)} (${Math.round(frac * 100)}%)`}</title>
+            </circle>
+          );
+          acc += frac;
+          return seg;
+        })}
+        <text x="70" y="66" textAnchor="middle" className="fill-mut2" style={{ fontSize: "9px", fontWeight: 700, letterSpacing: ".04em" }}>TOTAL</text>
+        <text x="70" y="82" textAnchor="middle" className="fill-ink" style={{ fontSize: "14px", fontWeight: 800 }}>{formatPaise(total)}</text>
+      </svg>
+    </div>
   );
 }
