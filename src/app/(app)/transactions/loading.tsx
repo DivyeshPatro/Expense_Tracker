@@ -1,13 +1,21 @@
-// Shown instantly while the Transactions RSC payload streams in.
+// Shown instantly while the Transactions RSC payload streams in. Mirrors the
+// redesigned Spends layout: Spends/Insights toggle, the summary tile, filter
+// chips, search, then the transaction rows.
+import { SkeletonCard, SkeletonPill, SkeletonRows } from "@/components/shell/skeleton";
+
 export default function TransactionsLoading() {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="skeleton h-9 w-full max-w-[420px]" />
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="skeleton h-[52px] rounded-[10px]" />
-        ))}
+    <div className="flex flex-col gap-3.5">
+      <SkeletonCard h={44} className="w-[200px]" />
+      <SkeletonCard h={128} />
+      <div className="flex gap-2">
+        <SkeletonPill w={64} />
+        <SkeletonPill w={88} />
+        <SkeletonPill w={76} />
+        <SkeletonPill w={92} />
       </div>
+      <SkeletonCard h={46} />
+      <SkeletonRows rows={8} h={52} />
     </div>
   );
 }
