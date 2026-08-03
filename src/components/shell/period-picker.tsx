@@ -192,6 +192,10 @@ function DesktopPopover({ triggerRef, close, children }: { triggerRef: React.Ref
     function onPointer(e: MouseEvent) {
       const target = e.target as Node;
       if (triggerRef.current?.contains(target) || popRef.current?.contains(target)) return;
+      // The custom-range DateField portals its calendar to <body>, outside this
+      // popover's DOM — a click inside that nested dialog must not be treated as
+      // an outside click, or picking a date would dismiss the whole picker.
+      if (target instanceof Element && target.closest('[role="dialog"]')) return;
       close();
     }
     function onKey(e: KeyboardEvent) {
@@ -392,6 +396,7 @@ function MonthView({
           return (
             <button
               key={name}
+              data-month={m}
               onClick={() => pick(m)}
               disabled={isFuture}
               aria-pressed={isSelected}

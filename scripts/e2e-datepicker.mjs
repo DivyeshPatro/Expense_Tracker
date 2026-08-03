@@ -123,41 +123,50 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(150);
 
-  // ══════════════ 4. Period picker: month field, portal, and no native inputs ══════════════
+  // ══════════════ 4. Period picker: month grid, portal, and no native inputs ══════════════
+  // The period picker is now a single "Change period" trigger opening a themed
+  // selector (bottom sheet on mobile, popover on desktop). Month selection is a
+  // sub-view with a data-month grid; custom range is another sub-view. No part
+  // of it uses a native <input type=month|date>.
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
   await page.waitForSelector("text=TOTAL BALANCE");
   ok("no native type=month/date input anywhere on Dashboard", (await page.locator('input[type="date"], input[type="month"]').count()) === 0);
-  await page.getByRole("button", { name: "Pick a month" }).click();
-  await page.waitForSelector('[role="dialog"][aria-label="Choose month"]');
-  await portalCheck('[role="dialog"][aria-label="Choose month"]', "Period picker month field");
-  const monthStyle = await page.evaluate(() => {
-    const cs = getComputedStyle(document.querySelector('[role="dialog"][aria-label="Choose month"]'));
-    return cs.borderRadius;
-  });
-  ok("month-grid popover shares the exact same border-radius token as the day calendar", monthStyle === "14px", monthStyle);
+  await page.getByRole("button", { name: "Change period" }).click();
+  await page.waitForSelector('[role="dialog"][aria-label="Select period"]');
+  await portalCheck('[role="dialog"][aria-label="Select period"]', "Period picker");
+  await page.getByRole("button", { name: /Pick a month/ }).click();
+  await page.waitForSelector('[aria-label="Previous year"]');
   await page.click('[aria-label="Previous year"]');
   await page.waitForTimeout(100);
   await page.click('[data-month="3"]');
   await page.waitForURL("**/dashboard?p=**", { timeout: 10000 });
   ok("picking a month in the themed grid navigates via ?p=YYYY-MM", page.url().includes("p="), page.url());
 
-  // ══════════════ 5. Period picker: custom range (From/To), min/max enforcement ══════════════
+  // ══════════════ 5. Period picker: custom range (Start/End), min/max enforcement ══════════════
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
   await page.waitForSelector("text=TOTAL BALANCE");
-  await page.getByRole("button", { name: "Custom range" }).click();
-  await page.waitForSelector('button[aria-label="From date"]');
-  await page.click('button[aria-label="From date"]');
+  await page.getByRole("button", { name: "Change period" }).click();
+  await page.waitForSelector('[role="dialog"][aria-label="Select period"]');
+  await page.getByRole("button", { name: /Custom range/ }).click();
+  await page.waitForSelector('button[aria-label="Start date"]');
+  await page.click('button[aria-label="Start date"]');
   await page.waitForSelector('[role="dialog"][aria-label="Choose date"]');
+  // Step back a month so days 5/10 are always in the past regardless of what
+  // day-of-month the suite runs on (max is capped at today).
+  await page.click('[aria-label="Previous month"]');
+  await page.waitForTimeout(80);
   await page.click('[data-day="5"]');
   await page.waitForTimeout(150);
-  await page.click('button[aria-label="To date"]');
+  await page.click('button[aria-label="End date"]');
   await page.waitForSelector('[role="dialog"][aria-label="Choose date"]');
-  const toDay3Disabled = await page.locator('[data-day="3"]').isDisabled(); // 3 < From's 5 -> must be blocked by min
-  ok("Custom range: To-date field disables days before the From-date (min enforced)", toDay3Disabled);
-  await page.click('[data-day="10"]'); // between From(5) and today, always valid
+  await page.click('[aria-label="Previous month"]');
+  await page.waitForTimeout(80);
+  const toDay3Disabled = await page.locator('[data-day="3"]').isDisabled(); // 3 < Start's 5 -> must be blocked by min
+  ok("Custom range: End-date field disables days before the Start-date (min enforced)", toDay3Disabled);
+  await page.click('[data-day="10"]'); // between Start(5) and today, always valid
   await page.waitForTimeout(150);
-  const applyBtn = page.getByRole("button", { name: "Apply", exact: true });
-  ok("Custom range: Apply enables once both From/To are themed-picked", await applyBtn.isEnabled());
+  const applyBtn = page.getByRole("button", { name: "Apply range", exact: true });
+  ok("Custom range: Apply enables once both Start/End are themed-picked", await applyBtn.isEnabled());
   await applyBtn.click();
   await page.waitForURL("**/dashboard?from=**", { timeout: 10000 });
   ok("applying a custom range navigates with from=/to= params", page.url().includes("from=") && page.url().includes("to="), page.url());
