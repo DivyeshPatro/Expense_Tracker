@@ -63,6 +63,17 @@
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
+/* Respect a reduced-motion preference: keep the app fully usable but drop the
+   sheet/card entrance animations and long transitions (Phase 8 polish). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Accent skins (Appearance settings). Override only --acc: the *Soft mixes and
    every Tailwind `*-acc` token resolve var(--acc) at use-time, so the whole
    accent surface follows. Grounds are untouched — skins work on light and dark.
