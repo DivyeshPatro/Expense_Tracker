@@ -30,7 +30,7 @@ const NAV = [
   { href: "/budgets", icon: "◔", label: "Budgets" },
   { href: "/bills", icon: "▦", label: "Bills" },
   { href: "/shared", icon: "◫", label: "Shared" },
-  { href: "/activity", icon: "◴", label: "Activity" },
+  { href: "/activity", icon: "◴", label: "Audit Log" },
   { href: "/analytics", icon: "◵", label: "Analytics" },
   // Import sits next to Settings rather than up with the money sections: it's a
   // periodic errand, not a daily destination. It was previously reachable only
@@ -292,7 +292,7 @@ const ALL_NAV = [
   { href: "/budgets", icon: "budgets", label: "Budgets" },
   { href: "/bills", icon: "bills", label: "Bills" },
   { href: "/shared", icon: "shared", label: "Shared" },
-  { href: "/activity", icon: "activity", label: "Activity" },
+  { href: "/activity", icon: "activity", label: "Audit Log" },
   { href: "/import", icon: "import", label: "Import" },
   { href: "/settings", icon: "settings", label: "Settings" },
 ];

@@ -49,7 +49,7 @@ try {
   ok("center Quick Add button present", await quickAddBtn.isVisible());
 
   // every section lives in the one scrollable row (no More sheet)
-  const inNav = ["Khata", "Accounts", "Cards", "Budgets", "Bills", "Shared", "Activity", "Import", "Settings"];
+  const inNav = ["Khata", "Accounts", "Cards", "Budgets", "Bills", "Shared", "Audit Log", "Import", "Settings"];
   for (const label of inNav) {
     ok(`nav row includes ${label}`, (await nav.getByRole("link", { name: new RegExp(label) }).count()) === 1);
   }

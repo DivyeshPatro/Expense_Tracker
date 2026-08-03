@@ -86,11 +86,11 @@ export function CommandPalette() {
         close();
       },
     },
-    ...["Dashboard", "Transactions", "Accounts", "Cards", "Budgets", "Bills", "Shared", "Lending", "Analytics", "Activity"].map((l) => ({
+    ...([["Dashboard", "/dashboard"], ["Transactions", "/transactions"], ["Accounts", "/accounts"], ["Cards", "/cards"], ["Budgets", "/budgets"], ["Bills", "/bills"], ["Shared", "/shared"], ["Lending", "/lending"], ["Analytics", "/analytics"], ["Audit Log", "/activity"]] as const).map(([l, path]) => ({
       icon: "→",
       label: `Go to ${l}`,
       hint: "",
-      run: () => go(`/${l.toLowerCase()}`),
+      run: () => go(path),
     })),
   ];
 
