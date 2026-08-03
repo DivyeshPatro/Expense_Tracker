@@ -61,7 +61,7 @@ export function Categories({ categories }: { categories: CategoryRow[] }) {
             className="px-3.5 py-1.5 rounded-[8px] text-[12.5px] font-bold cursor-pointer border-none transition-colors"
             style={{ background: tab === k ? "var(--card)" : "transparent", color: tab === k ? (k === "EXPENSE" ? "var(--acc)" : "var(--green)") : "var(--mut)" }}
           >
-            {k === "EXPENSE" ? "💸 Expense" : "💼 Income"} <span className="opacity-60">{k === "EXPENSE" ? expense.length : income.length}</span>
+            {k === "EXPENSE" ? "💸 Expense" : "💼 Income"} <span className="font-medium">{k === "EXPENSE" ? expense.length : income.length}</span>
           </button>
         ))}
       </div>

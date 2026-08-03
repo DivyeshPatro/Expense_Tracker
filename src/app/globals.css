@@ -10,17 +10,22 @@
      --bg/--side/--card (all near-white) — the originals measured 3.68-3.94:1
      and 2.44-2.62:1 respectively, real axe-core findings across every page. */
   --mut: #5c6473;
-  --mut2: #697080;
+  --mut2: #636a78;
   --line: rgba(22, 24, 29, 0.07);
   --line2: rgba(22, 24, 29, 0.14);
-  --acc: #2a63f6;
+  /* Phase 2 (v2.0 mobile) a11y: acc/green/red/amber each measured just under
+     WCAG AA's 4.5:1 for text — acc 4.38 on --accSoft2, green 3.93 on --card,
+     red 4.07 on --redSoft, amber 3.17 on --amberSoft (real axe findings).
+     Darkened only the light-mode text hues to clear 4.5:1; the *Soft mixes
+     and the FAB/primary-button (white-on-acc) only gain contrast. */
+  --acc: #2358e6;
   --accSoft: color-mix(in oklab, var(--acc) 10%, var(--card));
   --accSoft2: color-mix(in oklab, var(--acc) 24%, var(--card));
-  --green: #149356;
+  --green: #0f8249;
   --greenSoft: #e5f5ec;
-  --red: #d13f45;
+  --red: #c23139;
   --redSoft: #fdecec;
-  --amber: #b97d10;
+  --amber: #8f5d00;
   --amberSoft: #fdf3dd;
   --dark1: #1c2740;
   --dark2: #25355c;
@@ -103,7 +108,11 @@
   }
 
   a { color: var(--acc); }
-  a:hover { opacity: 0.8; }
+  /* Text links get an underline on hover — a whole-element opacity dim used to
+     live here, but it dropped muted text inside card-style links below WCAG AA
+     and read as un-premium. Card/box links opt out with `.no-underline` and
+     bring their own bg/scale hover feedback. */
+  a:hover:not(.no-underline) { text-decoration: underline; text-underline-offset: 2px; }
   input, select, textarea, button { font-family: inherit; }
   input::placeholder { color: var(--mut2); }
 }
