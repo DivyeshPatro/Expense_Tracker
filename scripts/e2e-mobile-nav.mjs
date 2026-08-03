@@ -1,8 +1,10 @@
-// Proves Phase 2 (mobile navigation + quick add): the five mobile bottom-nav
-// positions (Home, Transactions, Quick Add, Analytics, More), the Quick Add
-// sheet opening/dismissing and routing each of its four choices to the right
-// form, Shared being reachable through More, the old floating FAB no longer
-// being duplicated on mobile, and that desktop nav/active-state is untouched.
+// Proves the mobile bottom navigation: an all-in-one horizontally-scrollable
+// row of every section (no "More" sheet, no separate Analytics tab — that's
+// now the Insights tab of Spends), a center-docked Quick Add FAB, the active
+// tab visually distinguished, the Quick Add sheet opening/dismissing and
+// routing each of its choices to the right form, exactly one Quick Add entry
+// point on mobile, Shared reachable directly in the row, and desktop
+// nav/active-state remaining untouched.
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -33,22 +35,26 @@ try {
   mobile.setDefaultTimeout(15000);
   await mobile.context().addCookies(cookies);
   await mobile.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await mobile.waitForSelector("text=TOTAL BALANCE");
+  await mobile.waitForSelector("text=Net standing");
 
-  // ═══════════ five mobile bottom-nav positions ═══════════
+  // ═══════════ all-in-one scrollable bottom nav ═══════════
   const nav = mobile.locator("nav");
   ok("mobile bottom nav bar is visible", await nav.isVisible());
 
   const homeLink = nav.getByRole("link", { name: /Home/ });
-  const txnsLink = nav.getByRole("link", { name: /Txns/ });
-  const analyticsLink = nav.getByRole("link", { name: /Analytics/ });
+  const spendsLink = nav.getByRole("link", { name: /Spends/ });
   const quickAddBtn = mobile.locator('button[aria-label="Quick add"]');
-  const moreBtn = nav.getByRole("button", { name: /More/ });
-  ok("position 1: Home link present", await homeLink.isVisible());
-  ok("position 2: Transactions link present", await txnsLink.isVisible());
-  ok("position 3: Quick Add center button present", await quickAddBtn.isVisible());
-  ok("position 4: Analytics link present", await analyticsLink.isVisible());
-  ok("position 5: More button present", await moreBtn.isVisible());
+  ok("Home tab present", (await homeLink.count()) === 1);
+  ok("Spends tab present (Transactions, relabelled)", (await spendsLink.count()) === 1);
+  ok("center Quick Add button present", await quickAddBtn.isVisible());
+
+  // every section lives in the one scrollable row (no More sheet)
+  const inNav = ["Khata", "Accounts", "Cards", "Budgets", "Bills", "Shared", "Activity", "Import", "Settings"];
+  for (const label of inNav) {
+    ok(`nav row includes ${label}`, (await nav.getByRole("link", { name: new RegExp(label) }).count()) === 1);
+  }
+  ok("no 'More' button (every section is in the row)", (await nav.getByRole("button", { name: /^More$/ }).count()) === 0);
+  ok("no dedicated Analytics tab (it's the Insights tab of Spends)", (await nav.getByRole("link", { name: /Analytics/ }).count()) === 0);
 
   // touch target sizing (~44px minimum)
   const qaBox = await quickAddBtn.boundingBox();
@@ -60,16 +66,20 @@ try {
   // pre-click URL by coincidence and trip its (unrelated, pre-existing)
   // stuck-nav fallback into a spurious hard reload — wait out the grace
   // period between clicks so this test isn't flaky because of it.
-  await txnsLink.click();
+  // dispatchEvent rather than click(): in `next dev` the dev-tools "Issues"
+  // badge floats over the bottom-left of the nav and would intercept a real
+  // pointer on the left-most tabs. It doesn't exist in a production build; the
+  // dispatched click drives the same Link navigation without the hit-test.
+  await spendsLink.dispatchEvent("click");
   await mobile.waitForURL("**/transactions**");
-  const txnsColor = await txnsLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
+  const spendsColor = await spendsLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
   const homeColorAfterNav = await homeLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
-  ok("active tab (Transactions) is visually distinguished from inactive tab (Home)", txnsColor !== homeColorAfterNav, `${txnsColor} vs ${homeColorAfterNav}`);
+  ok("active tab (Spends) is visually distinguished from inactive tab (Home)", spendsColor !== homeColorAfterNav, `${spendsColor} vs ${homeColorAfterNav}`);
   await mobile.waitForTimeout(600);
 
-  await homeLink.click();
+  await homeLink.dispatchEvent("click");
   await mobile.waitForURL("**/dashboard**");
-  await mobile.waitForSelector("text=TOTAL BALANCE");
+  await mobile.waitForSelector("text=Net standing");
   await mobile.waitForTimeout(600);
 
   // ═══════════ mobile FAB no longer duplicated ═══════════
@@ -102,8 +112,9 @@ try {
   await quickAddBtn.click();
   await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]');
   await quickAddSheet.getByRole("button", { name: "⇄ Transfer" }).click();
-  await mobile.waitForSelector("text=FROM");
-  ok("Quick Add → Transfer opens the transfer form", (await mobile.textContent("body")).includes("FROM") && (await mobile.textContent("body")).includes("TO"));
+  await mobile.waitForSelector('[role="dialog"][aria-label="Transfer money"]');
+  const transferText = await mobile.locator('[role="dialog"][aria-label="Transfer money"]').textContent();
+  ok("Quick Add → Transfer opens the transfer form", transferText.includes("FROM") && transferText.includes("TO"));
   await mobile.keyboard.press("Escape");
   await mobile.waitForTimeout(300);
 
@@ -132,25 +143,19 @@ try {
   await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]', { state: "detached", timeout: 5000 });
   ok("Quick Add sheet dismisses via backdrop click", true);
 
-  // ═══════════ Shared reachable through More; badge/prominence ═══════════
-  await moreBtn.click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="More"]');
-  const moreSheet = mobile.locator('[role="dialog"][aria-label="More"]');
-  const moreItems = moreSheet.locator("a");
-  const firstItemText = await moreItems.first().textContent();
-  ok("Shared is the first (most prominent) item in the More sheet", firstItemText.includes("Shared"), firstItemText);
-
-  await moreSheet.getByRole("link", { name: /Shared/ }).click();
-  await mobile.waitForURL("**/shared**");
-  ok("Shared is reachable through the More sheet", mobile.url().includes("/shared"));
+  // ═══════════ Shared reachable directly in the row (no More sheet) ═══════════
+  // Shared sits deep in the scrollable row; clicking auto-scrolls it into view.
+  const sharedLink = nav.getByRole("link", { name: /Shared/ });
+  await sharedLink.dispatchEvent("click");
+  await mobile.waitForURL("**/shared**", { timeout: 60000 }); // first visit cold-compiles under `next dev`
+  ok("Shared is reachable directly from the bottom nav", mobile.url().includes("/shared"));
+  const sharedColorActive = await sharedLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
   await mobile.waitForTimeout(600); // outlast this click's armStuckNavFallback grace period (see note above)
 
-  // More tab should now read active since Shared lives only inside it
-  const moreColorOnShared = await moreBtn.locator("span").first().evaluate((el) => getComputedStyle(el).color);
   await mobile.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await mobile.waitForSelector("text=TOTAL BALANCE");
-  const moreColorOnDashboard = await moreBtn.locator("span").first().evaluate((el) => getComputedStyle(el).color);
-  ok("More tab shows active state while on Shared (which now lives only inside it)", moreColorOnShared !== moreColorOnDashboard, `${moreColorOnShared} vs ${moreColorOnDashboard}`);
+  await mobile.waitForSelector("text=Net standing");
+  const sharedColorInactive = await sharedLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
+  ok("Shared tab shows active state while on /shared", sharedColorActive !== sharedColorInactive, `${sharedColorActive} vs ${sharedColorInactive}`);
 
   // ═══════════ desktop navigation remains unchanged ═══════════
   await desktop.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
