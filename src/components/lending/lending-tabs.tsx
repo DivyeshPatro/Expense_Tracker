@@ -1,33 +1,33 @@
 "use client";
 
-// Lending module Phase 2, Priority 7 — same tab pattern as
-// src/app/(app)/analytics/analytics-tabs.tsx: a picker on mobile (one
-// section visible at a time), the full stack always visible on desktop
-// (`contents` toggles layout only, nothing here unmounts or refetches).
-// Keeps Phase 2's new Card Recovery / Reports content off the global nav —
-// everything nests under the existing /lending route.
+// Lending sub-navigation (same pattern as analytics-tabs): a segmented picker on
+// mobile (one section at a time), the full stack on desktop (`contents` toggles
+// layout only — nothing unmounts or refetches). Card Recovery was retired as a
+// user-facing tab (v2.0 UX polish); the tabs are now the three things people
+// actually come to Lending for.
 
 import { useState, type ReactNode } from "react";
 
 const TABS = [
   { key: "overview", label: "Overview" },
-  { key: "recovery", label: "Card Recovery" },
   { key: "reports", label: "Reports" },
+  { key: "activity", label: "Activity log" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-export function LendingTabs({ overview, recovery, reports }: { overview: ReactNode; recovery: ReactNode; reports: ReactNode }) {
+export function LendingTabs({ overview, reports, activity }: { overview: ReactNode; reports: ReactNode; activity: ReactNode }) {
   const [tab, setTab] = useState<TabKey>("overview");
-  const groups: Record<TabKey, ReactNode> = { overview, recovery, reports };
+  const groups: Record<TabKey, ReactNode> = { overview, reports, activity };
 
   return (
     <>
-      <div className="md:hidden flex gap-1 bg-card border border-line rounded-[9px] p-[3px]">
+      <div className="md:hidden flex gap-1 bg-card border border-line rounded-[9px] p-[3px]" role="tablist" aria-label="Lending sections">
         {TABS.map((t) => (
           <button
             key={t.key}
+            role="tab"
             onClick={() => setTab(t.key)}
-            aria-pressed={tab === t.key}
+            aria-selected={tab === t.key}
             className="flex-1 px-3 py-1.5 rounded-[7px] text-xs font-semibold cursor-pointer border-none"
             style={{ background: tab === t.key ? "var(--acc)" : "transparent", color: tab === t.key ? "#fff" : "var(--mut)" }}
           >

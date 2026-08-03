@@ -16,7 +16,7 @@ import { OfflineDebug } from "./offline-debug";
 import { OfflineProvider, useOffline } from "./offline-context";
 import { NotificationBell } from "./notifications";
 import { HeaderPeriodPicker } from "./period-picker";
-import { UIProvider, useUI, type RefData } from "./ui-context";
+import { UIProvider, useUI, type ModalPrefill, type ModalType, type RefData } from "./ui-context";
 import { BottomSheet } from "./bottom-sheet";
 
 const NAV = [
@@ -324,9 +324,13 @@ function NavGlyph({ id }: { id: string }) {
 
 function BottomNav({ badge }: { badge: number }) {
   const pathname = usePathname();
+  const { openModal } = useUI();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const params = useSearchParams().toString();
   const { needsAttention } = useOffline();
+  // Context-aware quick add: options follow the current module; null hides the
+  // FAB entirely on view-only screens (Dashboard, Audit Log, Settings, Import).
+  const fab = quickAddConfig(pathname, openModal);
   const showDot = badge > 0 || needsAttention.length > 0;
   const scrollerRef = useRef<HTMLDivElement>(null);
   // scroll-hint: fade only the edge that still has hidden items, so the
@@ -384,85 +388,118 @@ function BottomNav({ badge }: { badge: number }) {
         <div className="pointer-events-none absolute top-0 bottom-0 left-0 w-7 transition-opacity" style={{ background: "linear-gradient(to right, var(--card), transparent)", opacity: edges.left ? 1 : 0 }} />
         <div className="pointer-events-none absolute top-0 bottom-0 right-0 w-7 transition-opacity" style={{ background: "linear-gradient(to left, var(--card), transparent)", opacity: edges.right ? 1 : 0 }} />
         {/* Center quick-add, docked above the bar with a ground ring so it reads
-            as raised, not floating loose. */}
-        <button
-          aria-label="Quick add"
-          onClick={() => setQuickAddOpen(true)}
-          className="absolute left-1/2 -translate-x-1/2 -top-[46px] w-[58px] h-[58px] rounded-full text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform"
-          style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 14px 28px -8px color-mix(in oklab, var(--acc) 72%, transparent), 0 0 0 6px var(--bg)" }}
-        >
-          <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-        </button>
+            as raised. Hidden on view-only screens; a single-action module fires
+            straight away, a multi-action one opens the context menu. */}
+        {fab && (
+          <button
+            aria-label={fab.actions.length === 1 ? fab.actions[0].label : `${fab.label} — quick add`}
+            onClick={() => (fab.actions.length === 1 ? fab.actions[0].run() : setQuickAddOpen(true))}
+            className="absolute left-1/2 -translate-x-1/2 -top-[46px] w-[58px] h-[58px] rounded-full text-white grid place-items-center cursor-pointer border-none select-none active:scale-95 transition-transform"
+            style={{ background: "linear-gradient(150deg, var(--acc), color-mix(in oklab, var(--acc) 58%, #7a3cff))", boxShadow: "0 14px 28px -8px color-mix(in oklab, var(--acc) 72%, transparent), 0 0 0 6px var(--bg)" }}
+          >
+            <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+        )}
       </nav>
-      {quickAddOpen && <QuickAddSheet close={() => setQuickAddOpen(false)} />}
+      {quickAddOpen && fab && <QuickAddSheet label={fab.label} actions={fab.actions} close={() => setQuickAddOpen(false)} />}
     </>
   );
 }
 
-function QuickAddSheet({ close }: { close: () => void }) {
-  const { openModal } = useUI();
-  const items = [
-    { icon: "🧾", label: "Expense", act: () => openModal("exp") },
-    { icon: "💰", label: "Income", act: () => openModal("inc") },
-    { icon: "⇄", label: "Transfer", act: () => openModal("tr") },
-    { icon: "👥", label: "Split with friends", act: () => openModal("exp", { split: true }) },
-    { icon: "🤝", label: "Lending entry", act: () => openModal("lendingEntry") },
-  ];
+type QuickAction = { icon: string; label: string; run: () => void };
+
+/** Context-aware Quick Add (v2.0): the FAB's options follow the module you're
+ *  in. Returns null on view-only screens (Dashboard, Audit Log, Settings,
+ *  Import) where the FAB is hidden entirely. The first action is the primary
+ *  one; a single action fires on tap, several open the menu. */
+function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPrefill) => void): { label: string; actions: QuickAction[] } | null {
+  const at = (s: string) => pathname.startsWith(s);
+  // Card creation deliberately lives on the /cards route (it holds a decrypted
+  // CVV — see cards/card-dialog.tsx), so the FAB signals it via an event the
+  // route-local Add Card button listens for, rather than a global modal.
+  const openCard = () => window.dispatchEvent(new CustomEvent("ledgerly:add-card"));
+  if (at("/transactions"))
+    return {
+      label: "Add expense",
+      actions: [
+        { icon: "🧾", label: "Add expense", run: () => openModal("exp") },
+        { icon: "💰", label: "Add income", run: () => openModal("inc") },
+        { icon: "⇄", label: "Transfer money", run: () => openModal("tr") },
+      ],
+    };
+  if (at("/lending"))
+    return {
+      label: "Lending",
+      actions: [
+        { icon: "💸", label: "You gave money", run: () => openModal("lendingEntry", { loanKind: "GAVE" }) },
+        { icon: "💰", label: "You got money", run: () => openModal("lendingEntry", { loanKind: "GOT" }) },
+      ],
+    };
+  if (at("/shared")) return { label: "Add shared expense", actions: [{ icon: "👥", label: "Add shared expense", run: () => openModal("exp", { split: true }) }] };
+  if (at("/cards")) return { label: "Add card", actions: [{ icon: "💳", label: "Add credit card", run: openCard }] };
+  if (at("/bills")) return { label: "Add bill", actions: [{ icon: "🧾", label: "Add bill", run: () => openModal("bill") }] };
+  if (at("/budgets")) return { label: "Add budget", actions: [{ icon: "◔", label: "Add budget", run: () => openModal("budget") }] };
+  if (at("/accounts")) return { label: "Add account", actions: [{ icon: "🏦", label: "Add account", run: () => openModal("account") }] };
+  return null; // dashboard, activity, settings, import → view-only, no FAB
+}
+
+function QuickAddSheet({ label, actions, close }: { label: string; actions: QuickAction[]; close: () => void }) {
   return (
-    <BottomSheet onClose={close} label="Quick add" className="gap-1">
-      {items.map((i) => (
+    <BottomSheet onClose={close} label={label} className="gap-1">
+      {actions.map((a) => (
         <button
-          key={i.label}
+          key={a.label}
           onClick={() => {
             close();
-            i.act();
+            a.run();
           }}
           className="flex items-center gap-3 px-2.5 py-[13px] rounded-[10px] text-sm font-semibold text-left cursor-pointer bg-transparent border-none text-ink hover:bg-accsoft w-full min-h-[44px]"
         >
-          <span className="w-5 text-center text-[16px]">{i.icon}</span>
-          {i.label}
+          <span className="w-5 text-center text-[16px]">{a.icon}</span>
+          {a.label}
         </button>
       ))}
     </BottomSheet>
   );
 }
 
+/** Desktop quick-add — same context-aware config, bottom-right. Hidden on
+ *  view-only routes. A single action fires on click; several expand upward. */
 function Fab() {
   const { openModal } = useUI();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const items = [
-    { icon: "🧾", label: "Expense", act: () => openModal("exp") },
-    { icon: "💰", label: "Income", act: () => openModal("inc") },
-    { icon: "⇄", label: "Transfer", act: () => openModal("tr") },
-    { icon: "👥", label: "Split with friends", act: () => openModal("exp", { split: true }) },
-    { icon: "🤝", label: "Lending entry", act: () => openModal("lendingEntry") },
-  ];
+  const cfg = quickAddConfig(pathname, openModal);
+  useEffect(() => setOpen(false), [pathname]); // collapse when the module changes
+  if (!cfg) return null;
+  const single = cfg.actions.length === 1;
   return (
     <>
-      {open && (
+      {open && !single && (
         <div className="hidden md:flex fixed right-5 z-[46] flex-col gap-2 items-end bottom-[90px]" style={{ animation: "pop .18s ease" }}>
-          {items.map((i) => (
+          {cfg.actions.map((a) => (
             <button
-              key={i.label}
+              key={a.label}
               onClick={() => {
                 setOpen(false);
-                i.act();
+                a.run();
               }}
               className="flex items-center gap-[9px] bg-card border border-line2 px-[15px] py-2.5 rounded-full text-[13px] font-semibold cursor-pointer text-ink"
               style={{ boxShadow: "var(--shLg)" }}
             >
-              {i.icon} {i.label}
+              {a.icon} {a.label}
             </button>
           ))}
         </div>
       )}
       <button
-        aria-label="Quick add (desktop)"
-        onClick={() => setOpen((o) => !o)}
-        className="hidden md:grid fixed right-5 w-[54px] h-[54px] rounded-full bg-acc text-white text-[25px] place-items-center cursor-pointer z-[47] select-none border-none bottom-6 hover:brightness-108 print:hidden"
+        aria-label={single ? cfg.actions[0].label : `${cfg.label} — quick add`}
+        title={single ? cfg.actions[0].label : cfg.label}
+        onClick={() => (single ? cfg.actions[0].run() : setOpen((o) => !o))}
+        className="hidden md:grid fixed right-5 w-[54px] h-[54px] rounded-full bg-acc text-white text-[25px] place-items-center cursor-pointer z-[47] select-none border-none bottom-6 hover:brightness-108 print:hidden transition-transform active:scale-95"
         style={{ boxShadow: "0 8px 22px color-mix(in oklab, var(--acc) 45%, transparent)" }}
       >
-        {open ? "✕" : "＋"}
+        {open && !single ? "✕" : "＋"}
       </button>
     </>
   );

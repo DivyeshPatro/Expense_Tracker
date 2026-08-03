@@ -21,7 +21,6 @@ import { computeLoanBalances } from "@/lib/lending";
 import { allocateFifo, computeLoanStatus, validateManualAllocation, type LoanStatus, type OpenLoan } from "@/lib/loan-settlement";
 import {
   cardExposure,
-  computeCardRecovery,
   monthlyLending,
   monthlyRecoveries,
   outstandingTrend,
@@ -29,8 +28,6 @@ import {
   receivableVsPayable,
   topBorrowers,
   type CardExposureRow,
-  type CardLoanForRecovery,
-  type CardRecoverySummary,
   type LoanEntryForTrend,
   type OverdueLoanRow,
   type TopBorrowerRow,
@@ -749,39 +746,6 @@ const allGaveEntriesData = cache(async (userId: string): Promise<GaveEntryWithSe
     };
   });
 });
-
-/** Priority 4 (Card Recovery Dashboard) — computeCardRecovery over the
- * shared GAVE-entry data, scoped to cards with billing details actually
- * configured (cycle math needs statementDay/dueDay). */
-export async function cardRecoveryDashboard(userId: string): Promise<CardRecoverySummary[]> {
-  const cardFunded = (await allGaveEntriesData(userId)).filter((g) => g.hasBillingConfig);
-  if (cardFunded.length === 0) return [];
-
-  const accountsById = new Map<string, { id: string; name: string; icon: string; cardNetwork: string | null; cardLast4: string | null; statementDay: number; dueDay: number }>();
-  for (const g of cardFunded) {
-    if (!accountsById.has(g.accountId!)) {
-      accountsById.set(g.accountId!, {
-        id: g.accountId!,
-        name: g.accountName ?? "Card",
-        icon: g.accountIcon ?? "💳",
-        cardNetwork: g.cardNetwork,
-        cardLast4: g.cardLast4,
-        statementDay: g.statementDay!,
-        dueDay: g.dueDay!,
-      });
-    }
-  }
-  const loans: CardLoanForRecovery[] = cardFunded.map((g) => ({
-    accountId: g.accountId!,
-    loanEntryId: g.loanEntryId,
-    participantId: g.participantId,
-    participantName: g.participantName,
-    amount: g.amount,
-    remainingAmount: g.remainingAmount,
-    occurredAt: g.occurredAt,
-  }));
-  return computeCardRecovery([...accountsById.values()], loans);
-}
 
 /** Priority 6 (Reminder Data Engine) — generateReminders over the same
  * shared GAVE-entry data. Data-layer only, per spec — no notification

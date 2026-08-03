@@ -8,7 +8,7 @@
 // screen trains people to type it without thinking, which is the opposite of
 // what the prompt is for.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   deleteCreditCardAction,
@@ -25,6 +25,14 @@ import { RevealPanel } from "./reveal-panel";
 
 export function AddCardButton() {
   const [open, setOpen] = useState(false);
+  // The context-aware FAB (app-shell) can't open this form directly — it holds a
+  // decrypted CVV and is deliberately route-scoped (card-dialog.tsx) — so it
+  // signals via an event this route-local button listens for.
+  useEffect(() => {
+    const onAdd = () => setOpen(true);
+    window.addEventListener("ledgerly:add-card", onAdd);
+    return () => window.removeEventListener("ledgerly:add-card", onAdd);
+  }, []);
   return (
     <>
       <button onClick={() => setOpen(true)} className="btn-primary">
