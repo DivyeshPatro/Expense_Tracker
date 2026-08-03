@@ -8,12 +8,16 @@
 // stays.
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { deleteBillAction, updateBillAction } from "@/app/actions";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { deleteBillAction, payBillAction, updateBillAction } from "@/app/actions";
 import { DateField } from "@/components/shell/date-field";
 import { AmountInput, ErrorNote, Field } from "@/components/shell/form-primitives";
 import { useUI } from "@/components/shell/ui-context";
+import { useFocusTrap } from "@/components/shell/use-focus-trap";
 import { formatPaise } from "@/lib/money";
+import { soft } from "@/lib/tx-display";
+import { billUrgencyBackground, billUrgencyColor } from "@/lib/urgency";
 import type { BillView, PaidBillView } from "@/server/services/bills";
 
 const CADENCES = [
@@ -50,6 +54,160 @@ export function BillActions({ bill }: { bill: BillView }) {
     <div className="flex items-center gap-2 flex-none">
       <TinyButton onClick={() => setMode("edit")}>Edit</TinyButton>
       <TinyButton onClick={() => setMode("confirm")}>Delete</TinyButton>
+    </div>
+  );
+}
+
+// ── Mobile: tappable bill cards that open an action sheet ─────────────────
+// Desktop keeps the inline Mark-paid / Edit / Delete buttons (BillActions).
+// On a phone those three equal-weight controls per row read like a CRUD
+// table, so mobile collapses them: the row shows only what matters (icon,
+// name, cadence, due, amount) and a tap opens a bottom sheet where Mark paid
+// is the clear primary action and Edit / Delete sit below it.
+
+export function MobileBills({ bills }: { bills: BillView[] }) {
+  if (bills.length === 0) return null;
+  return (
+    <div className="md:hidden flex flex-col gap-2.5">
+      {bills.map((b) => (
+        <MobileBillRow key={b.id} bill={b} />
+      ))}
+    </div>
+  );
+}
+
+function MobileBillRow({ bill }: { bill: BillView }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-3 p-3 rounded-2xl bg-card border border-line text-left w-full active:scale-[.99] transition-transform cursor-pointer"
+      >
+        <span className="w-[42px] h-[42px] rounded-xl grid place-items-center text-[17px] flex-none" style={{ background: soft(bill.color) }}>{bill.icon}</span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[13.5px] font-bold truncate">{bill.name}</span>
+          <span className="flex items-center gap-1.5 mt-1">
+            <span className="text-[11px] text-mut2">{bill.cadence ? `🔁 ${bill.cadence}` : "One-off"}</span>
+            <span className="px-2 py-[2px] rounded-full text-[10.5px] font-bold" style={{ background: billUrgencyBackground(bill.urgency), color: billUrgencyColor(bill.urgency) }}>{bill.dueLabel}</span>
+          </span>
+        </span>
+        <span className="flex flex-col items-end flex-none gap-0.5">
+          <span className="text-[14px] font-extrabold tabular-nums">{formatPaise(bill.amount)}</span>
+          <span className="text-mut2 text-[16px] leading-none" aria-hidden>›</span>
+        </span>
+      </button>
+      {open && <BillSheet bill={bill} close={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/** Bottom sheet on mobile, centred dialog on desktop — the actions for one bill. */
+function Sheet({ label, close, children }: { label: string; close: () => void; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [close]);
+  useEffect(() => ref.current?.focus(), []);
+  return createPortal(
+    <div onClick={close} className="fixed inset-0 z-[55] flex items-end md:items-center md:justify-center" style={{ background: "var(--ov)" }}>
+      <div
+        ref={ref}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full md:max-w-[440px] bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none"
+        style={{ animation: "rise .22s ease", paddingBottom: "calc(16px + env(safe-area-inset-bottom))", boxShadow: "var(--shLg)" }}
+      >
+        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-3 md:hidden" />
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function BillSheet({ bill, close }: { bill: BillView; close: () => void }) {
+  const [view, setView] = useState<"actions" | "edit" | "confirm">("actions");
+  const { busy, run } = useBillAction();
+
+  return (
+    <Sheet label={`${bill.name} options`} close={close}>
+      {/* Header — the bill at a glance, shared across every view. */}
+      <div className="flex items-center gap-3 pb-3">
+        <span className="w-[44px] h-[44px] rounded-xl grid place-items-center text-[18px] flex-none" style={{ background: soft(bill.color) }}>{bill.icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-[15px] font-bold truncate">{bill.name}</div>
+          <div className="text-[11.5px] text-mut2">{bill.cadence ? `🔁 ${bill.cadence}` : "One-off"} · due {bill.dueLabel.toLowerCase()}</div>
+        </div>
+        <div className="text-[16px] font-extrabold tabular-nums flex-none">{formatPaise(bill.amount)}</div>
+      </div>
+
+      {view === "actions" && (
+        <div className="flex flex-col gap-2">
+          <button
+            disabled={busy}
+            onClick={async () => {
+              if (await run(() => payBillAction(bill.id), `${bill.name} paid · ${formatPaise(bill.amount)}`)) close();
+            }}
+            className="h-12 rounded-[13px] text-[14px] font-bold text-white border-none cursor-pointer bg-acc hover:brightness-108 disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {busy ? "Marking…" : "✓ Mark paid"}
+          </button>
+          <button onClick={() => setView("edit")} className="h-12 rounded-[13px] text-[13.5px] font-semibold cursor-pointer border border-line2 bg-card text-ink hover:bg-accsoft flex items-center justify-center gap-2">
+            ✎ Edit details
+          </button>
+          <button onClick={() => setView("confirm")} className="h-12 rounded-[13px] text-[13.5px] font-semibold cursor-pointer border-none bg-transparent flex items-center justify-center gap-2" style={{ color: "var(--red)" }}>
+            🗑 Delete bill
+          </button>
+        </div>
+      )}
+
+      {view === "edit" && (
+        <div>
+          <BackBar label="Edit bill" onBack={() => setView("actions")} />
+          <EditBillForm bill={bill} onDone={close} />
+        </div>
+      )}
+
+      {view === "confirm" && (
+        <div>
+          <BackBar label="Delete bill" onBack={() => setView("actions")} />
+          <p className="text-[12.5px] text-mut px-1 pb-3">
+            {bill.hasPayment
+              ? "Delete this reminder? The payment you already recorded stays in your transactions."
+              : "This removes the bill and its reminder. This can’t be undone."}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setView("actions")} className="flex-1 h-11 rounded-[12px] text-[13.5px] font-semibold cursor-pointer border border-line2 bg-card text-ink">Keep</button>
+            <button
+              disabled={busy}
+              onClick={async () => {
+                if (await run(() => deleteBillAction(bill.id), "Bill deleted")) close();
+              }}
+              className="flex-1 h-11 rounded-[12px] text-[13.5px] font-bold cursor-pointer border-none bg-red text-white disabled:opacity-60"
+            >
+              {busy ? "Deleting…" : "Delete bill"}
+            </button>
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+function BackBar({ label, onBack }: { label: string; onBack: () => void }) {
+  return (
+    <div className="flex items-center gap-1.5 pb-2">
+      <button onClick={onBack} aria-label="Back" className="w-8 h-8 -ml-1 rounded-lg grid place-items-center text-mut cursor-pointer bg-transparent border-none hover:bg-accsoft flex-none">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 18-6-6 6-6" /></svg>
+      </button>
+      <h2 className="text-[14px] font-bold text-ink m-0">{label}</h2>
     </div>
   );
 }
