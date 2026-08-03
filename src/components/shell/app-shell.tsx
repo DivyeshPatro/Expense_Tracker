@@ -9,6 +9,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
 import { applyAppearance, DEFAULT_SKIN, isSkin } from "@/lib/theme";
+import { BrandMark } from "./brand-mark";
 import { CommandPalette } from "./palette";
 import { Modals } from "./modals";
 import { OfflineDebug } from "./offline-debug";
@@ -122,7 +123,8 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
             page (e.g. Analytics) is still streaming in — see period-picker.tsx */}
         <header className="flex flex-col gap-2 border-b border-line sticky top-0 bg-bg z-30 px-[clamp(14px,2.5vw,28px)] py-3 print:hidden">
         <div className="flex items-center gap-2.5">
-          <div className="md:hidden w-[26px] h-[26px] rounded-lg bg-acc grid place-items-center text-white font-extrabold text-[13px]">₹</div>
+          <BrandMark size={26} className="md:hidden" />
+          <span className="sr-only md:hidden">Ledgerly</span>
           <h1 className="text-base font-bold tracking-tight flex-1 m-0">{title}</h1>
           <button
             onClick={() => setPaletteOpen(true)}
@@ -195,7 +197,7 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
   return (
     <aside className="hidden md:flex w-[216px] flex-none border-r border-line bg-side px-3 py-5 flex-col gap-0.5 sticky top-0 h-screen box-border print:hidden">
       <div className="flex items-center gap-[9px] px-2 pb-[18px] pt-1">
-        <div className="w-7 h-7 rounded-[9px] bg-acc grid place-items-center text-white font-extrabold text-sm">₹</div>
+        <BrandMark size={28} />
         <div className="font-extrabold text-[15px] tracking-tight">Ledgerly</div>
       </div>
       {NAV.map((n) => {

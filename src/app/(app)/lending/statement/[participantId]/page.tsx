@@ -7,6 +7,7 @@ import { friendlyDay, todayYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { contactStatement } from "@/server/services/lending";
 import { requireUser } from "@/server/session";
+import { BrandMark } from "@/components/shell/brand-mark";
 import { StatementActions } from "./statement-actions";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +51,7 @@ export default async function StatementPage({
         {/* Brand + title */}
         <div className="flex items-start justify-between gap-3 pb-4 border-b border-line">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-[10px] grid place-items-center text-white font-extrabold text-[17px]" style={{ background: "linear-gradient(150deg,#2a63f6,#6d3cf5)" }}>₹</div>
+            <BrandMark size={36} radius={0.28} />
             <div>
               <div className="text-[15px] font-extrabold tracking-tight leading-none">Ledgerly</div>
               <div className="text-[11px] text-mut2 mt-0.5">Account statement</div>

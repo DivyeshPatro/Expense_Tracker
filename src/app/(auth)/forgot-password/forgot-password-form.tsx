@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { BrandMark } from "@/components/shell/brand-mark";
 
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState("");
@@ -26,7 +27,7 @@ export function ForgotPasswordForm() {
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="card w-full max-w-[380px] p-7 flex flex-col gap-4" style={{ animation: "rise .25s ease" }}>
         <div className="flex items-center gap-2.5 mb-1">
-          <div className="w-8 h-8 rounded-[9px] bg-acc grid place-items-center text-white font-extrabold text-[15px]">₹</div>
+          <BrandMark size={32} />
           <div className="font-extrabold text-[17px] tracking-tight">Ledgerly</div>
         </div>
         {sent ? (
