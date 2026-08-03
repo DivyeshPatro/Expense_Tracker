@@ -8,6 +8,7 @@
 // (modal close button vs. an inline "onClose" affordance for the pane).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryAction, updateParticipantDetailsAction } from "@/app/actions";
 import { friendlyDay } from "@/lib/dates";
@@ -169,6 +170,15 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
           + You Got
         </button>
       </div>
+
+      {entries.length > 0 && (
+        <Link
+          href={`/lending/statement/${participantId}`}
+          className="flex items-center justify-center gap-1.5 h-9 rounded-[10px] border border-line2 bg-card text-[12px] font-semibold text-mut no-underline hover:bg-accsoft"
+        >
+          📄 View / share statement
+        </Link>
+      )}
 
       {contact && (
         <>

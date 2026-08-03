@@ -882,3 +882,85 @@ export async function lendingReportsData(userId: string, months = 6): Promise<Le
     topBorrowers: topBorrowers(contacts.map((c) => ({ participantId: c.id, participantName: c.name, net: c.net }))),
   };
 }
+
+// ── Contact statement (v2.1 Lending 2.0 #57/#58/#59) ──────────────────────
+// A period-scoped ledger for one contact: opening balance (Σ before the
+// range), the You Gave / You Got entries within it each with a running
+// balance, and the closing balance — the data behind the printable/PDF and
+// Excel statement exports. Balance sign follows the app convention
+// (Σ GAVE − Σ GOT; positive = they owe you).
+
+export interface StatementEntry {
+  id: string;
+  occurredAt: string; // YYYY-MM-DD
+  kind: "GAVE" | "GOT";
+  amount: number; // paise
+  reason: string | null;
+  balanceAfterPaise: number;
+}
+
+export interface ContactStatement {
+  contact: { id: string; name: string; phone: string | null };
+  from: string | null; // YYYY-MM-DD, null = from the beginning
+  to: string | null; // YYYY-MM-DD, null = up to today
+  openingBalancePaise: number;
+  closingBalancePaise: number;
+  totalGavePaise: number;
+  totalGotPaise: number;
+  entries: StatementEntry[];
+  generatedAt: string; // ISO
+}
+
+export async function contactStatement(
+  userId: string,
+  participantId: string,
+  range: { from?: string; to?: string } = {}
+): Promise<ContactStatement> {
+  const participant = await prisma.participant.findFirst({
+    where: { id: participantId, ownerId: userId },
+    select: { id: true, displayName: true, phone: true },
+  });
+  if (!participant) throw new Error("Contact not found");
+
+  const all = await prisma.loanEntry.findMany({
+    where: { userId, participantId, deletedAt: null },
+    select: { id: true, kind: true, amount: true, reason: true, occurredAt: true },
+    orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
+  });
+
+  const { from, to } = range;
+  let running = 0;
+  let opening = 0;
+  let totalGave = 0;
+  let totalGot = 0;
+  const entries: StatementEntry[] = [];
+
+  for (const e of all) {
+    const ymd = toYMD(e.occurredAt);
+    const amt = Number(e.amount);
+    const delta = e.kind === "GAVE" ? amt : -amt;
+    if (from && ymd < from) {
+      // before the window — folds into the opening balance
+      running += delta;
+      opening = running;
+      continue;
+    }
+    if (to && ymd > to) continue; // after the window — excluded, doesn't move the closing balance
+    running += delta;
+    if (e.kind === "GAVE") totalGave += amt;
+    else totalGot += amt;
+    entries.push({ id: e.id, occurredAt: ymd, kind: e.kind, amount: amt, reason: e.reason, balanceAfterPaise: running });
+  }
+
+  return {
+    contact: { id: participant.id, name: participant.displayName, phone: participant.phone },
+    from: from ?? null,
+    to: to ?? null,
+    openingBalancePaise: opening,
+    closingBalancePaise: entries.length ? entries[entries.length - 1].balanceAfterPaise : opening,
+    totalGavePaise: totalGave,
+    totalGotPaise: totalGot,
+    entries,
+    generatedAt: new Date().toISOString(),
+  };
+}
