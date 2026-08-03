@@ -40,7 +40,7 @@ export function LendingReports({ data }: { data: LendingReportsData }) {
       </div>
 
       <section className="card flex-[1.4_1_320px] p-[var(--pad)]">
-        <h2 className="text-[13.5px] font-bold m-0">Outstanding trend</h2>
+        <h2 className="text-[13.5px] font-bold m-0">Remaining balance</h2>
         <div className="text-[11.5px] text-mut2 mt-1">{monthName(data.monthKeys[0])} – {monthName(data.monthKeys[data.monthKeys.length - 1])}</div>
         <svg viewBox="0 0 300 110" preserveAspectRatio="none" className="w-full h-[120px] block mt-2.5">
           <polyline points={trendPts} fill="none" stroke="var(--acc)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />

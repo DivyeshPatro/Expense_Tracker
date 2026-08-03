@@ -23,7 +23,7 @@ export function MobileHubStrip({ data }: { data: HubStripData }) {
       href: "/lending",
       icon: "🤝",
       label: "Lending",
-      value: data.lendingOwed > 0 ? `${formatPaise(data.lendingOwed)} owed to you` : "All square",
+      value: data.lendingOwed > 0 ? `${formatPaise(data.lendingOwed)} you'll get` : "All square",
       valueColor: data.lendingOwed > 0 ? "var(--green)" : undefined,
     },
     {

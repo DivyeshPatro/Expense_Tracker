@@ -111,10 +111,10 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   const name = contact?.name ?? entries[0]?.participantName ?? "Contact";
   const balanceState =
     net > 100
-      ? { label: "You are owed", icon: "↗", color: "var(--green)" }
+      ? { label: "You'll get", icon: "↗", color: "var(--green)" }
       : net < -100
-        ? { label: "You owe", icon: "↘", color: "var(--red)" }
-        : { label: "Settled up", icon: "✓", color: "var(--mut2)" };
+        ? { label: "You'll pay", icon: "↘", color: "var(--red)" }
+        : { label: "All settled", icon: "✓", color: "var(--mut2)" };
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .2s ease" }}>

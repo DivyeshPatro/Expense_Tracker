@@ -172,11 +172,11 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
       {/* LENDING */}
       {show("khata") && (
       <SectionCard
-        tint="green" title="Khata · you’re owed" sub={`${data.lending.people} ${data.lending.people === 1 ? "person" : "people"}${data.lending.overdue ? ` · ${data.lending.overdue} overdue` : ""}`}
-        value={<span style={{ color: "var(--green)" }}>{formatPaise(data.lending.owed)}</span>} valueSub={data.lending.owe > 0 ? `−${formatPaise(data.lending.owe)} you owe` : "nothing you owe"} href="/lending"
+        tint="green" title="Khata · you’ll get" sub={`${data.lending.people} ${data.lending.people === 1 ? "person" : "people"}${data.lending.overdue ? ` · ${data.lending.overdue} overdue` : ""}`}
+        value={<span style={{ color: "var(--green)" }}>{formatPaise(data.lending.owed)}</span>} valueSub={data.lending.owe > 0 ? `−${formatPaise(data.lending.owe)} you’ll pay` : "nothing to pay"} href="/lending"
       >
-        <Row label="You are owed" value={<span className="text-green">{formatPaise(data.lending.owed)}</span>} />
-        <Row label="You owe" value={<span className="text-red">−{formatPaise(data.lending.owe)}</span>} />
+        <Row label="You’ll get" value={<span className="text-green">{formatPaise(data.lending.owed)}</span>} />
+        <Row label="You’ll pay" value={<span className="text-red">−{formatPaise(data.lending.owe)}</span>} />
         <Row label="Net" value={<span style={{ color: data.lending.net < 0 ? "var(--red)" : "var(--green)" }}>{sign(data.lending.net)}</span>} strong />
       </SectionCard>
       )}

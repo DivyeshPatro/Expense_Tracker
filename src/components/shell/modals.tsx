@@ -506,9 +506,9 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
       <SubmitButton
         busy={busy}
         color="var(--green)"
-        onClick={() => run(() => settleAction({ participantId: prefill?.participantId, direction, amount, method, note: note.trim() || undefined, groupId: prefill?.settleGroupId }), "Settlement recorded")}
+        onClick={() => run(() => settleAction({ participantId: prefill?.participantId, direction, amount, method, note: note.trim() || undefined, groupId: prefill?.settleGroupId }), "Payment recorded")}
       >
-        Record settlement
+        Record payment
       </SubmitButton>
     </div>
   );
@@ -533,9 +533,9 @@ function SettlePreview({
   const pay = Math.round((parseFloat(amountRupees) || 0) * 100);
   const projected = direction === "TO_OWNER" ? netPaise - pay : netPaise + pay;
   const label = (n: number) => {
-    if (Math.abs(n) <= THRESHOLD) return { text: "Settled up", tone: "var(--mut2)" };
-    if (n > 0) return { text: `${name} owes you ${formatPaise(n)}`, tone: "var(--green)" };
-    return { text: `You owe ${name} ${formatPaise(-n)}`, tone: "var(--red)" };
+    if (Math.abs(n) <= THRESHOLD) return { text: "All settled", tone: "var(--mut2)" };
+    if (n > 0) return { text: `${name} will pay you ${formatPaise(n)}`, tone: "var(--green)" };
+    return { text: `You'll pay ${name} ${formatPaise(-n)}`, tone: "var(--red)" };
   };
   const cur = label(netPaise);
   const proj = label(projected);

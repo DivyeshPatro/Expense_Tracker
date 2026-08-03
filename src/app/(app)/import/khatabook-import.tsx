@@ -305,7 +305,7 @@ function TopContacts({ contacts }: { contacts: PlannedContact[] }) {
               <th className="font-semibold py-1 pr-2">Contact</th>
               <th className="font-semibold py-1 px-2 text-right">You Gave</th>
               <th className="font-semibold py-1 px-2 text-right">You Got</th>
-              <th className="font-semibold py-1 pl-2 text-right">Outstanding</th>
+              <th className="font-semibold py-1 pl-2 text-right">Remaining</th>
             </tr>
           </thead>
           <tbody>
@@ -414,7 +414,7 @@ function MigrationReport({
           <Stat label="Invalid skipped" value={String(report.invalidSkipped)} tone={report.invalidSkipped ? "red" : undefined} />
           <Stat label="Total You Gave" value={formatPaise(report.totalGavePaise)} />
           <Stat label="Total You Got" value={formatPaise(report.totalGotPaise)} />
-          <Stat label="Final outstanding" value={formatPaise(report.netOutstandingPaise)} tone={report.netOutstandingPaise >= 0 ? "green" : "red"} />
+          <Stat label="Amount left" value={formatPaise(report.netOutstandingPaise)} tone={report.netOutstandingPaise >= 0 ? "green" : "red"} />
         </div>
       )}
 

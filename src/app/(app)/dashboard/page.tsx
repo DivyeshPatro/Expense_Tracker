@@ -333,11 +333,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <SectionHeader title="Lending" href="/lending" />
           <Link href="/lending" className="no-underline text-ink flex flex-col gap-2">
             <div className="flex justify-between text-[12.5px]">
-              <span className="text-mut font-medium">You are owed</span>
+              <span className="text-mut font-medium">You’ll get</span>
               <span className="font-bold text-green">{formatPaise(lending.youAreOwed)}</span>
             </div>
             <div className="flex justify-between text-[12.5px]">
-              <span className="text-mut font-medium">You owe</span>
+              <span className="text-mut font-medium">You’ll pay</span>
               <span className="font-bold text-red">{formatPaise(lending.youOwe)}</span>
             </div>
             <div className="flex justify-between text-[12.5px] pt-2 border-t border-line">

@@ -44,10 +44,10 @@ export default async function SharedPage() {
       </div>
 
       <div className="flex flex-wrap gap-3.5">
-        <StatCard label="YOU OWE" value={<span className="text-red">{formatPaise(summary.youOwe)}</span>} />
-        <StatCard label="OWED TO YOU" value={<span className="text-green">{formatPaise(summary.owedToYou)}</span>} />
+        <StatCard label="YOU'LL PAY" value={<span className="text-red">{formatPaise(summary.youOwe)}</span>} />
+        <StatCard label="YOU'LL GET" value={<span className="text-green">{formatPaise(summary.owedToYou)}</span>} />
         <StatCard
-          label="NET BALANCE"
+          label="NET"
           value={
             <span style={{ color: summary.net < 0 ? "var(--red)" : "var(--green)" }}>
               {summary.net < 0 ? "−" : "+"}{formatPaise(summary.net)}
@@ -71,7 +71,7 @@ export default async function SharedPage() {
                   <div className="w-9 h-9 rounded-full grid place-items-center text-[13px] font-bold text-white flex-none" style={{ background: m.color }}>{m.initial}</div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-bold truncate">{m.name}</div>
-                    <div className="text-[11.5px] text-mut2">{m.net > 100 ? "owes you" : m.net < -100 ? "you owe" : "settled up"}</div>
+                    <div className="text-[11.5px] text-mut2">{m.net > 100 ? "will pay you" : m.net < -100 ? "you'll pay" : "all settled"}</div>
                   </div>
                 </Link>
                 <div className="text-[13px] font-extrabold" style={{ color: m.net > 100 ? "var(--green)" : m.net < -100 ? "var(--red)" : "var(--mut2)" }}>

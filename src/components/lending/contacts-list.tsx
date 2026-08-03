@@ -88,10 +88,10 @@ export function LendingContactsList({
         const owed = Math.abs(c.net) > 100;
         const state =
           c.net > 100
-            ? { label: "You are owed", color: "var(--green)", bg: "var(--greenSoft)" }
+            ? { label: "You'll get", color: "var(--green)", bg: "var(--greenSoft)" }
             : c.net < -100
-              ? { label: "You owe", color: "var(--red)", bg: "var(--redSoft)" }
-              : { label: "Settled up", color: "var(--mut2)", bg: "var(--accSoft)" };
+              ? { label: "You'll pay", color: "var(--red)", bg: "var(--redSoft)" }
+              : { label: "All settled", color: "var(--mut2)", bg: "var(--accSoft)" };
         const isSelected = selectedId === c.id;
         return (
           <button

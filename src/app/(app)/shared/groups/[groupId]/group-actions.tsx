@@ -109,7 +109,7 @@ function SettleSheet({ targets, onPick, onClose }: { targets: SettleTarget[]; on
             >
               <span className="text-[13.5px] font-semibold text-ink">{t.name}</span>
               <span className="text-[12.5px] font-bold" style={{ color: owesYou ? "var(--green)" : "var(--red)" }}>
-                {owesYou ? "owes you " : "you owe "}
+                {owesYou ? "will pay you " : "you'll pay "}
                 {formatPaise(Math.abs(t.net))}
               </span>
             </button>

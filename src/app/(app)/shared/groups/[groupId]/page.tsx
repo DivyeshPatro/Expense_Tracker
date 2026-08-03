@@ -67,7 +67,7 @@ export default async function GroupDashboardPage({
           <div className="text-[11.5px] text-mut2 mt-[5px]">{g.overview.totalSettlementCount} recorded</div>
         </StatCard>
         <StatCard
-          label="NET POSITION"
+          label="NET"
           value={
             <span style={{ color: g.youNet < 0 ? "var(--red)" : g.youNet > 0 ? "var(--green)" : "var(--mut2)" }}>
               {g.youNet === 0 ? "—" : g.youNet < 0 ? "−" : "+"}
@@ -76,10 +76,10 @@ export default async function GroupDashboardPage({
           }
         >
           <div className="text-[11.5px] text-mut2 mt-[5px]">
-            {g.youAreOwed > 0 && <span className="text-green">+{formatPaise(g.youAreOwed)} owed to you</span>}
+            {g.youAreOwed > 0 && <span className="text-green">+{formatPaise(g.youAreOwed)} you’ll get</span>}
             {g.youAreOwed > 0 && g.youOwe > 0 && " · "}
-            {g.youOwe > 0 && <span className="text-red">−{formatPaise(g.youOwe)} you owe</span>}
-            {g.youAreOwed === 0 && g.youOwe === 0 && "all settled up"}
+            {g.youOwe > 0 && <span className="text-red">−{formatPaise(g.youOwe)} you’ll pay</span>}
+            {g.youAreOwed === 0 && g.youOwe === 0 && "all settled"}
           </div>
         </StatCard>
       </div>
@@ -169,15 +169,15 @@ function MemberRow({ m }: { m: GroupMemberView }) {
   const partial = !isYou && state !== "settled" && m.hasSettlements;
   const stateLabel = isYou
     ? m.net > 0
-      ? "you are owed"
+      ? "you'll get overall"
       : m.net < 0
-        ? "you owe overall"
-        : "settled up"
+        ? "you'll pay overall"
+        : "all settled"
     : state === "owes-you"
-      ? "owes you"
+      ? "will pay you"
       : state === "you-owe"
-        ? "you owe"
-        : "settled up";
+        ? "you'll pay"
+        : "all settled";
   return (
     <div className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
       <span className="w-9 h-9 rounded-full grid place-items-center text-[13px] font-bold text-white flex-none" style={{ background: m.color }}>
