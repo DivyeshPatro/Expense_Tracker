@@ -23,12 +23,29 @@ const schibsted = Schibsted_Grotesk({
 export const metadata: Metadata = {
   title: "Ledgerly",
   description: "Personal finance & shared expense tracker",
+  applicationName: "Ledgerly",
   manifest: "/manifest.webmanifest",
+  // Home-screen install on iOS: standalone chrome + a real touch icon. Android
+  // pulls its icons from the manifest.
+  appleWebApp: { capable: true, title: "Ledgerly", statusBarStyle: "default" },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Let content flow under the notch / home indicator so the app's own
+  // env(safe-area-inset-*) padding (nav, sheets) reads as native in standalone.
+  viewportFit: "cover",
+  // The live browser/status-bar chrome tracks the app ground in each theme, so
+  // the toolbar reads as part of the app rather than a separate bar.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f7f9" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f1115" },
+  ],
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
