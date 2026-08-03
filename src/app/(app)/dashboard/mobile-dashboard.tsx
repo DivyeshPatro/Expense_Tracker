@@ -6,10 +6,25 @@
 // secondary detail behind expandable cards. Quick actions open the same modals
 // the rest of the app uses.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { formatPaise } from "@/lib/money";
 import { useUI } from "@/components/shell/ui-context";
+import { useFocusTrap } from "@/components/shell/use-focus-trap";
+
+// Widgets the user can show/hide (stored on the device). The hero standing
+// card and quick actions are the dashboard's spine and stay put; everything
+// below is optional so the landing view can be as lean or complete as each
+// person wants.
+const TOGGLEABLE = [
+  { key: "cashflow", label: "Cash flow" },
+  { key: "khata", label: "Khata · lending" },
+  { key: "bills", label: "Upcoming bills" },
+  { key: "budgets", label: "Budgets" },
+  { key: "recent", label: "Recent activity" },
+] as const;
+const HIDDEN_KEY = "ledgerly-dash-hidden";
 
 export interface MobileDashboardData {
   greeting: string;
@@ -32,6 +47,25 @@ const sign = (p: number) => (p < 0 ? "−" : "+") + formatPaise(p);
 
 export function MobileDashboard({ data }: { data: MobileDashboardData }) {
   const { openModal } = useUI();
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [customizing, setCustomizing] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HIDDEN_KEY);
+      if (raw) setHidden(new Set(JSON.parse(raw) as string[]));
+    } catch {}
+  }, []);
+  const toggle = (k: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      try {
+        localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  const show = (k: string) => !hidden.has(k);
   const c = data.comp;
   const parts = [
     { key: "Banks", v: Math.abs(c.banks), color: "var(--acc)" },
@@ -113,6 +147,7 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
       </div>
 
       {/* CASH FLOW */}
+      {show("cashflow") && (
       <SectionCard
         tint="acc" title="Cash flow" sub={spentPct <= 90 ? "On track" : "Watch spending"}
         value={<span style={{ color: data.monthDelta >= 0 ? "var(--green)" : "var(--red)" }}>{sign(data.monthDelta)}</span>} valueSub="net · this month" open
@@ -132,8 +167,10 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
         </div>
         <div className="text-[11px] text-mut mt-2">You’ve spent <b className="text-ink tabular-nums">{spentPct}%</b> of what you earned this month.</div>
       </SectionCard>
+      )}
 
       {/* LENDING */}
+      {show("khata") && (
       <SectionCard
         tint="green" title="Khata · you’re owed" sub={`${data.lending.people} ${data.lending.people === 1 ? "person" : "people"}${data.lending.overdue ? ` · ${data.lending.overdue} overdue` : ""}`}
         value={<span style={{ color: "var(--green)" }}>{formatPaise(data.lending.owed)}</span>} valueSub={data.lending.owe > 0 ? `−${formatPaise(data.lending.owe)} you owe` : "nothing you owe"} href="/lending"
@@ -142,9 +179,10 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
         <Row label="You owe" value={<span className="text-red">−{formatPaise(data.lending.owe)}</span>} />
         <Row label="Net" value={<span style={{ color: data.lending.net < 0 ? "var(--red)" : "var(--green)" }}>{sign(data.lending.net)}</span>} strong />
       </SectionCard>
+      )}
 
       {/* BILLS */}
-      {data.billsCount > 0 && (
+      {show("bills") && data.billsCount > 0 && (
         <SectionCard
           tint="amber" title="Upcoming bills" sub={`${data.billsCount} within 10 days`}
           value={<span>{formatPaise(data.billsTotal)}</span>} valueSub="due soon" href="/bills"
@@ -156,7 +194,7 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
       )}
 
       {/* BUDGETS */}
-      {data.budgets.length > 0 && (
+      {show("budgets") && data.budgets.length > 0 && (
         <SectionCard
           tint="acc" title="Budgets" sub={data.budgetsOver > 0 ? `${data.budgetsOver} over limit` : "all within limit"}
           value={<span style={{ color: data.budgetsOver > 0 ? "var(--red)" : "var(--ink)" }}>{data.budgetsOver || "✓"}</span>} valueSub={data.budgetsOver > 0 ? "over" : "on track"} href="/budgets"
@@ -180,24 +218,96 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
       )}
 
       {/* RECENT */}
-      {data.recent.length > 0 && (
+      {show("recent") && (
         <>
           <Eyebrow href="/transactions">Recent activity</Eyebrow>
-          <div className="rounded-[20px] bg-card border border-line px-4 py-1.5">
-            {data.recent.map((r, i) => (
-              <div key={i} className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-line" : ""}`}>
-                <span className="w-[34px] h-[34px] rounded-[11px] grid place-items-center text-[15px]" style={{ background: "var(--side)" }}>{r.icon}</span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[13px] font-semibold truncate">{r.title}</span>
-                  <span className="block text-[11px] text-mut truncate">{r.sub}</span>
-                </span>
-                <span className="text-[13.5px] font-bold tabular-nums flex-none" style={{ color: r.amtColor }}>{r.amtF}</span>
-              </div>
-            ))}
-          </div>
+          {data.recent.length > 0 ? (
+            <div className="rounded-[20px] bg-card border border-line px-4 py-1.5">
+              {data.recent.map((r, i) => (
+                <div key={i} className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-line" : ""}`}>
+                  <span className="w-[34px] h-[34px] rounded-[11px] grid place-items-center text-[15px]" style={{ background: "var(--side)" }}>{r.icon}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-semibold truncate">{r.title}</span>
+                    <span className="block text-[11px] text-mut truncate">{r.sub}</span>
+                  </span>
+                  <span className="text-[13.5px] font-bold tabular-nums flex-none" style={{ color: r.amtColor }}>{r.amtF}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <button
+              onClick={() => openModal("exp")}
+              className="rounded-[20px] bg-card border border-line border-dashed px-4 py-6 flex flex-col items-center gap-1.5 text-center cursor-pointer w-full active:scale-[.99] transition-transform"
+            >
+              <span className="text-[22px]">🧾</span>
+              <span className="text-[13px] font-bold text-ink">No activity yet</span>
+              <span className="text-[11.5px] text-mut">Add your first expense to see it here.</span>
+            </button>
+          )}
         </>
       )}
+
+      {/* CUSTOMIZE */}
+      <button
+        onClick={() => setCustomizing(true)}
+        className="mx-auto mt-1 mb-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-mut2 bg-transparent border-none cursor-pointer active:opacity-70"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M3 12h2.5M18.5 12H21M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></svg>
+        Customize dashboard
+      </button>
+
+      {customizing && <CustomizeSheet hidden={hidden} onToggle={toggle} close={() => setCustomizing(false)} />}
     </div>
+  );
+}
+
+function CustomizeSheet({ hidden, onToggle, close }: { hidden: Set<string>; onToggle: (k: string) => void; close: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [close]);
+  useEffect(() => ref.current?.focus(), []);
+  return createPortal(
+    <div onClick={close} className="fixed inset-0 z-[55] flex items-end md:items-center md:justify-center" style={{ background: "var(--ov)" }}>
+      <div
+        ref={ref}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Customize dashboard"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full md:max-w-[420px] bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none"
+        style={{ animation: "rise .22s ease", paddingBottom: "calc(16px + env(safe-area-inset-bottom))", boxShadow: "var(--shLg)" }}
+      >
+        <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-3 md:hidden" />
+        <h2 className="text-[13px] font-bold text-mut2 uppercase tracking-wide px-1 pb-1">Show on dashboard</h2>
+        <p className="text-[11.5px] text-mut2 px-1 pb-2">Your standing and quick actions always stay. Pick what else appears.</p>
+        <div className="flex flex-col">
+          {TOGGLEABLE.map((w) => {
+            const on = !hidden.has(w.key);
+            return (
+              <button
+                key={w.key}
+                role="switch"
+                aria-checked={on}
+                onClick={() => onToggle(w.key)}
+                className="flex items-center justify-between gap-3 min-h-[48px] px-2 py-2 rounded-[11px] cursor-pointer bg-transparent border-none hover:bg-accsoft text-left"
+              >
+                <span className="text-[13.5px] font-semibold text-ink">{w.label}</span>
+                <span className="w-[42px] h-[25px] rounded-full flex-none relative transition-colors" style={{ background: on ? "var(--acc)" : "var(--line2)" }}>
+                  <span className="absolute top-[3px] w-[19px] h-[19px] rounded-full bg-white transition-all" style={{ left: on ? "20px" : "3px", boxShadow: "var(--sh)" }} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <button onClick={close} className="mt-3 h-11 rounded-[12px] text-[13.5px] font-bold text-white bg-acc border-none cursor-pointer">Done</button>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
