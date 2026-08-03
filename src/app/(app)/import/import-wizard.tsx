@@ -555,11 +555,13 @@ function Steps({ current }: { current: Step }) {
   ];
   const idx = items.findIndex((i) => i.key === current);
   return (
-    <div className="flex gap-2 text-[12px] font-semibold">
+    // Scrollable strip so the four steps never force horizontal page overflow
+    // on a 360px phone; pills stay on one line and the row slides instead.
+    <div className="flex gap-2 text-[12px] font-semibold overflow-x-auto no-scrollbar -mx-1 px-1">
       {items.map((it, i) => (
-        <div key={it.key} className="flex items-center gap-2">
+        <div key={it.key} className="flex items-center gap-2 flex-none">
           <span
-            className="px-2.5 py-1 rounded-full"
+            className="px-2.5 py-1 rounded-full whitespace-nowrap"
             style={{ background: i <= idx ? "var(--acc)" : "var(--accSoft)", color: i <= idx ? "#fff" : "var(--mut)" }}
           >
             {i + 1}. {it.label}
