@@ -23,23 +23,28 @@ export default async function CardsPage() {
   const user = await requireUser();
   const cards = await listCreditCards(user.id);
 
+  if (cards.length === 0) {
+    return (
+      <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+        <div className="card px-4 py-1.5">
+          <EmptyState
+            icon="💳"
+            title="Save your cards, ready when you need them"
+            detail="Add a card once and pay online without digging out your wallet. Everything's encrypted and only shown after you re-enter your password."
+            action={<AddCardButton label="Add your first card" />}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
       <div className="flex justify-end">
         <AddCardButton />
       </div>
-      {cards.length === 0 ? (
-        <div className="card px-4 py-1.5">
-          <EmptyState
-            icon="💳"
-            title="No cards saved yet"
-            detail="Save a card once and you'll never dig your wallet out mid-checkout again. Details are encrypted and only shown after you re-enter your password."
-          />
-        </div>
-      ) : (
-        <CardGallery cards={cards} />
-      )}
-      {cards.length > 0 && <ModuleActivity entities={["CreditCard"]} />}
+      <CardGallery cards={cards} />
+      <ModuleActivity entities={["CreditCard"]} />
     </div>
   );
 }

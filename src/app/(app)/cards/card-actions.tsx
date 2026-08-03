@@ -23,7 +23,7 @@ import { CheckoutHelper } from "./checkout-helper";
 import { PasswordPrompt } from "./password-prompt";
 import { RevealPanel } from "./reveal-panel";
 
-export function AddCardButton() {
+export function AddCardButton({ label = "＋ Add card" }: { label?: string }) {
   const [open, setOpen] = useState(false);
   // The context-aware FAB (app-shell) can't open this form directly — it holds a
   // decrypted CVV and is deliberately route-scoped (card-dialog.tsx) — so it
@@ -36,7 +36,7 @@ export function AddCardButton() {
   return (
     <>
       <button onClick={() => setOpen(true)} className="btn-primary">
-        ＋ Add card
+        {label}
       </button>
       {open && <CardForm onDone={() => setOpen(false)} />}
     </>

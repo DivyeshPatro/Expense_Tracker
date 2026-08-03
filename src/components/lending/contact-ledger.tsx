@@ -88,7 +88,27 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   if (entries === undefined || summary === null) return <ContactLedgerSkeleton />;
   if (contact === null && entries.length === 0) {
     return (
-      <EmptyState icon="🤝" title="No lending entries with this contact yet" detail='Tap "You Gave" or "You Got" to record the first one.' />
+      <EmptyState
+        icon="🤝"
+        title="Start tracking money with this person"
+        detail="Record money you gave them or money you got from them — Ledgerly keeps the running balance so you never have to."
+        action={
+          <div className="flex gap-2">
+            <button
+              onClick={() => openModal("lendingEntry", { participantId, loanKind: "GAVE" })}
+              className="px-3.5 py-2 rounded-[10px] text-[13px] font-bold text-white cursor-pointer border-none bg-acc hover:brightness-108"
+            >
+              You gave money
+            </button>
+            <button
+              onClick={() => openModal("lendingEntry", { participantId, loanKind: "GOT" })}
+              className="px-3.5 py-2 rounded-[10px] text-[13px] font-bold text-white cursor-pointer border-none bg-green hover:brightness-108"
+            >
+              You got money
+            </button>
+          </div>
+        }
+      />
     );
   }
 

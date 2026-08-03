@@ -60,7 +60,17 @@ export default async function SharedPage() {
         <section className="card flex-[1_1_300px] p-[var(--pad)] flex flex-col gap-[13px]">
           <h2 className="text-[13.5px] font-bold m-0">Balances</h2>
           {summary.members.length === 0 && (
-            <EmptyState icon="👥" title="No friends yet" detail="Add one to start splitting expenses." compact />
+            <EmptyState
+              icon="👥"
+              title="Split your first bill"
+              detail="Add the people you share costs with, then split an expense in a couple of taps — Ledgerly tracks who owes whom."
+              compact
+              action={
+                <OpenModalButton type="friend" className="btn-primary">
+                  ＋ Add a friend
+                </OpenModalButton>
+              }
+            />
           )}
           {summary.members.map((m) => {
             const owed = Math.abs(m.net) > 100;

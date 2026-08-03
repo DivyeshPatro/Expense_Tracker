@@ -8,17 +8,21 @@ export function EmptyState({
   title,
   detail,
   compact,
+  action,
 }: {
   icon: string;
   title: string;
   detail?: string;
   compact?: boolean;
+  /** An optional call-to-action (usually a button) that teaches the next step. */
+  action?: React.ReactNode;
 }) {
   return (
     <div className={`text-center ${compact ? "py-6" : "py-10"} px-4`} role="status">
       <div className="text-[26px] mb-1.5" aria-hidden="true">{icon}</div>
       <div className="text-[13px] font-semibold text-ink">{title}</div>
-      {detail && <div className="text-[12px] text-mut2 mt-1">{detail}</div>}
+      {detail && <div className="text-[12px] text-mut2 mt-1 max-w-[42ch] mx-auto">{detail}</div>}
+      {action && <div className="mt-3.5 flex justify-center">{action}</div>}
     </div>
   );
 }
