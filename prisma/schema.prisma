@@ -7,7 +7,18 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Runtime client + pooled queries go through DATABASE_URL (Supabase's 6543
+  // pgBouncer pooler in prod). Migrations/introspection use directUrl instead —
+  // the 6543 transaction pooler HANGS on DDL + advisory locks, so Prisma Migrate
+  // must reach Postgres over the 5432 session pooler (DIRECT_URL). This makes
+  // `prisma migrate deploy` correct-by-default with no per-command override.
+  //
+  // LOCAL DEV: export BOTH DATABASE_URL and DIRECT_URL to the local Docker URL
+  // (postgresql://postgres:postgres@127.0.0.1:5432/ledgerly). directUrl now
+  // steers migrate, so overriding only DATABASE_URL would send a local
+  // `migrate dev` at Supabase — never do that.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ───────────────────────── Auth (Better Auth) ─────────────────────────
