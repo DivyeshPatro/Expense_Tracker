@@ -69,7 +69,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       suppressHydrationWarning
     >
       <body>
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+        {/* suppressHydrationWarning: the browser strips a script's nonce value
+            from the DOM after load (CSP nonce-hiding), so the hydrated
+            `script.nonce` is always "" and can never match the server-rendered
+            nonce — an expected, unavoidable mismatch, not a real one. */}
+        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
         {children}
         <ThemeSync />
         <SwRegister />

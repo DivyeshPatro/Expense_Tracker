@@ -7,13 +7,17 @@
 
 import { brandGlyphPaths, brandMarkSvg } from "@/lib/brand-mark";
 
-let seq = 0;
-
 /** The gradient tile icon. `rounded` picks the corner radius; the header/sidebar
  *  want a soft square, so the default matches the app's control radius feel. */
 export function BrandMark({ size = 28, radius = 0.28, className }: { size?: number; radius?: number; className?: string }) {
-  // Unique gradient ids per instance so multiple marks on a page don't collide.
-  const id = `m${seq++}`;
+  // A DETERMINISTIC gradient id, derived from the props, so the SSR markup and
+  // the hydrated markup match byte-for-byte. A module-level counter drifts — the
+  // long-lived server keeps incrementing it across requests while a fresh client
+  // starts at 0 — which surfaced as a hydration mismatch. The gradient itself is
+  // identical for every instance (objectBoundingBox units, brand colours only),
+  // so if two same-size marks share an id the render is still correct; BrandMark
+  // must stay renderable from zero-JS server pages, so useId() isn't an option.
+  const id = `${size}-${Math.round(radius * 1000)}`;
   return (
     <span
       className={className}
