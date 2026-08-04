@@ -6,7 +6,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { currentMonthKey, istNoon } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
 import { groupDashboard } from "./group-dashboard";
+import { addGroupMember, removeGroupMember } from "./groups";
 import { deleteSettlement } from "./shared";
+import { activityPage } from "./activity";
 import { prisma } from "../db";
 
 const EMAIL = "group-dash-test@ledgerly.app";
@@ -101,8 +103,41 @@ describe("groupDashboard", () => {
     const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
     expect(g.settlements).toHaveLength(1);
     expect(g.settlements[0]).toMatchObject({ participantName: "Priya", direction: "TO_OWNER", amount: 10000 });
-    // 2 transactions + 1 settlement feed the scoped ModuleActivity.
-    expect(g.activityEntityIds).toHaveLength(3);
+    // group id + 2 transactions + 1 settlement feed the scoped ModuleActivity
+    // (the group id surfaces membership events, which are audited with entityId
+    // = groupId).
+    expect(g.activityEntityIds).toHaveLength(4);
+    expect(g.activityEntityIds[0]).toBe(groupId);
+  });
+
+  it("audits linking an existing contact, adding a new member, and removing one", async () => {
+    // An existing contact intentionally linked into the group (member-link)…
+    const linked = await prisma.participant.create({ data: { ownerId: userId, displayName: "Ravi", color: "#2563eb" } });
+    await addGroupMember(userId, groupId, linked.id, false);
+    // …and a brand-new member created for the group (member-add).
+    const fresh = await prisma.participant.create({ data: { ownerId: userId, displayName: "Sneha", color: "#7c3aed" } });
+    await addGroupMember(userId, groupId, fresh.id, true);
+    // Removing one (member-remove).
+    await removeGroupMember(userId, groupId, linked.id);
+
+    const rows = await prisma.auditLog.findMany({
+      where: { userId, entity: "GroupMember", entityId: groupId },
+      orderBy: { at: "asc" },
+    });
+    const actions = rows.map((r) => r.action);
+    expect(actions).toEqual(expect.arrayContaining(["member-link", "member-add", "member-remove"]));
+
+    // Idempotent: re-adding the same member does not write a second event.
+    const before = rows.length;
+    await addGroupMember(userId, groupId, fresh.id, true);
+    const after = await prisma.auditLog.count({ where: { userId, entity: "GroupMember", entityId: groupId } });
+    expect(after).toBe(before);
+
+    // The events project into the group's ModuleActivity feed.
+    const feed = await activityPage(userId, { entityIds: [groupId] });
+    const summaries = feed.events.map((i) => i.summary).join(" | ");
+    expect(summaries).toContain("Sneha");
+    expect(summaries).toContain("Ravi");
   });
 
   it("hides the group from a user who can't see it", async () => {

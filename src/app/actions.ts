@@ -1024,7 +1024,7 @@ export async function addGroupMemberAction(input: unknown): Promise<ActionResult
   try {
     const user = await requireUser();
     const data = groupMemberSchema.parse(input);
-    await addGroupMember(user.id, data.groupId, data.participantId);
+    await addGroupMember(user.id, data.groupId, data.participantId, data.isNew ?? false);
     refresh();
     return { ok: true };
   } catch (e) {

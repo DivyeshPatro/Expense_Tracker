@@ -47,9 +47,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       name: p.displayName,
       initial: p.displayName.charAt(0).toUpperCase(),
       color: p.color ?? "#6d5ae6",
+      phone: p.phone ?? null,
       // #69: a contact with loan entries but no shared activity is Lending-only
       // — hidden from Shared's split picker, still shown in the Lending flow.
       lendingOnly: p._count.loanEntries > 0 && p._count.splits === 0 && p._count.groupMembers === 0 && p._count.settlements === 0,
+      // Has a lending relationship — drives the "Lending contact" badge in the
+      // group member picker (v2.0), independent of whether they're also Shared.
+      isLending: p._count.loanEntries > 0,
     })),
     // collaboration-architecture-rfc §2/§4 (migration step 4): every group
     // the user can create INTO — owned or joined, any role (MEMBER is the

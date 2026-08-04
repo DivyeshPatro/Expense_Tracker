@@ -33,7 +33,7 @@ export interface TimelineEvent {
   activityId: string; // "ACT_<auditRowId>" / "ACT_N<notificationId>" — derived, stable, never stored
   ts: string; // ISO-8601, audit row `at`
   verb: string;
-  entityType: "transaction" | "transfer" | "account" | "category" | "budget" | "bill" | "import" | "settlement" | "loan" | "card";
+  entityType: "transaction" | "transfer" | "account" | "category" | "budget" | "bill" | "import" | "settlement" | "loan" | "card" | "member";
   entityId: string;
   entityLabel: string; // from snapshot — deleted entities keep their historical name
   icon: string;
@@ -83,6 +83,7 @@ export interface LabelMaps {
 export const ACTIVITY_ALLOWLIST: { entity: string; actions: string[] }[] = [
   { entity: "Transaction", actions: ["create", "update", "soft-delete", "restore"] },
   { entity: "Settlement", actions: ["create", "delete"] },
+  { entity: "GroupMember", actions: ["member-add", "member-link", "member-remove"] },
   { entity: "Category", actions: ["create", "rename", "kind-change", "delete"] },
   { entity: "Account", actions: ["create"] },
   { entity: "Budget", actions: ["create", "update"] },
@@ -114,7 +115,7 @@ export const CHIP_ENTITIES: Record<Exclude<ActivityChip, "all">, string[]> = {
   accounts: ["Account"],
   cards: ["CreditCard"],
   budgets: ["Budget", "Bill"],
-  shared: ["Settlement"],
+  shared: ["Settlement", "GroupMember"],
   lending: ["LoanEntry"],
   imports: ["ImportBatch"],
 };
@@ -439,6 +440,45 @@ const REGISTRY: Record<string, Present> = {
       icon: "🗑",
       summary: "Removed a settlement",
       detail: amount === undefined ? undefined : formatPaise(amount),
+      diff: [],
+      effects: [],
+    };
+  },
+  "GroupMember:member-add": (row) => {
+    const p = asSnap(row.after);
+    return {
+      ...base(row),
+      verb: "added",
+      entityType: "member",
+      entityLabel: str(p.participantName) ?? "a member",
+      icon: "👤",
+      summary: `Added ${str(p.participantName) ?? "a new member"} to the group`,
+      diff: [],
+      effects: [],
+    };
+  },
+  "GroupMember:member-link": (row) => {
+    const p = asSnap(row.after);
+    return {
+      ...base(row),
+      verb: "linked",
+      entityType: "member",
+      entityLabel: str(p.participantName) ?? "a contact",
+      icon: "🔗",
+      summary: `Linked ${str(p.participantName) ?? "an existing contact"} to the group`,
+      diff: [],
+      effects: [],
+    };
+  },
+  "GroupMember:member-remove": (row) => {
+    const p = asSnap(row.before);
+    return {
+      ...base(row),
+      verb: "removed",
+      entityType: "member",
+      entityLabel: str(p.participantName) ?? "a member",
+      icon: "👋",
+      summary: `Removed ${str(p.participantName) ?? "a member"} from the group`,
       diff: [],
       effects: [],
     };

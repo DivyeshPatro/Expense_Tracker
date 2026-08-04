@@ -8,6 +8,7 @@ import { cache } from "react";
 import type { GroupRole } from "@prisma/client";
 import { GROUP_DEFAULT_CATEGORIES } from "@/lib/categories";
 import { prisma } from "../db";
+import { audit } from "./audit";
 import { assertGroupRole, NotAuthorizedError } from "./authorization";
 
 export interface GroupView {
@@ -79,13 +80,20 @@ export async function renameGroup(userId: string, groupId: string, name: string)
  * list — a group's member roster has one canonical identity source (rfc
  * §1), so an admin manages membership from the existing roster rather than
  * reaching into the creator's private contacts to invent new entries. */
-export async function addGroupMember(userId: string, groupId: string, participantId: string) {
+export async function addGroupMember(userId: string, groupId: string, participantId: string, isNew = false) {
   const group = await assertGroupRole(prisma, userId, groupId, "ADMIN");
   await assertParticipantsOwnedBy(group.createdById, [participantId]);
-  await prisma.groupMember.upsert({
-    where: { groupId_participantId: { groupId, participantId } },
-    create: { groupId, participantId },
-    update: {},
+  const already = await prisma.groupMember.findUnique({ where: { groupId_participantId: { groupId, participantId } } });
+  if (already) return; // idempotent — the picker also guards against this
+  const p = await prisma.participant.findUnique({ where: { id: participantId }, select: { displayName: true } });
+  await prisma.$transaction(async (db) => {
+    await db.groupMember.create({ data: { groupId, participantId } });
+    // "member-add" = a brand-new person just created; "member-link" = an
+    // existing contact (often a Lending one) intentionally linked in.
+    await audit(db, userId, isNew ? "member-add" : "member-link", "GroupMember", groupId, undefined, {
+      participantId,
+      participantName: p?.displayName ?? "Someone",
+    });
   });
 }
 
@@ -93,10 +101,18 @@ export async function addGroupMember(userId: string, groupId: string, participan
  * removes the OWNER this way — that's leaveGroup()/ownership transfer. */
 export async function removeGroupMember(userId: string, groupId: string, participantId: string) {
   const group = await assertGroupRole(prisma, userId, groupId, "ADMIN");
-  const target = await prisma.groupMember.findUnique({ where: { groupId_participantId: { groupId, participantId } } });
+  const target = await prisma.groupMember.findUnique({
+    where: { groupId_participantId: { groupId, participantId } },
+    include: { participant: { select: { displayName: true } } },
+  });
   if (!target) return; // already not a member — idempotent
   if (target.role === "ADMIN" && group.role !== "OWNER") throw new NotAuthorizedError("Only the group owner can remove an admin.");
-  await prisma.groupMember.delete({ where: { groupId_participantId: { groupId, participantId } } });
+  // Removing from a group only removes the GroupMember row — the person's
+  // Lending relationship (loan entries) is a separate table and stays intact.
+  await prisma.$transaction(async (db) => {
+    await db.groupMember.delete({ where: { groupId_participantId: { groupId, participantId } } });
+    await audit(db, userId, "member-remove", "GroupMember", groupId, { participantId, participantName: target.participant.displayName }, undefined);
+  });
 }
 
 /** OWNER-only. */

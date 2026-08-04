@@ -195,6 +195,8 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
       note: s.note,
       settledAt: s.settledAt.toISOString(),
     })),
-    activityEntityIds: [...txs.map((t) => t.id), ...settlements.map((s) => s.id)],
+    // group id itself so membership events (audited with entityId = groupId)
+    // join the feed alongside this group's transactions + settlements.
+    activityEntityIds: [group.id, ...txs.map((t) => t.id), ...settlements.map((s) => s.id)],
   };
 }

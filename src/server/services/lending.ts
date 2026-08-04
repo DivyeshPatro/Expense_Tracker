@@ -489,7 +489,7 @@ export async function lendingDashboardSummary(userId: string): Promise<LendingDa
 export async function updateParticipantDetails(
   userId: string,
   participantId: string,
-  data: { displayName?: string; photo?: string | null; phone?: string | null; notes?: string | null }
+  data: { displayName?: string; photo?: string | null; phone?: string | null; email?: string | null; notes?: string | null }
 ) {
   const p = await prisma.participant.findFirst({ where: { id: participantId, ownerId: userId } });
   if (!p) throw new Error("Contact not found");
@@ -502,6 +502,7 @@ export async function updateParticipantDetails(
       displayName: data.displayName === undefined ? p.displayName : data.displayName,
       photo: data.photo === undefined ? p.photo : data.photo,
       phone: data.phone === undefined ? p.phone : data.phone,
+      email: data.email === undefined ? p.email : data.email,
       notes: data.notes === undefined ? p.notes : data.notes,
     },
   });

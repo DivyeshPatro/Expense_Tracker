@@ -376,6 +376,7 @@ model Participant {
   // Shared Expenses never reads or writes these; only Lending's Contact UI does.
   photo        String?
   phone        String?
+  email        String? // optional contact email (New Member form / future invites)
   notes        String?
 
   splits       ExpenseSplit[]

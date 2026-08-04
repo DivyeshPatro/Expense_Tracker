@@ -1131,15 +1131,16 @@ function GroupForm() {
   const [justCreated, setJustCreated] = useState<{ id: string; name: string }[]>([]);
   const [addingMember, setAddingMember] = useState(false);
 
-  // #69: groups are a Shared feature — offer Shared friends, not Lending-only
-  // contacts, plus anyone just created inline. If a revalidate has since folded
+  // Offer every contact — Shared and Lending alike — since a Lending contact is
+  // a real person you can intentionally add to a group (v2.0). A "Lending" badge
+  // marks them; anyone created inline is merged in. If a revalidate has folded
   // the new contact into refData, drop the local copy so it isn't listed twice.
-  const shared = refData.participants.filter((p) => !p.lendingOnly);
+  const shared = refData.participants;
   const members = [
     ...shared,
     ...justCreated
       .filter((p) => !shared.some((s) => s.id === p.id))
-      .map((p) => ({ id: p.id, name: p.name, initial: p.name.charAt(0).toUpperCase(), color: "var(--acc)", lendingOnly: false })),
+      .map((p) => ({ id: p.id, name: p.name, initial: p.name.charAt(0).toUpperCase(), color: "var(--acc)", lendingOnly: false, isLending: false })),
   ];
   const selected = members.filter((p) => parts[p.id]);
 
@@ -1180,6 +1181,11 @@ function GroupForm() {
                   {p.initial}
                 </span>
                 {p.name}
+                {p.isLending && (
+                  <span className="text-[8.5px] font-bold uppercase tracking-wide rounded px-1 py-0.5" style={{ color: "var(--acc)", background: "var(--accSoft)" }}>
+                    Lending
+                  </span>
+                )}
               </button>
             );
           })}

@@ -197,6 +197,9 @@ export const groupSchema = z.object({
 export const groupMemberSchema = z.object({
   groupId: z.string().min(1),
   participantId: z.string().min(1),
+  // true ⇒ a brand-new person just created (vs an existing contact linked in) —
+  // drives the membership audit event copy.
+  isNew: z.boolean().optional(),
 });
 
 // Lending module (Phase 1)
@@ -229,6 +232,7 @@ export const participantDetailsSchema = z.object({
   displayName: z.string().trim().min(1, "Name is required").max(60).optional(),
   photo: z.string().trim().max(2000).nullable().optional(),
   phone: z.string().trim().max(30).nullable().optional(),
+  email: z.string().trim().max(120).nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
 });
 
