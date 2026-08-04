@@ -59,6 +59,10 @@ jobs:
         run: npm run build
         env:
           DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci_placeholder"
+          # The datasource references env("DIRECT_URL") (Prisma Migrate uses it in
+          # prod — Supabase's 5432 session pooler). CI has no pooler split, so it
+          # mirrors DATABASE_URL; without it, schema validation fails (P1012).
+          DIRECT_URL: "postgresql://ci:ci@localhost:5432/ci_placeholder"
           BETTER_AUTH_SECRET: "ci-placeholder-secret-not-used-at-runtime"
           BETTER_AUTH_URL: "http://localhost:3000"
           CRON_SECRET: "ci-placeholder"
@@ -86,6 +90,10 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: "postgresql://ci:ci@localhost:5432/ledgerly_test"
+      # Prisma Migrate reads env("DIRECT_URL") (see schema datasource). The CI
+      # Postgres service has no pooler, so direct == pooled — point it at the same
+      # ephemeral DB. Required by `prisma migrate deploy` below (P1012 otherwise).
+      DIRECT_URL: "postgresql://ci:ci@localhost:5432/ledgerly_test"
       # Throwaway key for the ephemeral CI database — not a secret, and
       # deliberately committed rather than stored as a repository secret so the
       # integration suite runs on forks and pull requests too. Encrypting test
