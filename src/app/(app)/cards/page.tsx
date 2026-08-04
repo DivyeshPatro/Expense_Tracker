@@ -13,7 +13,7 @@
 import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleActivity } from "@/components/shell/module-activity";
 import { AddCardButton } from "./card-actions";
-import { CardGallery } from "./card-gallery";
+import { CardList } from "./card-list";
 import { listCreditCards } from "@/server/services/credit-cards";
 import { requireUser } from "@/server/session";
 
@@ -40,10 +40,13 @@ export default async function CardsPage() {
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-[15px] font-extrabold tracking-tight m-0">
+          Your cards <span className="text-mut2 font-bold">· {cards.filter((c) => !c.isArchived).length}</span>
+        </h1>
         <AddCardButton />
       </div>
-      <CardGallery cards={cards} />
+      <CardList cards={cards} />
       <ModuleActivity entities={["CreditCard"]} />
     </div>
   );
