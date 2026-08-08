@@ -47,7 +47,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const selectedPeriod = parsePeriod(sp, now);
   const { mode, periodKey, range, label: periodLabel } = selectedPeriod;
-  const donutLabel = mode === "month" ? monthName(periodKey).toUpperCase() : mode === "all" ? "TO DATE" : "RANGE";
+  const donutLabel =
+    mode === "month" ? monthName(periodKey).toUpperCase() : mode === "all" ? "TO DATE" : mode === "recent" ? "30 DAYS" : "RANGE";
+  // #186: "recent" ends today, so it behaves like the live current window for
+  // the balance hero — same treatment the current month used to get.
+  const isLiveWindow = mode === "recent" || mode === "all" || (mode === "month" && periodKey === key);
   const periodQS = periodQueryParams(selectedPeriod);
   const withPeriodQS = (href: string) => (periodQS ? `${href}?${periodQS}` : href);
 
@@ -171,9 +175,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const mobileData: MobileDashboardData = {
     greeting: greeting(now),
     name: user.name,
-    netPosition: healthData.netPosition,
+    // #185: the hero is spendable money — the same figure the desktop hero
+    // already showed. It used to be accountsTotal + lending.net, which meant
+    // recording a loan you *gave* pushed the headline UP.
+    spendable: balanceNow,
+    owed: lending.youAreOwed,
     monthDelta: period.income - period.expense,
-    comp: { banks: bankTotal, owed: lending.youAreOwed, cash: cashTotal, cards: Math.max(0, -cardTotal) },
+    comp: { banks: bankTotal, cash: cashTotal, cards: Math.max(0, -cardTotal) },
     flow: { income: period.income, expense: period.expense },
     needs: mobileNeeds.slice(0, 3),
     lending: { owed: lending.youAreOwed, owe: lending.youOwe, net: lending.net, overdue: lending.overdueCount, people: lending.contacts.filter((cc) => cc.net > 0).length },
@@ -222,10 +230,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {/* period stat cards — every card deep-links (Finance Hub requirement) */}
       <div className="flex flex-wrap gap-3.5">
         <div className="flex-[1.5_1_250px] rounded-[14px] p-[var(--pad)] text-white" style={{ background: "linear-gradient(135deg,var(--dark1),var(--dark2))", boxShadow: "0 8px 24px rgba(28,39,64,.25)" }}>
-          <div className="text-[11px] opacity-65 font-semibold tracking-[.06em]">{mode === "month" && periodKey === key ? "TOTAL BALANCE" : `BALANCE · ${periodLabel}`}</div>
-          <LiveBalance basePaise={balanceAtEnd} live={mode === "all" || (mode === "month" && periodKey === key)} />
+          <div className="text-[11px] opacity-65 font-semibold tracking-[.06em]">{isLiveWindow && mode !== "all" ? "TOTAL BALANCE" : `BALANCE · ${periodLabel}`}</div>
+          <LiveBalance basePaise={balanceAtEnd} live={isLiveWindow} />
           <div className="text-[11.5px] mt-[7px] opacity-75">
-            {mode === "month" && periodKey === key
+            {isLiveWindow && mode !== "all"
               ? `${signed(accountsTotal)} across ${accounts.length} accounts${balanceNow !== accountsTotal ? ` · ${signed(balanceNow - accountsTotal)} net from unassigned history` : ""}`
               : mode === "all"
                 ? "everything from your first transaction to today"

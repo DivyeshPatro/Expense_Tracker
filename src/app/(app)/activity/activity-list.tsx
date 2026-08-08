@@ -106,6 +106,13 @@ export function ActivityList({
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+      {/* #191: this screen had no headline at all, so the largest text on it
+          was the "Ledgerly" brand mark in the app bar. It answers "what
+          happened to my money?" — say so. */}
+      <div>
+        <h1 className="text-[21px] font-extrabold tracking-[-.02em] m-0">What happened</h1>
+        <p className="text-[12.5px] text-mut mt-1 mb-0">Every change to your money, in plain English.</p>
+      </div>
       {entityFilter ? (
         <div className="flex items-center gap-2 text-[12.5px] text-mut">
           Showing one item’s full history

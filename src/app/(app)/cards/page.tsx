@@ -40,10 +40,17 @@ export default async function CardsPage() {
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-[15px] font-extrabold tracking-tight m-0">
-          Your cards <span className="text-mut2 font-bold">· {cards.filter((c) => !c.isArchived).length}</span>
-        </h1>
+      {/* #189: the wallet is the content — the cards themselves carry the
+          visual weight, as in Apple/Google Wallet. It still needs a headline
+          though: before this the largest text on the screen was 15px, so
+          nothing read as the title. */}
+      <div className="flex items-end justify-between gap-2">
+        <div>
+          <h1 className="text-[21px] font-extrabold tracking-[-.02em] m-0">Your wallet</h1>
+          <p className="text-[12.5px] text-mut mt-1 mb-0">
+            {cards.filter((c) => !c.isArchived).length} card{cards.filter((c) => !c.isArchived).length === 1 ? "" : "s"} ready to pay with
+          </p>
+        </div>
         <AddCardButton />
       </div>
       <CardList cards={cards} />

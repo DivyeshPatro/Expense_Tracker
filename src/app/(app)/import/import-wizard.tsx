@@ -537,8 +537,9 @@ function SourceCard({
       className={`text-left p-3.5 rounded-[10px] cursor-pointer border transition-colors ${selected ? "border-acc bg-accsoft" : "border-line2 bg-card hover:bg-accsoft"}`}
     >
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-[18px]" aria-hidden="true">{icon}</span>
-        <span className="text-[13px] font-bold">{label}</span>
+        {/* #191: the source glyph outranked its own label — it is a mark, not a headline */}
+        <span className="text-[13px]" aria-hidden="true">{icon}</span>
+        <span className="text-[14px] font-bold">{label}</span>
         {selected && <span className="ml-auto text-[11px] font-bold text-acc">✓ Selected</span>}
       </div>
       <div className="text-[11.5px] text-mut2 leading-snug">{detail}</div>

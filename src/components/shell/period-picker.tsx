@@ -64,7 +64,7 @@ export function HeaderPeriodPicker() {
 // Which named window the current URL resolves to, so the trigger label and
 // the sheet's active row/check agree without re-deriving the logic twice.
 
-type Selection = "thisMonth" | "lastMonth" | "thisYear" | "all" | "otherMonth" | "custom";
+type Selection = "recent" | "thisMonth" | "lastMonth" | "thisYear" | "all" | "otherMonth" | "custom";
 
 const monthLabel = (key: string) => `${MONTH_NAMES[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 const shortDay = (ymd: string) => `${Number(ymd.slice(8, 10))} ${MONTH_NAMES[Number(ymd.slice(5, 7)) - 1]}`;
@@ -77,6 +77,7 @@ function classify(period: ReturnType<typeof parsePeriod>, currentKey: string, to
   const lastKey = shiftMonthKey(currentKey, -1);
   const yr = thisYearRange(today);
   if (period.mode === "all") return "all";
+  if (period.mode === "recent") return "recent";
   if (period.mode === "custom") return period.from === yr.from && period.to === yr.to ? "thisYear" : "custom";
   if (period.periodKey === currentKey) return "thisMonth";
   if (period.periodKey === lastKey) return "lastMonth";
@@ -85,6 +86,8 @@ function classify(period: ReturnType<typeof parsePeriod>, currentKey: string, to
 
 function triggerLabel(period: ReturnType<typeof parsePeriod>, sel: Selection): string {
   switch (sel) {
+    case "recent":
+      return "Last 30 Days";
     case "thisMonth":
       return "This Month";
     case "lastMonth":
@@ -262,7 +265,10 @@ function PanelBody({
   return (
     <div className={`flex flex-col ${rowGap}`} style={{ animation: "fade .16s ease" }}>
       {!desktop && <h2 className="text-[13px] font-bold text-mut2 uppercase tracking-wide px-1.5 pb-1.5">Select period</h2>}
-      <QuickRow label="This Month" sub={monthLabel(currentKey)} active={sel === "thisMonth"} onClick={() => onNavigate("")} />
+      {/* #186: the rolling window is the default (empty query string); the
+          calendar month is now an explicit choice below it. */}
+      <QuickRow label="Last 30 Days" sub="Rolling window" active={sel === "recent"} onClick={() => onNavigate("")} />
+      <QuickRow label="This Month" sub={monthLabel(currentKey)} active={sel === "thisMonth"} onClick={() => onNavigate(`p=${currentKey}`)} />
       <QuickRow label="Last Month" sub={monthLabel(lastKey)} active={sel === "lastMonth"} onClick={() => onNavigate(`p=${lastKey}`)} />
       <QuickRow label="This Year" sub={`Jan – ${monthLabel(currentKey)}`} active={sel === "thisYear"} onClick={() => onNavigate(`from=${yr.from}&to=${yr.to}`)} />
       <QuickRow label="All Time" sub="Since the beginning" active={sel === "all"} onClick={() => onNavigate("p=all")} />
