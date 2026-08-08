@@ -26,6 +26,7 @@ export default async function SharedPage() {
   // #188: the screen's primary question is "who needs to settle?", so that
   // count — not a stat-card row — is the hero.
   const toSettle = summary.members.filter((m) => Math.abs(m.net) > 100).length;
+  const settledMembers = summary.members.filter((m) => Math.abs(m.net) <= 100);
   const settleSub =
     toSettle === 0
       ? summary.members.length > 0
@@ -94,40 +95,47 @@ export default async function SharedPage() {
               }
             />
           )}
-          {summary.members.map((m) => {
-            const owed = Math.abs(m.net) > 100;
-            return (
-              <div key={m.id} className="flex items-center gap-[11px]">
-                {/* Phase 2.5 cross-navigation: name+avatar open this friend's Lending contact */}
-                <Link href={`/lending?contact=${m.id}`} className="flex items-center gap-[11px] flex-1 min-w-0 no-underline text-ink hover:opacity-80">
-                  <div className="w-9 h-9 rounded-full grid place-items-center text-[13px] font-bold text-white flex-none" style={{ background: m.color }}>{m.initial}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-bold truncate">{m.name}</div>
-                    <div className="text-[11.5px] text-mut2">{m.net > 100 ? "will pay you" : m.net < -100 ? "you'll pay" : "all settled"}</div>
-                  </div>
-                </Link>
-                <div className="text-[13px] font-extrabold" style={{ color: m.net > 100 ? "var(--green)" : m.net < -100 ? "var(--red)" : "var(--mut2)" }}>
-                  {owed ? formatPaise(m.net) : "—"}
+          {/* #208: this list carried a Settle AND an Invite button on every row
+              — 21 sub-44px targets on one screen — and kept fully-settled people
+              in it showing a "—". Rows are now a single tap through to the
+              person, where the combined balance and one Settle live (#207).
+              Settled people fold away. */}
+          {summary.members
+            .filter((m) => Math.abs(m.net) > 100)
+            .map((m) => (
+              <Link
+                key={m.id}
+                href={`/people/${m.id}`}
+                className="flex items-center gap-[11px] min-h-[44px] no-underline text-ink -mx-1 px-1 rounded-lg hover:bg-accsoft"
+              >
+                <div className="w-9 h-9 rounded-full grid place-items-center text-[13px] font-bold text-white flex-none" style={{ background: m.color }}>{m.initial}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-bold truncate">{m.name}</div>
+                  <div className="text-[11.5px] text-mut2">{m.net > 0 ? "will pay you" : "you'll pay"}</div>
                 </div>
-                {owed && (
-                  <OpenModalButton
-                    type="settle"
-                    prefill={{
-                      participantId: m.id,
-                      participantName: m.name,
-                      direction: m.net > 0 ? "TO_OWNER" : "FROM_OWNER",
-                      amountRupees: String(Math.round(Math.abs(m.net) / 100)),
-                      settleNetPaise: m.net,
-                    }}
-                    className="px-[11px] py-1.5 rounded-lg border border-line2 text-[11.5px] font-semibold text-acc cursor-pointer bg-transparent hover:bg-accsoft"
-                  >
-                    Settle
-                  </OpenModalButton>
-                )}
-                {!m.linkedUserId && <InviteButton participantId={m.id} />}
+                <div className="text-[13px] font-extrabold tabular-nums" style={{ color: m.net > 0 ? "var(--green)" : "var(--red)" }}>
+                  {formatPaise(m.net)}
+                </div>
+                <span aria-hidden className="text-mut2 text-[13px] flex-none">›</span>
+              </Link>
+            ))}
+          {settledMembers.length > 0 && (
+            <details className="group">
+              <summary className="list-none cursor-pointer select-none min-h-[44px] flex items-center gap-1.5 text-[12px] font-semibold text-mut2 hover:text-ink">
+                <span aria-hidden className="transition-transform group-open:rotate-90 text-[14px] leading-none">›</span>
+                Settled up ({settledMembers.length})
+              </summary>
+              <div className="flex flex-col gap-2 pt-1.5">
+                {settledMembers.map((m) => (
+                  <Link key={m.id} href={`/people/${m.id}`} className="flex items-center gap-[11px] min-h-[44px] no-underline text-mut -mx-1 px-1 rounded-lg hover:bg-accsoft">
+                    <div className="w-7 h-7 rounded-full grid place-items-center text-[11px] font-bold text-white flex-none" style={{ background: m.color }}>{m.initial}</div>
+                    <span className="flex-1 text-[12.5px] truncate">{m.name}</span>
+                    {!m.linkedUserId && <InviteButton participantId={m.id} />}
+                  </Link>
+                ))}
               </div>
-            );
-          })}
+            </details>
+          )}
           <div className="border-t border-line pt-[11px]">
             <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mb-2">SETTLEMENT HISTORY</div>
             {history.length === 0 && <div className="text-[12px] text-mut2 py-1">No settlements yet.</div>}
