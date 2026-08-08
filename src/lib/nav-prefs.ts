@@ -8,27 +8,49 @@
 // preference object into the concrete visible/overflow split. No React, no
 // storage — those live in the hook that wraps this.
 
+export type NavTier = "daily" | "weekly" | "rare";
+
 export interface NavItem {
   id: string; // the route href, e.g. "/dashboard"
   label: string;
   icon: string; // NavGlyph key
+  /** How often a person actually needs this module (#202). */
+  tier: NavTier;
 }
 
-/** The full module catalogue, in the default order. */
+/**
+ * The full module catalogue, in the default order — and the app's SINGLE source
+ * of navigation truth (issue #201).
+ *
+ * app-shell.tsx used to keep a second, parallel catalogue with its own labels,
+ * so four of twelve routes had two different names depending on where you
+ * looked: the tab bar said "Khata" while the header above it said "Lending",
+ * and likewise Home/Dashboard, Spends/Transactions, Insights/Analytics. The
+ * header now derives its title from this list, so the two cannot drift again.
+ *
+ * `tier` (issue #202) is how often a person actually needs the module. It
+ * drives the default bottom-bar order and what the desktop sidebar groups
+ * under a divider — it does not hide anything.
+ */
 export const NAV_ITEMS: NavItem[] = [
-  { id: "/dashboard", icon: "home", label: "Home" },
-  { id: "/transactions", icon: "txns", label: "Spends" },
-  { id: "/lending", icon: "lending", label: "Khata" },
-  { id: "/shared", icon: "shared", label: "Shared" },
-  { id: "/cards", icon: "cards", label: "Cards" },
-  { id: "/accounts", icon: "accounts", label: "Accounts" },
-  { id: "/budgets", icon: "budgets", label: "Budgets" },
-  { id: "/bills", icon: "bills", label: "Bills" },
-  { id: "/analytics", icon: "analytics", label: "Insights" },
-  { id: "/activity", icon: "activity", label: "Audit Log" },
-  { id: "/import", icon: "import", label: "Import" },
-  { id: "/settings", icon: "settings", label: "Settings" },
+  // daily — the five things a person opens the app to do
+  { id: "/dashboard", icon: "home", label: "Dashboard", tier: "daily" },
+  { id: "/transactions", icon: "txns", label: "Spending", tier: "daily" },
+  { id: "/lending", icon: "lending", label: "Lending", tier: "daily" },
+  { id: "/shared", icon: "shared", label: "Shared", tier: "daily" },
+  { id: "/cards", icon: "cards", label: "Cards", tier: "daily" },
+  // weekly — checked, not lived in
+  { id: "/bills", icon: "bills", label: "Bills", tier: "weekly" },
+  { id: "/budgets", icon: "budgets", label: "Budgets", tier: "weekly" },
+  { id: "/accounts", icon: "accounts", label: "Accounts", tier: "weekly" },
+  { id: "/analytics", icon: "analytics", label: "Insights", tier: "weekly" },
+  // rare — errands and admin
+  { id: "/import", icon: "import", label: "Import", tier: "rare" },
+  { id: "/activity", icon: "activity", label: "Audit Log", tier: "rare" },
+  { id: "/settings", icon: "settings", label: "Settings", tier: "rare" },
 ];
+
+export const TIER_LABEL: Record<NavTier, string> = { daily: "Daily", weekly: "Weekly", rare: "Occasional" };
 
 const ITEM_BY_ID = new Map(NAV_ITEMS.map((i) => [i.id, i]));
 

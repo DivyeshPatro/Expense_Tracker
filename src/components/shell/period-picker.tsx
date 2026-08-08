@@ -144,7 +144,7 @@ function PeriodControl({
         // Include the visible label so the accessible name matches what's shown
         // (voice control + WCAG label-in-name); "Change period" alone mismatched.
         aria-label={`Change period, ${triggerLabel(period, sel)}`}
-        className="inline-flex items-center gap-1.5 h-8 pl-2.5 pr-2 rounded-full text-[12.5px] font-bold cursor-pointer border-none whitespace-nowrap transition-[filter] hover:brightness-95"
+        className="inline-flex items-center gap-1.5 min-h-[44px] pl-3.5 pr-3 rounded-full text-[12.5px] font-bold cursor-pointer border-none whitespace-nowrap transition-[filter] hover:brightness-95"
         style={{ background: "var(--accSoft)", color: "var(--acc)" }}
       >
         <span aria-hidden="true" className="text-[13px] leading-none">📅</span>

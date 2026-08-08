@@ -19,29 +19,14 @@ import { HeaderPeriodPicker } from "./period-picker";
 import { UIProvider, useUI, type ModalPrefill, type ModalType, type RefData } from "./ui-context";
 import { useNavPrefs } from "./use-nav-prefs";
 import { NavGlyph } from "./nav-glyph";
-import { bottomNav, sidebarItems } from "@/lib/nav-prefs";
+import { bottomNav, sidebarItems, NAV_ITEMS, TIER_LABEL } from "@/lib/nav-prefs";
 import { BottomSheet } from "./bottom-sheet";
 
-const NAV = [
-  { href: "/dashboard", icon: "◧", label: "Dashboard" },
-  { href: "/transactions", icon: "⇄", label: "Transactions" },
-  { href: "/lending", icon: "🤝", label: "Lending" },
-  { href: "/accounts", icon: "▤", label: "Accounts" },
-  // Cards is its own section, not a corner of Accounts: it answers a different
-  // question ("what do I type into this checkout form?") and is reached in a
-  // hurry, so it gets a top-level slot rather than a click inside something else.
-  { href: "/cards", icon: "💳", label: "Cards" },
-  { href: "/budgets", icon: "◔", label: "Budgets" },
-  { href: "/bills", icon: "▦", label: "Bills" },
-  { href: "/shared", icon: "◫", label: "Shared" },
-  { href: "/activity", icon: "◴", label: "Audit Log" },
-  { href: "/analytics", icon: "◵", label: "Analytics" },
-  // Import sits next to Settings rather than up with the money sections: it's a
-  // periodic errand, not a daily destination. It was previously reachable only
-  // from inside Settings, which is a lot of feature to hide behind one link.
-  { href: "/import", icon: "📥", label: "Import" },
-  { href: "/settings", icon: "⚙", label: "Settings" },
-];
+// #201: the shell used to carry its own parallel catalogue here, with its own
+// labels and its own emoji icon set — which is how four routes ended up with
+// two names each ("Khata" in the tab bar, "Lending" in the header directly
+// above it). NAV_ITEMS is now the only catalogue, and NavGlyph the only icon
+// set, so the two surfaces cannot disagree again.
 
 const TX_SUBS = [
   { label: "All", tab: "" },
@@ -93,9 +78,8 @@ export function AppShell({
 function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge: number; children: React.ReactNode }) {
   const { openModal, setPaletteOpen, closeModal, refData } = useUI();
   const pathname = usePathname();
-  // /import used to need a special case here because it wasn't in NAV; now that
-  // it is, the lookup covers it like every other section.
-  const title = NAV.find((n) => pathname.startsWith(n.href))?.label ?? "Ledgerly";
+  // #201: one catalogue, so the header title and the tab label are the same string
+  const title = NAV_ITEMS.find((n) => pathname.startsWith(n.id))?.label ?? "Ledgerly";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -139,7 +123,7 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
           <button
             onClick={() => setPaletteOpen(true)}
             aria-label="Search"
-            className="md:hidden w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer"
+            className="md:hidden w-11 h-11 rounded-[11px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer"
           >
             🔎
           </button>
@@ -197,11 +181,10 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
   const router = useRouter();
   const params = useSearchParams().toString();
   const { prefs } = useNavPrefs();
-  // Follow the user's navigation order + visibility (per device), keeping the
-  // sidebar's own icons/labels and the Transactions sub-tabs.
-  const items = sidebarItems(prefs)
-    .map((i) => NAV.find((n) => n.href === i.id))
-    .filter((n): n is (typeof NAV)[number] => !!n);
+  // #201/#202: follows the user's own order + visibility, from the one
+  // catalogue, and groups by tier with a hairline divider so the sidebar reads
+  // as "what I use daily / weekly / rarely" instead of twelve equal rows.
+  const items = sidebarItems(prefs);
 
   return (
     <aside className="hidden md:flex w-[216px] flex-none border-r border-line bg-side px-3 py-5 flex-col gap-0.5 sticky top-0 h-screen box-border print:hidden">
@@ -209,25 +192,32 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
         <BrandMark size={28} />
         <div className="font-extrabold text-[15px] tracking-tight">Ledgerly</div>
       </div>
-      {items.map((n) => {
-        const active = pathname.startsWith(n.href);
+      {items.map((n, i) => {
+        const active = pathname.startsWith(n.id);
+        // a divider wherever the tier changes (#202)
+        const newTier = i > 0 && n.tier !== items[i - 1].tier;
         return (
-          <div key={n.href}>
+          <div key={n.id}>
+            {newTier && (
+              <div className="px-2.5 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[.1em] text-mut2 border-t border-line mt-2">
+                {TIER_LABEL[n.tier]}
+              </div>
+            )}
             <Link
-              href={withPeriod(n.href, params)}
-              onClick={() => armStuckNavFallback(withPeriod(n.href, params))}
-              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] no-underline ${
+              href={withPeriod(n.id, params)}
+              onClick={() => armStuckNavFallback(withPeriod(n.id, params))}
+              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] no-underline min-h-[40px] ${
                 active ? "bg-acc text-white font-bold" : "text-mut font-medium hover:bg-accsoft"
               }`}
               style={active ? undefined : { color: "var(--mut)" }}
             >
-              <span className="w-4 text-center">{n.icon}</span>
+              <span className="w-[22px] grid place-items-center flex-none"><NavGlyph id={n.icon} /></span>
               <span className="flex-1">{n.label}</span>
-              {n.href === "/shared" && badge > 0 && !active && (
+              {n.id === "/shared" && badge > 0 && !active && (
                 <span className="text-[10.5px] bg-redsoft text-red px-[7px] py-0.5 rounded-full font-bold">{badge}</span>
               )}
             </Link>
-            {n.href === "/transactions" && active && (
+            {n.id === "/transactions" && active && (
               <div className="flex flex-col gap-px mt-[3px] mb-[5px] ml-[34px]">
                 {TX_SUBS.map((s) => {
                   const cur = new URLSearchParams(params).get("tab") ?? "";
@@ -282,7 +272,7 @@ function ThemeToggle() {
         applyAppearance(next, skin);
         setDark(next === "dark");
       }}
-      className="w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer hover:border-acc"
+      className="w-11 h-11 rounded-[11px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer hover:border-acc"
     >
       {dark === null ? "☾" : dark ? "☀" : "☾"}
     </button>
@@ -461,7 +451,20 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
   if (at("/bills")) return { label: "Add bill", actions: [{ icon: "🧾", label: "Add bill", run: () => openModal("bill") }] };
   if (at("/budgets")) return { label: "Add budget", actions: [{ icon: "◔", label: "Add budget", run: () => openModal("budget") }] };
   if (at("/accounts")) return { label: "Add account", actions: [{ icon: "🏦", label: "Add account", run: () => openModal("account") }] };
-  return null; // dashboard, activity, settings, import → view-only, no FAB
+  // #203: Home used to return null here, so the largest, brightest control in
+  // the mobile UI vanished on the screen people open most — and the bar does
+  // not reserve its slot, so it left a visible hole where users had learned to
+  // tap. Home now offers the same three money actions as Transactions.
+  if (at("/dashboard"))
+    return {
+      label: "Add",
+      actions: [
+        { icon: "🧾", label: "Add expense", run: () => openModal("exp") },
+        { icon: "💰", label: "Add income", run: () => openModal("inc") },
+        { icon: "⇄", label: "Transfer money", run: () => openModal("tr") },
+      ],
+    };
+  return null; // activity, settings, import → view-only, no FAB
 }
 
 function QuickAddSheet({ label, actions, close }: { label: string; actions: QuickAction[]; close: () => void }) {

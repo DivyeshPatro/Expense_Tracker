@@ -17,11 +17,20 @@ import { useUI } from "@/components/shell/ui-context";
 
 const MIN_PASSWORD = 8;
 
+// #204: split so General (who you are) and Security (how you sign in) can live
+// on their own settings sub-pages instead of one long scroll.
 export function Profile({ name, email }: { name: string; email: string }) {
   return (
     <div className="flex flex-col gap-5">
       <DisplayName current={name} />
       <EmailField email={email} />
+    </div>
+  );
+}
+
+export function SecuritySettings() {
+  return (
+    <div className="flex flex-col gap-5">
       <ChangePassword />
     </div>
   );

@@ -9,7 +9,7 @@ export default async function NavigationSettingsPage() {
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
       <div className="flex items-center gap-2.5">
-        <Link href="/settings" aria-label="Back to Settings" className="w-9 h-9 rounded-lg grid place-items-center text-mut cursor-pointer bg-card border border-line2 hover:bg-accsoft flex-none no-underline">
+        <Link href="/settings" aria-label="Back to Settings" className="w-11 h-11 rounded-[11px] grid place-items-center text-mut cursor-pointer bg-card border border-line2 hover:bg-accsoft flex-none no-underline">
           ←
         </Link>
         <div>

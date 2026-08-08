@@ -62,7 +62,7 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
       <button
         aria-label="Notifications"
         onClick={() => setOpen((v) => !v)}
-        className="relative w-[34px] h-[34px] rounded-[9px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer hover:border-acc"
+        className="relative w-11 h-11 rounded-[11px] border border-line2 bg-card grid place-items-center text-sm cursor-pointer hover:border-acc"
       >
         🔔
         {unread > 0 && (

@@ -26,7 +26,12 @@ export function SyncCard() {
       ? { icon: "⚠", text: `${needsAttention.length} change${needsAttention.length === 1 ? " needs" : "s need"} attention`, color: "var(--red)" }
       : pending.length > 0
         ? { icon: "⏳", text: `${pending.length} waiting to sync`, color: "var(--mut)" }
-        : { icon: "✓", text: "Everything is synced", color: "var(--green)" };
+        // Audit L1: this said "Everything is synced" directly above "Last sync:
+        // not yet" — a contradiction on the same card. With an empty queue and
+        // no sync yet, the honest statement is that there is nothing to sync.
+        : lastSyncAt
+          ? { icon: "✓", text: "Everything is synced", color: "var(--green)" }
+          : { icon: "✓", text: "Nothing waiting to sync", color: "var(--green)" };
 
   return (
     <section className="card p-6 flex flex-col gap-3">
@@ -39,7 +44,7 @@ export function SyncCard() {
           <div className="text-[13px] font-semibold" style={{ color: status.color }}>
             {status.text}
           </div>
-          <div className="text-[11.5px] text-mut2">Last sync: {relative(lastSyncAt)}</div>
+          {lastSyncAt && <div className="text-[11.5px] text-mut2">Last sync: {relative(lastSyncAt)}</div>}
         </div>
         <button
           disabled={busy}
