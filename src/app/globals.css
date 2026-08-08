@@ -190,15 +190,21 @@
   background: var(--mut2);
 }
 
+/* Issue #199. font-size is 16px for one specific reason: iOS Safari zooms the
+   whole viewport whenever a focused input renders below 16px, and .field backs
+   every text input and select in the app — so every field focus used to zoom
+   the page and shift the layout out from under the user. min-height 44px is
+   the WCAG 2.5.5 / HIG touch target; .field measured 42px before. */
 @utility field {
   width: 100%;
   box-sizing: border-box;
-  padding: 10px 11px;
-  border-radius: 9px;
+  min-height: 44px;
+  padding: 11px 12px;
+  border-radius: 10px;
   border: 1px solid var(--line2);
   background: var(--bg);
   color: var(--ink);
-  font-size: 13px;
+  font-size: 16px;
   outline: none;
 }
 .field:focus { border-color: var(--acc); }
@@ -210,12 +216,17 @@
   margin-bottom: 5px;
 }
 
+/* #199: measured ~34px tall against a 44px minimum. */
 @utility btn-primary {
-  padding: 8px 14px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 10px;
   background: var(--acc);
   color: #fff;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   border: none;

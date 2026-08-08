@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { BrandMark } from "@/components/shell/brand-mark";
 
@@ -21,6 +21,14 @@ export function AuthForm({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // #200: before React hydrates, this form's onSubmit doesn't exist yet, so a
+  // fast typist pressing the button gets the browser's DEFAULT behaviour — a
+  // native GET submit that reloads the page and silently clears every field,
+  // with no error and no clue what happened. Hit three times during testing.
+  // The button stays disabled until the effect below runs, which is precisely
+  // the moment the React handler becomes real.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,8 +83,13 @@ export function AuthForm({
           <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} />
         </div>
         {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
-        <button type="submit" disabled={busy} className="btn-primary py-3 text-[13.5px] font-bold disabled:opacity-60">
-          {busy ? "…" : mode === "sign-up" ? "Create account" : "Sign in"}
+        <button
+          type="submit"
+          disabled={busy || !hydrated}
+          aria-busy={busy || !hydrated}
+          className="btn-primary py-3 text-[13.5px] font-bold disabled:opacity-60"
+        >
+          {busy || !hydrated ? "…" : mode === "sign-up" ? "Create account" : "Sign in"}
         </button>
         <div className="text-[12.5px] text-mut text-center">
           {mode === "sign-up" ? (

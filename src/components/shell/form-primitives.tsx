@@ -45,6 +45,43 @@ export function useSubmit() {
   return { run, busy, error };
 }
 
+/**
+ * Issue #197/#198: progressive disclosure for the entry forms.
+ *
+ * Add Expense showed nine controls at once — Amount, Account, Category,
+ * Merchant, Date, Notes, Group, the split editor and the repeat block — of
+ * which exactly two are required. The two-tap path existed but nobody saw it;
+ * they saw a nine-field form.
+ *
+ * Amount and Category stay above this; everything else lives inside. A native
+ * <details> so it needs no JS, is keyboard- and screen-reader-operable for
+ * free, and can be opened by default when a caller has pre-filled something
+ * inside it (duplicating a transaction, say) — hiding a value the user can see
+ * they set would be worse than showing the field.
+ */
+export function AdvancedFields({
+  children,
+  defaultOpen = false,
+  summary = "More details",
+  hint,
+}: {
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  summary?: string;
+  hint?: string;
+}) {
+  return (
+    <details open={defaultOpen} className="group border-t border-line pt-2.5">
+      <summary className="list-none cursor-pointer select-none min-h-[44px] flex items-center gap-1.5 text-[13px] font-semibold text-mut hover:text-ink">
+        <span aria-hidden className="transition-transform group-open:rotate-90 text-[15px] leading-none">›</span>
+        {summary}
+        {hint && <span className="text-[11.5px] font-medium text-mut2">— {hint}</span>}
+      </summary>
+      <div className="flex flex-col gap-3 pt-2.5">{children}</div>
+    </details>
+  );
+}
+
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   // An implicit <label> (wrapping its control) rather than a plain <div> —
   // every form across the app uses this, and axe-core's select-name/

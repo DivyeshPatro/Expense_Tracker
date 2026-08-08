@@ -23,7 +23,7 @@ import type { OpenLoanRow } from "@/server/services/lending";
 import { AccountOptions } from "./account-options";
 import { DateField } from "./date-field";
 import { createRuleFor, RepeatBlock, useRepeat } from "./repeat-block";
-import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
+import { AdvancedFields, AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { CategoryPicker } from "./category-picker";
 import { GroupCategorySelect } from "./group-category-select";
 import { LendingContactSheet } from "./lending-detail";
@@ -86,8 +86,28 @@ export function Modals() {
   const bodyRef = useRef<HTMLDivElement>(null);
   const { inset, height } = useKeyboardInset();
   useFocusTrap(panelRef, !!modal);
+  // #196: this used to be `panelRef.current?.focus()`, which ran after mount
+  // and stole focus back from the amount field's autoFocus — measured in
+  // production as `amountFocused: false, activeElement: DIV`. The keyboard
+  // never opened, so the advertised two-tap flow really cost three.
+  //
+  // Focus the first real control instead, falling back to the panel only when
+  // a sheet has none (e.g. a read-only detail view), so the trap keeps an
+  // anchor either way.
   useEffect(() => {
-    if (modal) panelRef.current?.focus();
+    if (!modal) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    // rAF so the element exists and the sheet's entrance has begun; iOS will
+    // not raise the keyboard for a focus() that happens before paint.
+    const id = requestAnimationFrame(() => {
+      const first = panel.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      );
+      (first ?? panel).focus({ preventScroll: true });
+      if (first instanceof HTMLInputElement) first.select();
+    });
+    return () => cancelAnimationFrame(id);
   }, [modal]);
   if (!modal) return null;
   // Bring the just-focused control into view inside the scroll body once the
@@ -118,7 +138,7 @@ export function Modals() {
       >
         <div className="flex justify-between items-center flex-none px-[22px] pt-[18px] pb-2">
           <div className="text-base font-extrabold tracking-tight">{TITLES[modal.type]}</div>
-          <button onClick={closeModal} aria-label="Close" className="w-8 h-8 rounded-lg grid place-items-center text-mut cursor-pointer bg-transparent border-none hover:bg-accsoft">
+          <button onClick={closeModal} aria-label="Close" className="w-11 h-11 -mr-2 rounded-lg grid place-items-center text-mut cursor-pointer bg-transparent border-none hover:bg-accsoft">
             ✕
           </button>
         </div>
@@ -179,6 +199,9 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   let scheduleError: string | null = null;
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
+  // shown on the Advanced summary so the collapsed state still says where the
+  // money is coming from — the one hidden field a user might actually check
+  const accountName = refData.accounts.find((a) => a.id === accountId)?.name;
   const selected = sharedParticipants.filter((p) => parts[p.id]);
   const amtPaise = Math.round((Number(amount) || 0) * 100);
 
@@ -202,51 +225,60 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* #197: Amount, then Category. Everything else is real but secondary. */}
       <Field label="AMOUNT (₹)">
         <AmountInput value={amount} onChange={setAmount} autoFocus />
       </Field>
-      <div className="flex gap-2.5 flex-wrap">
-        <Field label="ACCOUNT">
-          <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            <AccountOptions accounts={refData.accounts} />
-          </select>
-        </Field>
-        <Field label="CATEGORY">
-          {groupId ? (
-            <GroupCategorySelect groupId={groupId} value={categoryId} onChange={setCategoryId} />
-          ) : (
-            <CategoryPicker categories={refData.expenseCategories} value={categoryId} onChange={setCategoryId} recentKey="ledgerly-recent-cat-expense" />
-          )}
-        </Field>
-      </div>
-      <div className="flex gap-2.5 flex-wrap">
-        <Field label="MERCHANT">
-          <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Swiggy" />
-        </Field>
-        <Field label="DATE">
-          <DateField value={date} onChange={setDate} />
-        </Field>
-      </div>
-      <Field label="NOTES">
-        <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+      <Field label="CATEGORY">
+        {groupId ? (
+          <GroupCategorySelect groupId={groupId} value={categoryId} onChange={setCategoryId} />
+        ) : (
+          <CategoryPicker categories={refData.expenseCategories} value={categoryId} onChange={setCategoryId} recentKey="ledgerly-recent-cat-expense" />
+        )}
       </Field>
-      {refData.groups.length > 0 && (
-        <Field label="GROUP">
-          <select className="field" value={groupId} onChange={(e) => selectGroup(e.target.value)}>
-            <option value="">Personal (not in a group)</option>
-            {refData.groups.map((g) => (
-              <option key={g.id} value={g.id}>🏠 {g.name}</option>
-            ))}
-          </select>
+
+      <AdvancedFields
+        hint={accountName}
+        // opened when the caller pre-filled something in here (duplicate, or a
+        // split started from Shared) — hiding a value they set would confuse
+        defaultOpen={!!(prefill?.dupMerchant || prefill?.dupNotes || prefill?.dupGroupId || prefill?.split)}
+      >
+        <div className="flex gap-2.5 flex-wrap">
+          <Field label="ACCOUNT">
+            <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <AccountOptions accounts={refData.accounts} />
+            </select>
+          </Field>
+          <Field label="DATE">
+            <DateField value={date} onChange={setDate} />
+          </Field>
+        </div>
+        <div className="flex gap-2.5 flex-wrap">
+          <Field label="MERCHANT">
+            <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Swiggy" />
+          </Field>
+        </div>
+        <Field label="NOTES">
+          <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
         </Field>
-      )}
+        {refData.groups.length > 0 && (
+          <Field label="GROUP">
+            <select className="field" value={groupId} onChange={(e) => selectGroup(e.target.value)}>
+              <option value="">Personal (not in a group)</option>
+              {refData.groups.map((g) => (
+                <option key={g.id} value={g.id}>🏠 {g.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
 
-      <SplitEditor state={splitState} amtPaise={amtPaise} participants={sharedParticipants} />
+        <SplitEditor state={splitState} amtPaise={amtPaise} participants={sharedParticipants} />
 
-      {/* A rule's template carries neither splits nor a group, so repeating is
-          offered only for a plain personal expense rather than silently
-          scheduling something different from what's on screen. */}
-      {!split && !groupId && <RepeatBlock state={repeat} transactionYmd={date} />}
+        {/* A rule's template carries neither splits nor a group, so repeating is
+            offered only for a plain personal expense rather than silently
+            scheduling something different from what's on screen. */}
+        {!split && !groupId && <RepeatBlock state={repeat} transactionYmd={date} />}
+      </AdvancedFields>
 
       <ErrorNote error={error} />
       <SubmitButton
@@ -338,38 +370,44 @@ function IncomeForm({ prefill }: { prefill?: ModalPrefill }) {
   let scheduleError: string | null = null;
   return (
     <div className="flex flex-col gap-3">
+      {/* #198: same shape as Add expense — amount, then the one field that
+          classifies it; the rest behind More details. */}
       <Field label="AMOUNT (₹)">
         <AmountInput value={amount} onChange={setAmount} autoFocus />
       </Field>
-      <div className="flex gap-2.5 flex-wrap">
-        <Field label="INTO ACCOUNT">
-          <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            <AccountOptions accounts={refData.accounts} />
-          </select>
-        </Field>
-        <Field label="SOURCE">
-          <CategoryPicker categories={refData.incomeCategories} value={categoryId} onChange={setCategoryId} recentKey="ledgerly-recent-cat-income" label="Choose a source" />
-        </Field>
-      </div>
-      <div className="flex gap-2.5 flex-wrap">
+      <Field label="SOURCE">
+        <CategoryPicker categories={refData.incomeCategories} value={categoryId} onChange={setCategoryId} recentKey="ledgerly-recent-cat-income" label="Choose a source" />
+      </Field>
+
+      <AdvancedFields
+        hint={refData.accounts.find((a) => a.id === accountId)?.name}
+        defaultOpen={!!(prefill?.dupMerchant || prefill?.dupGroupId)}
+      >
+        <div className="flex gap-2.5 flex-wrap">
+          <Field label="INTO ACCOUNT">
+            <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <AccountOptions accounts={refData.accounts} />
+            </select>
+          </Field>
+          <Field label="DATE">
+            <DateField value={date} onChange={setDate} />
+          </Field>
+        </div>
         <Field label="DESCRIPTION">
           <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Salary · Acme Corp" />
         </Field>
-        <Field label="DATE">
-          <DateField value={date} onChange={setDate} />
-        </Field>
-      </div>
-      {refData.groups.length > 0 && (
-        <Field label="GROUP">
-          <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-            <option value="">Personal (not in a group)</option>
-            {refData.groups.map((g) => (
-              <option key={g.id} value={g.id}>🏠 {g.name}</option>
-            ))}
-          </select>
-        </Field>
-      )}
-      {!groupId && <RepeatBlock state={repeat} transactionYmd={date} />}
+        {refData.groups.length > 0 && (
+          <Field label="GROUP">
+            <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+              <option value="">Personal (not in a group)</option>
+              {refData.groups.map((g) => (
+                <option key={g.id} value={g.id}>🏠 {g.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {!groupId && <RepeatBlock state={repeat} transactionYmd={date} />}
+      </AdvancedFields>
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
@@ -417,9 +455,18 @@ function TransferForm({ prefill }: { prefill?: ModalPrefill }) {
   const [from, setFrom] = useState(prefill?.dupAccountId ?? refData.accounts[0]?.id ?? "");
   const [to, setTo] = useState(prefill?.dupToAccountId ?? refData.accounts[1]?.id ?? refData.accounts[0]?.id ?? "");
   const [date, setDate] = useState(todayYMD());
-  const [groupId, setGroupId] = useState(prefill?.dupGroupId ?? "");
+  // #198: no longer editable here — kept as a pass-through so duplicating a
+  // transfer that belonged to a group still lands in that group.
+  const groupId = prefill?.dupGroupId ?? "";
   return (
     <div className="flex flex-col gap-3">
+      {/* #198: amount first here too — it was third, below two selects, so the
+          keyboard could not open on open. Group is gone entirely: moving money
+          between your own accounts has no group, and the field appeared for
+          anyone who had ever created one. */}
+      <Field label="AMOUNT (₹)">
+        <AmountInput value={amount} onChange={setAmount} autoFocus />
+      </Field>
       <div className="flex gap-2.5 flex-wrap">
         <Field label="FROM">
           <select className="field" value={from} onChange={(e) => setFrom(e.target.value)}>
@@ -432,22 +479,11 @@ function TransferForm({ prefill }: { prefill?: ModalPrefill }) {
           </select>
         </Field>
       </div>
-      <Field label="AMOUNT (₹)">
-        <AmountInput value={amount} onChange={setAmount} autoFocus />
-      </Field>
-      <Field label="DATE">
-        <DateField value={date} onChange={setDate} />
-      </Field>
-      {refData.groups.length > 0 && (
-        <Field label="GROUP">
-          <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-            <option value="">Personal (not in a group)</option>
-            {refData.groups.map((g) => (
-              <option key={g.id} value={g.id}>🏠 {g.name}</option>
-            ))}
-          </select>
+      <AdvancedFields>
+        <Field label="DATE">
+          <DateField value={date} onChange={setDate} />
         </Field>
-      )}
+      </AdvancedFields>
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
