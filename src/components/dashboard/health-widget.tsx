@@ -56,16 +56,11 @@ export function HealthWidget({ data }: { data: HealthData }) {
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 bg-accsoft rounded-[10px] px-3.5 py-3">
-        {/* #185: this is deliberately a *different* figure from the hero's
-            Total Balance — it includes money lent out. The old bare "Net
-            Position" label gave no clue why the two disagreed. */}
-        <HealthStat
-          label="Balance + owed"
-          value={`${data.netPosition < 0 ? "−" : ""}${formatPaise(data.netPosition)}`}
-          detail="incl. money lent out"
-          valueColor={data.netPosition < 0 ? "var(--red)" : "var(--green)"}
-          href="/accounts"
-        />
+        {/* #194: a second balance figure lived here ("Net Position" =
+            accounts + lending), 400px below the hero's Total Balance and
+            disagreeing with it. #185 relabelled it; this removes it. The
+            dashboard now states one balance, under one definition — the money
+            lent out is already on the hero's own "owed to you" line. */}
         <HealthStat label="Pending to Receive" value={formatPaise(data.outstandingLoans)} href="/lending" />
         <HealthStat
           label="Upcoming Bills"

@@ -167,11 +167,43 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
         <QuickAction label="Bills" tint="amber" href="/bills" d="M6 3h12v18l-3-2-3 2-3-2-3 2z" />
       </div>
 
-      {/* CASH FLOW */}
+      {/* RECENT — one of the four default blocks, so it sits above the
+          collapsibles rather than under them (#192) */}
+      {show("recent") && (
+        <>
+          <Eyebrow href="/transactions">Recent activity</Eyebrow>
+          {data.recent.length > 0 ? (
+            <div className="rounded-[20px] bg-card border border-line px-4 py-1.5">
+              {data.recent.map((r, i) => (
+                <div key={i} className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-line" : ""}`}>
+                  <span className="w-[34px] h-[34px] rounded-[11px] grid place-items-center text-[15px]" style={{ background: "var(--side)" }}>{r.icon}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-semibold truncate">{r.title}</span>
+                    <span className="block text-[11px] text-mut truncate">{r.sub}</span>
+                  </span>
+                  <span className="text-[13.5px] font-bold tabular-nums flex-none" style={{ color: r.amtColor }}>{r.amtF}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <button
+              onClick={() => openModal("exp")}
+              className="rounded-[20px] bg-card border border-line border-dashed px-4 py-6 flex flex-col items-center gap-1.5 text-center cursor-pointer w-full active:scale-[.99] transition-transform"
+            >
+              <span className="text-[22px]">🧾</span>
+              <span className="text-[13px] font-bold text-ink">No activity yet</span>
+              <span className="text-[11.5px] text-mut">Add your first expense to see it here.</span>
+            </button>
+          )}
+        </>
+      )}
+
+      {/* CASH FLOW — #192: collapsed by default like the rest of the secondary
+          detail. It used to be the one section that opened itself. */}
       {show("cashflow") && (
       <SectionCard
         tint="acc" title="Cash flow" sub={spentPct <= 90 ? "On track" : "Watch spending"}
-        value={<span style={{ color: data.monthDelta >= 0 ? "var(--green)" : "var(--red)" }}>{sign(data.monthDelta)}</span>} valueSub="net · this month" open
+        value={<span style={{ color: data.monthDelta >= 0 ? "var(--green)" : "var(--red)" }}>{sign(data.monthDelta)}</span>} valueSub="net · this month"
       >
         <div className="flex gap-2.5">
           <div className="flex-1 rounded-xl p-3" style={{ background: "var(--side)" }}>
@@ -190,8 +222,9 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
       </SectionCard>
       )}
 
-      {/* LENDING */}
-      {show("khata") && (
+      {/* LENDING — #195: hidden entirely when there is nothing either way.
+          It used to render "you'll get ₹0 · 0 people · nothing to pay". */}
+      {show("khata") && (data.lending.owed > 0 || data.lending.owe > 0) && (
       <SectionCard
         tint="green" title="Khata · you’ll get" sub={`${data.lending.people} ${data.lending.people === 1 ? "person" : "people"}${data.lending.overdue ? ` · ${data.lending.overdue} overdue` : ""}`}
         value={<span style={{ color: "var(--green)" }}>{formatPaise(data.lending.owed)}</span>} valueSub={data.lending.owe > 0 ? `−${formatPaise(data.lending.owe)} you’ll pay` : "nothing to pay"} href="/lending"
@@ -236,36 +269,6 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
             );
           })}
         </SectionCard>
-      )}
-
-      {/* RECENT */}
-      {show("recent") && (
-        <>
-          <Eyebrow href="/transactions">Recent activity</Eyebrow>
-          {data.recent.length > 0 ? (
-            <div className="rounded-[20px] bg-card border border-line px-4 py-1.5">
-              {data.recent.map((r, i) => (
-                <div key={i} className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-line" : ""}`}>
-                  <span className="w-[34px] h-[34px] rounded-[11px] grid place-items-center text-[15px]" style={{ background: "var(--side)" }}>{r.icon}</span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[13px] font-semibold truncate">{r.title}</span>
-                    <span className="block text-[11px] text-mut truncate">{r.sub}</span>
-                  </span>
-                  <span className="text-[13.5px] font-bold tabular-nums flex-none" style={{ color: r.amtColor }}>{r.amtF}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <button
-              onClick={() => openModal("exp")}
-              className="rounded-[20px] bg-card border border-line border-dashed px-4 py-6 flex flex-col items-center gap-1.5 text-center cursor-pointer w-full active:scale-[.99] transition-transform"
-            >
-              <span className="text-[22px]">🧾</span>
-              <span className="text-[13px] font-bold text-ink">No activity yet</span>
-              <span className="text-[11.5px] text-mut">Add your first expense to see it here.</span>
-            </button>
-          )}
-        </>
       )}
 
       {/* CUSTOMIZE */}
