@@ -10,6 +10,7 @@
 // more than one page of rows into the browser at a time.
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { queryTransactionsAction, txTotalsAction } from "@/app/actions";
 import { EmptyState } from "@/components/shell/empty-state";
 import { useOffline } from "@/components/shell/offline-context";
@@ -332,7 +333,37 @@ export function TransactionsList({
           {loading ? "Loading…" : "Load more"}
         </button>
       )}
+
+      {/* #186: the default window is a rolling 30 days, which is right for
+          someone logging regularly — but a user returning to older history
+          would otherwise land on a near-empty screen and have to discover the
+          period picker to find their own money. One tap out, only when the
+          window is actually thin and no other filter explains it. */}
+      {!loading && !hasMore && rows.length > 0 && rows.length < 5 && !q && !month && !category && !account && !batch && !period.p && !period.from && (
+        <ThinWindowNudge count={rows.length} />
+      )}
     </div>
+  );
+}
+
+function ThinWindowNudge({ count }: { count: number }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  return (
+    <button
+      onClick={() => {
+        const next = new URLSearchParams(params.toString());
+        next.set("p", "all");
+        router.push(`${pathname}?${next.toString()}`);
+      }}
+      className="self-stretch flex items-center gap-2.5 px-4 py-3 rounded-[12px] border border-line2 border-dashed bg-card cursor-pointer text-left min-h-[44px] hover:bg-accsoft"
+    >
+      <span className="flex-1 text-[12.5px] text-mut">
+        Only {count} transaction{count === 1 ? "" : "s"} in the last 30 days.
+      </span>
+      <span className="text-[12.5px] font-bold text-acc whitespace-nowrap">Show all time →</span>
+    </button>
   );
 }
 

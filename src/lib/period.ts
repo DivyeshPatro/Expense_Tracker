@@ -5,7 +5,15 @@
 
 import { addDaysYMD, currentMonthKey, friendlyDay, istMidnight, monthName, monthRange, todayYMD } from "./dates";
 
-export type PeriodMode = "month" | "custom" | "all";
+// "recent" (issue #186) is the DEFAULT: a rolling last-30-days window rather
+// than the calendar month. A calendar-month default meant that on the 3rd of a
+// month you saw almost nothing — measured 1 of 71 transactions on a real
+// account, i.e. 98.6% of the ledger hidden behind a picker most people never
+// open. A rolling window always has something in it.
+export type PeriodMode = "recent" | "month" | "custom" | "all";
+
+/** How many days the default rolling window covers, inclusive of today. */
+export const RECENT_DAYS = 30;
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
@@ -23,14 +31,17 @@ export interface Period {
 export function parsePeriod(sp: Record<string, string | undefined>, now = new Date()): Period {
   const key = currentMonthKey(now);
   const today = todayYMD(now);
-  let mode: PeriodMode = "month";
+  // no params ⇒ the rolling default, not the calendar month
+  let mode: PeriodMode = "recent";
   let periodKey = key;
-  let from = `${key}-01`;
+  let from = addDaysYMD(today, -(RECENT_DAYS - 1));
   let to = today;
   if (sp.p === "all") {
     mode = "all";
   } else if (sp.p && MONTH_RE.test(sp.p) && sp.p <= key) {
+    mode = "month";
     periodKey = sp.p;
+    from = `${sp.p}-01`;
   } else if (sp.from && sp.to && YMD_RE.test(sp.from) && YMD_RE.test(sp.to) && sp.from <= sp.to) {
     mode = "custom";
     from = sp.from;
@@ -39,22 +50,27 @@ export function parsePeriod(sp: Record<string, string | undefined>, now = new Da
   const range =
     mode === "all"
       ? { start: undefined, end: undefined }
-      : mode === "custom"
-        ? { start: istMidnight(from), end: istMidnight(addDaysYMD(to, 1)) } // `to` is inclusive
-        : monthRange(periodKey);
+      : mode === "month"
+        ? monthRange(periodKey)
+        : // recent and custom are both plain inclusive [from, to] windows
+          { start: istMidnight(from), end: istMidnight(addDaysYMD(to, 1)) };
   const label =
     mode === "all"
       ? "TO DATE"
-      : mode === "custom"
-        ? `${friendlyDay(from, now).toUpperCase()} – ${friendlyDay(to, now).toUpperCase()}`
-        : `${monthName(periodKey).toUpperCase()} ${periodKey.slice(0, 4)}`;
+      : mode === "recent"
+        ? `LAST ${RECENT_DAYS} DAYS`
+        : mode === "custom"
+          ? `${friendlyDay(from, now).toUpperCase()} – ${friendlyDay(to, now).toUpperCase()}`
+          : `${monthName(periodKey).toUpperCase()} ${periodKey.slice(0, 4)}`;
   return { mode, currentMonthKey: key, periodKey, from, to, range, label };
 }
 
-/** The query string (sans leading "?") that reproduces this period — "" for the default (this month). */
+/** The query string (sans leading "?") that reproduces this period — "" for the
+ *  default (last 30 days). Month mode always emits `p=`, including the current
+ *  month: since #186 an empty query string means "recent", not "this month". */
 export function periodQueryParams(p: Pick<Period, "mode" | "periodKey" | "from" | "to" | "currentMonthKey">): string {
   if (p.mode === "all") return "p=all";
   if (p.mode === "custom") return `from=${p.from}&to=${p.to}`;
-  if (p.periodKey !== p.currentMonthKey) return `p=${p.periodKey}`;
+  if (p.mode === "month") return `p=${p.periodKey}`;
   return "";
 }

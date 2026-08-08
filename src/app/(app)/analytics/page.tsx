@@ -49,7 +49,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
       ? periodRows.length
         ? daysBetweenYMD(periodRows[periodRows.length - 1].ymd, today) + 1
         : 1
-      : period.mode === "custom"
+      : // #186: "recent" is a plain inclusive [from, to] window, same as custom
+        period.mode === "custom" || period.mode === "recent"
         ? daysBetweenYMD(period.from, period.to) + 1
         : period.periodKey === key
           ? Number(today.slice(8))
