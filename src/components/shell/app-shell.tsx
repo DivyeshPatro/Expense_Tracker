@@ -450,7 +450,17 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
   if (at("/cards")) return { label: "Add card", actions: [{ icon: "💳", label: "Add credit card", run: openCard }] };
   if (at("/bills")) return { label: "Add bill", actions: [{ icon: "🧾", label: "Add bill", run: () => openModal("bill") }] };
   if (at("/budgets")) return { label: "Add budget", actions: [{ icon: "◔", label: "Add budget", run: () => openModal("budget") }] };
-  if (at("/accounts")) return { label: "Add account", actions: [{ icon: "🏦", label: "Add account", run: () => openModal("account") }] };
+  // #209: the Accounts header used to carry "＋ Add account" and "⇄ Transfer
+  // money" as buttons. The header is gone (the total leads the screen now), so
+  // both live here — Transfer especially must not lose its entry point.
+  if (at("/accounts"))
+    return {
+      label: "Accounts",
+      actions: [
+        { icon: "⇄", label: "Transfer money", run: () => openModal("tr") },
+        { icon: "🏦", label: "Add account", run: () => openModal("account") },
+      ],
+    };
   // #203: Home used to return null here, so the largest, brightest control in
   // the mobile UI vanished on the screen people open most — and the bar does
   // not reserve its slot, so it left a visible hole where users had learned to

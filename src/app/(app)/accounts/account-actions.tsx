@@ -84,17 +84,36 @@ export function AccountCardActions({ id, name, hasHistory }: { id: string; name:
     );
   }
 
+  // #209: Rename and Archive used to sit alongside "Transactions →" as three
+  // equal buttons on every card — 15 controls across five accounts, with rare
+  // admin actions weighted the same as the one people actually use. The row
+  // itself now opens transactions; these live behind a ⋯ menu.
   return (
-    <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-line">
-      <SmallButton onClick={() => setMode("rename")}>Rename</SmallButton>
-      <SmallButton onClick={() => setMode("confirm")}>{hasHistory ? "Archive" : "Delete"}</SmallButton>
-      <Link
-        href={`/transactions?account=${id}`}
-        className="text-[11px] font-semibold text-acc no-underline hover:underline ml-auto"
+    <details className="relative ml-auto">
+      <summary
+        aria-label={`More actions for ${name}`}
+        className="list-none cursor-pointer w-11 h-11 grid place-items-center rounded-lg text-mut2 hover:bg-accsoft hover:text-ink select-none"
       >
-        Transactions →
-      </Link>
-    </div>
+        <span aria-hidden className="text-[16px] leading-none tracking-widest">⋯</span>
+      </summary>
+      <div
+        className="absolute right-0 top-11 z-20 min-w-[150px] rounded-[11px] border border-line2 bg-card p-1 flex flex-col"
+        style={{ boxShadow: "var(--shLg)" }}
+      >
+        <button
+          onClick={() => setMode("rename")}
+          className="text-left px-3 min-h-[44px] rounded-lg text-[13px] font-semibold text-ink bg-transparent border-none cursor-pointer hover:bg-accsoft"
+        >
+          Rename
+        </button>
+        <button
+          onClick={() => setMode("confirm")}
+          className="text-left px-3 min-h-[44px] rounded-lg text-[13px] font-semibold text-red bg-transparent border-none cursor-pointer hover:bg-redsoft"
+        >
+          {hasHistory ? "Archive" : "Delete"}
+        </button>
+      </div>
+    </details>
   );
 }
 
