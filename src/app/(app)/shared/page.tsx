@@ -4,7 +4,7 @@ import { GroupsPanel } from "@/components/shared/groups-panel";
 import { InviteButton } from "@/components/shared/invite-button";
 import { ModuleActivity } from "@/components/shell/module-activity";
 import { EmptyState } from "@/components/shell/empty-state";
-import { StatCard } from "@/components/shell/stat-card";
+import { ModuleHero } from "@/components/shell/module-hero";
 import { friendlyDay, toYMD } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import { txDisplay } from "@/lib/tx-display";
@@ -23,6 +23,20 @@ export default async function SharedPage() {
     listGroups(user.id),
     loadLedger(user.id, 6),
   ]);
+  // #188: the screen's primary question is "who needs to settle?", so that
+  // count — not a stat-card row — is the hero.
+  const toSettle = summary.members.filter((m) => Math.abs(m.net) > 100).length;
+  const settleSub =
+    toSettle === 0
+      ? summary.members.length > 0
+        ? "Everyone's square"
+        : "Add a friend to start splitting"
+      : summary.members
+          .filter((m) => Math.abs(m.net) > 100)
+          .slice(0, 3)
+          .map((m) => m.name)
+          .join(", ") + (toSettle > 3 ? ` +${toSettle - 3} more` : "");
+
   const sharedTx = rows
     .filter((r) => r.split)
     .map((r) => {
@@ -33,27 +47,35 @@ export default async function SharedPage() {
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <div className="flex justify-between items-center flex-wrap gap-2">
-        <div className="flex items-center gap-2 text-[12.5px] font-semibold text-mut flex-wrap">
-          <GroupsPanel groups={groups} />
-          <OpenModalButton type="friend" className="text-[11.5px] font-semibold text-acc cursor-pointer px-[9px] py-1 rounded-[7px] bg-transparent border border-line2 hover:bg-accsoft">
-            ＋ Add friend
-          </OpenModalButton>
-        </div>
-        <OpenModalButton type="exp" prefill={{ split: true }} className="btn-primary">👥 Add split expense</OpenModalButton>
-      </div>
+      {/* #188: the screen answers "who needs to settle?" first. The old header
+          led with ＋ Add split expense (the largest element on the screen) above
+          three equal-weight stat cards that gave the eye nothing to land on.
+          Adding a split expense is the FAB's job. */}
+      <ModuleHero
+        eyebrow={toSettle > 0 ? "To settle up" : "All settled"}
+        value={toSettle > 0 ? `${toSettle} ${toSettle === 1 ? "person" : "people"}` : "✓"}
+        valueColor={toSettle > 0 ? undefined : "var(--green)"}
+        sub={settleSub}
+        tone={toSettle > 0 ? "warn" : "good"}
+        secondary={[
+          { label: "You'll get", value: formatPaise(summary.owedToYou), color: summary.owedToYou > 0 ? "var(--green)" : undefined },
+          { label: "You'll pay", value: formatPaise(summary.youOwe), color: summary.youOwe > 0 ? "var(--red)" : undefined },
+          {
+            label: "Net",
+            value: `${summary.net < 0 ? "−" : "+"}${formatPaise(Math.abs(summary.net))}`,
+            color: summary.net < 0 ? "var(--red)" : "var(--green)",
+          },
+        ]}
+      />
 
-      <div className="flex flex-wrap gap-3.5">
-        <StatCard label="YOU'LL PAY" value={<span className="text-red">{formatPaise(summary.youOwe)}</span>} />
-        <StatCard label="YOU'LL GET" value={<span className="text-green">{formatPaise(summary.owedToYou)}</span>} />
-        <StatCard
-          label="NET"
-          value={
-            <span style={{ color: summary.net < 0 ? "var(--red)" : "var(--green)" }}>
-              {summary.net < 0 ? "−" : "+"}{formatPaise(summary.net)}
-            </span>
-          }
-        />
+      <div className="flex items-center gap-2 text-[12.5px] font-semibold text-mut flex-wrap">
+        <GroupsPanel groups={groups} />
+        <OpenModalButton
+          type="friend"
+          className="text-[12px] font-semibold text-acc cursor-pointer px-3 min-h-[44px] rounded-[9px] bg-transparent border border-line2 hover:bg-accsoft"
+        >
+          ＋ Add friend
+        </OpenModalButton>
       </div>
 
       <div className="flex flex-wrap gap-3.5 items-start">

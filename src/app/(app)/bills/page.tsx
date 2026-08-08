@@ -1,4 +1,5 @@
 import { OpenModalButton, PayBillButton } from "@/components/shell/buttons";
+import { ModuleHero } from "@/components/shell/module-hero";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleActivity } from "@/components/shell/module-activity";
 import { BillActions, MobileBills, PaidBills } from "./bill-actions";
@@ -14,11 +15,28 @@ export default async function BillsPage() {
   const user = await requireUser();
   const [bills, paidBills] = await Promise.all([listBills(user.id), listPaidBills(user.id)]);
 
+  // #190: the screen answers "what is due next?" — so the next bill is the
+  // hero, not the ＋ New bill button that used to be the largest element here.
+  const next = bills[0];
+  const overdue = bills.filter((b) => b.urgency === "overdue").length;
+  const dueSoon = bills.filter((b) => b.days >= 0 && b.days <= 10);
+  const soonTotal = dueSoon.reduce((s, b) => s + b.amount, 0);
+
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <div className="flex justify-end">
-        <OpenModalButton type="bill" className="btn-primary w-full md:w-auto">＋ New bill</OpenModalButton>
-      </div>
+      {bills.length > 0 && next && (
+        <ModuleHero
+          eyebrow={overdue > 0 ? `Next up · ${overdue} overdue` : "Next up"}
+          value={formatPaise(next.amount)}
+          valueColor={next.urgency === "overdue" ? "var(--red)" : undefined}
+          sub={`${next.name} · ${next.dueLabel.toLowerCase()}`}
+          tone={next.urgency === "overdue" ? "bad" : next.urgency === "urgent" ? "warn" : "neutral"}
+          secondary={[
+            { label: "Due in 10 days", value: `${dueSoon.length}` },
+            { label: "That's worth", value: formatPaise(soonTotal) },
+          ]}
+        />
+      )}
 
       {bills.length === 0 && (
         <div className="card px-4 py-1.5">

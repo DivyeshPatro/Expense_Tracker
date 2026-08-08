@@ -12,9 +12,8 @@
 // (the above, plus a Reminders panel), Card Recovery, and Reports — nested
 // under this same route rather than new top-level nav items.
 
-import { OpenModalButton } from "@/components/shell/buttons";
 import { ModuleActivity } from "@/components/shell/module-activity";
-import { StatCard } from "@/components/shell/stat-card";
+import { ModuleHero } from "@/components/shell/module-hero";
 import { LendingReports } from "@/components/lending/lending-reports";
 import { LendingTabs } from "@/components/lending/lending-tabs";
 import { LendingWorkspace } from "@/components/lending/lending-workspace";
@@ -36,44 +35,42 @@ export default async function LendingPage() {
     importedContactSources(user.id),
   ]);
 
+  // #187: the hero's sub-line — who the money is with, and what's late.
+  const owedBy = summary.contacts.filter((c) => c.net > 0).length;
+  const peopleSub =
+    summary.youAreOwed === 0 && summary.youOwe === 0
+      ? "Nothing outstanding either way"
+      : [
+          owedBy > 0 ? `from ${owedBy} ${owedBy === 1 ? "person" : "people"}` : null,
+          summary.overdueCount > 0 ? `${summary.overdueCount} overdue` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <div className="flex justify-between items-center flex-wrap gap-2">
-        <div className="text-[12.5px] font-semibold text-mut">Money you gave, borrowed, and got back — personal, not shared.</div>
-        <div className="flex gap-2">
-          <OpenModalButton
-            type="lendingEntry"
-            prefill={{ loanKind: "GAVE" }}
-            className="px-[13px] py-2 rounded-lg text-[12.5px] font-bold cursor-pointer border-none text-white bg-acc hover:brightness-108"
-          >
-            + You gave
-          </OpenModalButton>
-          <OpenModalButton
-            type="lendingEntry"
-            prefill={{ loanKind: "GOT" }}
-            className="px-[13px] py-2 rounded-lg text-[12.5px] font-bold cursor-pointer border-none text-white bg-green hover:brightness-108"
-          >
-            + You got
-          </OpenModalButton>
-        </div>
-      </div>
-
       <LendingTabs
         overview={
           <>
-            <div className="flex flex-wrap gap-3.5 flex-[1_1_100%]">
-              <StatCard label="YOU'LL GET" value={<span className="text-green">{formatPaise(summary.youAreOwed)}</span>} />
-              <StatCard label="YOU NEED TO PAY" value={<span className="text-red">{formatPaise(summary.youOwe)}</span>} />
-              <StatCard
-                label="NET"
-                value={
-                  <span style={{ color: summary.net < 0 ? "var(--red)" : "var(--green)" }}>
-                    {summary.net < 0 ? "−" : "+"}
-                    {formatPaise(Math.abs(summary.net))}
-                  </span>
-                }
+            {/* #187: "Who owes me?" is why anyone opens this screen, so it is
+                the largest thing on it. The old header led with two ＋ buttons
+                and a strapline; both are now the FAB's job. */}
+            <div className="flex-[1_1_100%]">
+              <ModuleHero
+                eyebrow="You'll get"
+                value={formatPaise(summary.youAreOwed)}
+                valueColor="var(--green)"
+                sub={peopleSub}
+                tone={summary.overdueCount > 0 ? "bad" : "neutral"}
+                secondary={[
+                  { label: "You'll pay", value: formatPaise(summary.youOwe), color: summary.youOwe > 0 ? "var(--red)" : undefined },
+                  {
+                    label: "Net",
+                    value: `${summary.net < 0 ? "−" : "+"}${formatPaise(Math.abs(summary.net))}`,
+                    color: summary.net < 0 ? "var(--red)" : "var(--green)",
+                  },
+                ]}
               />
-              {summary.overdueCount > 0 && <StatCard label="OVERDUE" value={<span className="text-red">{summary.overdueCount}</span>} />}
             </div>
             {reminders.length > 0 && (
               <div className="flex-[1_1_100%]">
