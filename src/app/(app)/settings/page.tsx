@@ -35,6 +35,13 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-4 max-w-[640px]" style={{ animation: "rise .25s ease" }}>
+      {/* #191: Settings had no heading of its own, so nothing on the screen was
+          larger than a chevron. (The 3.31-screen scroll and its grouping are
+          EPIC 17 #204's job — this is the focal-point fix only.) */}
+      <div>
+        <h1 className="text-[21px] font-extrabold tracking-[-.02em] m-0">Settings</h1>
+        <p className="text-[12.5px] text-mut mt-1 mb-0">Your account, this device, and your data.</p>
+      </div>
       <SyncCard />
 
       <Link href="/settings/navigation" className="card p-6 flex items-center gap-3 no-underline text-ink hover:border-acc" style={{ transition: "border-color .15s" }}>
@@ -45,7 +52,8 @@ export default async function SettingsPage() {
           <span className="block text-[13.5px] font-bold">Navigation</span>
           <span className="block text-[12px] text-mut">Reorder, hide, and pin the modules in your bottom bar and sidebar.</span>
         </span>
-        <span aria-hidden className="text-mut2 text-[18px]">›</span>
+        {/* #191: a chevron is furniture; it was the largest element on Settings */}
+        <span aria-hidden className="text-mut2 text-[13px]">›</span>
       </Link>
 
       <section className="card p-6 flex flex-col gap-3">

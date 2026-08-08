@@ -66,7 +66,7 @@ export function NavEditor() {
             onClick={() => patch({ maxTabs: prefs.maxTabs - 1 })}
             disabled={prefs.maxTabs <= MIN_TABS}
             aria-label="Fewer tabs"
-            className="w-9 h-9 rounded-lg border border-line2 bg-card text-[18px] grid place-items-center cursor-pointer disabled:opacity-40"
+            className="w-9 h-9 rounded-lg border border-line2 bg-card text-[15px] grid place-items-center cursor-pointer disabled:opacity-40"
           >
             −
           </button>
@@ -75,7 +75,7 @@ export function NavEditor() {
             onClick={() => patch({ maxTabs: prefs.maxTabs + 1 })}
             disabled={prefs.maxTabs >= MAX_TABS}
             aria-label="More tabs"
-            className="w-9 h-9 rounded-lg border border-line2 bg-card text-[18px] grid place-items-center cursor-pointer disabled:opacity-40"
+            className="w-9 h-9 rounded-lg border border-line2 bg-card text-[15px] grid place-items-center cursor-pointer disabled:opacity-40"
           >
             +
           </button>

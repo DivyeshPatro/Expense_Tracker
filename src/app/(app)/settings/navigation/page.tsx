@@ -13,7 +13,7 @@ export default async function NavigationSettingsPage() {
           ←
         </Link>
         <div>
-          <h1 className="text-[17px] font-extrabold tracking-tight m-0">Navigation</h1>
+          <h1 className="text-[21px] font-extrabold tracking-[-.02em] m-0">Navigation</h1>
           <div className="text-[11.5px] text-mut2">Customise the app around how you use it — saved on this device.</div>
         </div>
       </div>

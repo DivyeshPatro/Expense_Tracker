@@ -1,4 +1,5 @@
 import { OpenModalButton } from "@/components/shell/buttons";
+import { ModuleHero } from "@/components/shell/module-hero";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleActivity } from "@/components/shell/module-activity";
 import { BudgetActions } from "./budget-actions";
@@ -13,11 +14,28 @@ export default async function BudgetsPage() {
   const user = await requireUser();
   const budgets = await listBudgets(user.id);
 
+  // #191: the screen answers "am I within budget?" — the ＋ New budget button
+  // used to be the largest element on it.
+  const over = budgets.filter((b) => b.over).length;
+  const left = budgets.reduce((s, b) => s + Math.max(0, b.limit - b.spent), 0);
+  const spent = budgets.reduce((s, b) => s + b.spent, 0);
+  const limit = budgets.reduce((s, b) => s + b.limit, 0);
+
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <div className="flex justify-end">
-        <OpenModalButton type="budget" className="btn-primary">＋ New budget</OpenModalButton>
-      </div>
+      {budgets.length > 0 && (
+        <ModuleHero
+          eyebrow={over > 0 ? "Left to spend" : "Left to spend this month"}
+          value={formatPaise(left)}
+          valueColor={over > 0 ? "var(--red)" : "var(--green)"}
+          sub={over > 0 ? `${over} of ${budgets.length} over limit` : `all ${budgets.length} within limit`}
+          tone={over > 0 ? "bad" : "good"}
+          secondary={[
+            { label: "Spent", value: formatPaise(spent) },
+            { label: "Budgeted", value: formatPaise(limit) },
+          ]}
+        />
+      )}
       <div className="card p-[var(--pad)] flex flex-col gap-[18px]">
         {budgets.length === 0 && (
           <EmptyState
