@@ -584,7 +584,8 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
   const [kind, setKind] = useState<"GAVE" | "GOT">(prefill?.loanKind ?? "GAVE");
   const [participantId, setParticipantId] = useState(prefill?.participantId ?? refData.participants[0]?.id ?? "");
   const [amount, setAmount] = useState(prefill?.dupAmountRupees ?? prefill?.targetLoanRemainingRupees ?? "");
-  const [accountId, setAccountId] = useState(prefill?.dupAccountId ?? "");
+  // #185: default to a real account, not "Untracked" — see FUNDING SOURCE below.
+  const [accountId, setAccountId] = useState(prefill?.dupAccountId ?? refData.accounts[0]?.id ?? "");
   const [date, setDate] = useState(todayYMD());
   const [dueDate, setDueDate] = useState(prefill?.dupDueDate ?? "");
   const [reason, setReason] = useState(prefill?.dupMerchant ?? "");
@@ -660,9 +661,13 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
       )}
       <div className="flex gap-2.5 flex-wrap">
         <Field label="FUNDING SOURCE">
+          {/* #185: this used to default to "Untracked", so a loan credited
+              "owed to you" while debiting nothing — the headline went UP when
+              you gave money away. Defaulting to a real account keeps the books
+              balanced; untracked cash stays available as a deliberate choice. */}
           <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            <option value="">Untracked / cash in hand</option>
             <AccountOptions accounts={refData.accounts} />
+            <option value="">Untracked / cash in hand</option>
           </select>
         </Field>
         <Field label="DATE">

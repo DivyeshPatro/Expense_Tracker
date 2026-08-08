@@ -29,9 +29,14 @@ const HIDDEN_KEY = "ledgerly-dash-hidden";
 export interface MobileDashboardData {
   greeting: string;
   name: string;
-  netPosition: number;
+  /** Issue #185: the hero is money you can actually spend — accounts plus
+   *  unassigned history. Money lent out is NOT part of it: adding it made
+   *  the headline go *up* when you gave money away. Shown separately below. */
+  spendable: number;
+  /** Outstanding loans owed to you. Rendered under a rule, never summed in. */
+  owed: number;
   monthDelta: number;
-  comp: { banks: number; owed: number; cash: number; cards: number };
+  comp: { banks: number; cash: number; cards: number };
   flow: { income: number; expense: number };
   needs: { icon: string; text: string; sub: string; href: string; sev: "red" | "amber" }[];
   lending: { owed: number; owe: number; net: number; overdue: number; people: number };
@@ -67,9 +72,11 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
     });
   const show = (k: string) => !hidden.has(k);
   const c = data.comp;
+  // #185: only spendable money composes the hero. "Owed to you" used to sit
+  // here as a visual equal to Banks and Cash — money you cannot spend, shown
+  // as money you have.
   const parts = [
     { key: "Banks", v: Math.abs(c.banks), color: "var(--acc)" },
-    { key: "Owed to you", v: Math.abs(c.owed), color: "var(--green)" },
     { key: "Cash", v: Math.abs(c.cash), color: "var(--amber)" },
     { key: "Cards", v: Math.abs(c.cards), color: "var(--red)", neg: true },
   ].filter((p) => p.v > 0);
@@ -86,11 +93,11 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
         <div className="flex items-start justify-between">
           <div>
             <div className="text-[11.5px] text-mut font-semibold flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full" style={{ background: data.netPosition >= 0 ? "var(--green)" : "var(--red)", boxShadow: "0 0 0 4px var(--greenSoft)" }} />
-              Net standing
+              <span className="w-2 h-2 rounded-full" style={{ background: data.spendable >= 0 ? "var(--green)" : "var(--red)", boxShadow: "0 0 0 4px var(--greenSoft)" }} />
+              Total balance
             </div>
             <div className="text-[38px] font-extrabold tracking-[-.035em] leading-none mt-[7px] tabular-nums">
-              {data.netPosition < 0 ? "−" : ""}{formatPaise(data.netPosition)}
+              {data.spendable < 0 ? "−" : ""}{formatPaise(data.spendable)}
             </div>
             <div className="text-[12.5px] font-bold mt-1 tabular-nums" style={{ color: data.monthDelta >= 0 ? "var(--green)" : "var(--red)" }}>
               {data.monthDelta >= 0 ? "▲" : "▼"} {formatPaise(data.monthDelta)} <span className="text-mut font-semibold">this month</span>
@@ -111,6 +118,20 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
             </div>
           ))}
         </div>
+        {/* #185: money owed to you is real, but it isn't spendable — it sits
+            below the rule, never inside the headline. */}
+        {data.owed > 0 && (
+          <Link
+            href="/lending"
+            className="flex items-center gap-2 mt-3 pt-3 border-t border-line no-underline text-mut active:opacity-70"
+          >
+            <span className="text-[11.5px] font-semibold">
+              <b className="text-green tabular-nums">+{formatPaise(data.owed)}</b> owed to you
+            </span>
+            <span className="text-[11px] text-mut2">· not counted above</span>
+            <span className="ml-auto text-[13px] text-mut2" aria-hidden>›</span>
+          </Link>
+        )}
       </section>
 
       {/* NEEDS YOU */}

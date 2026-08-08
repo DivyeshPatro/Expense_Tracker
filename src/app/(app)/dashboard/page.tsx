@@ -171,9 +171,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const mobileData: MobileDashboardData = {
     greeting: greeting(now),
     name: user.name,
-    netPosition: healthData.netPosition,
+    // #185: the hero is spendable money — the same figure the desktop hero
+    // already showed. It used to be accountsTotal + lending.net, which meant
+    // recording a loan you *gave* pushed the headline UP.
+    spendable: balanceNow,
+    owed: lending.youAreOwed,
     monthDelta: period.income - period.expense,
-    comp: { banks: bankTotal, owed: lending.youAreOwed, cash: cashTotal, cards: Math.max(0, -cardTotal) },
+    comp: { banks: bankTotal, cash: cashTotal, cards: Math.max(0, -cardTotal) },
     flow: { income: period.income, expense: period.expense },
     needs: mobileNeeds.slice(0, 3),
     lending: { owed: lending.youAreOwed, owe: lending.youOwe, net: lending.net, overdue: lending.overdueCount, people: lending.contacts.filter((cc) => cc.net > 0).length },
