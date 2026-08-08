@@ -253,8 +253,15 @@ export function CardForm({ initial, onDone }: { initial?: CardFormInitial; onDon
         />
       </Field>
 
-      <label className="flex items-center gap-2 text-[12.5px] font-semibold cursor-pointer">
-        <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
+      {/* #199: the checkbox measured 13x13px — under a third of the 44px
+          minimum. The whole row is now the target. */}
+      <label className="flex items-center gap-2.5 min-h-[44px] -mx-1 px-1 rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-accsoft">
+        <input
+          type="checkbox"
+          checked={isDefault}
+          onChange={(e) => setIsDefault(e.target.checked)}
+          className="w-5 h-5 accent-[var(--acc)] flex-none cursor-pointer"
+        />
         Use as my default card
       </label>
 
