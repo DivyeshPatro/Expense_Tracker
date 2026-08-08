@@ -18,7 +18,7 @@ const FEATURES: { icon: string; title: string; desc: string }[] = [
   { icon: "gauge", title: "Budgets", desc: "Monthly limits per category with live progress and over-limit alerts." },
   { icon: "chart", title: "Analytics", desc: "Spending by category, top merchants, and trends — every chart follows your selected period." },
   { icon: "import", title: "Import center", desc: "Bring history in from spreadsheets and Khatabook, with duplicate detection built in." },
-  { icon: "activity", title: "Audit log", desc: "A plain-English trail of every change to your money, scoped per module." },
+  { icon: "activity", title: "Activity", desc: "A plain-English trail of every change to your money, scoped per module." },
   { icon: "offline", title: "Offline-ready PWA", desc: "Install it, use it on the metro with no signal — changes sync when you're back online." },
   { icon: "server", title: "Self-hosted", desc: "Run it on your own server. One codebase, your database, your rules." },
 ];

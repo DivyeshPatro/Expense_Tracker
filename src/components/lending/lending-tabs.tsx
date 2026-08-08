@@ -11,7 +11,7 @@ import { useState, type ReactNode } from "react";
 const TABS = [
   { key: "overview", label: "Overview" },
   { key: "reports", label: "Reports" },
-  { key: "activity", label: "Activity log" },
+  { key: "activity", label: "Activity" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 

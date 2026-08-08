@@ -2,7 +2,7 @@ import Link from "next/link";
 import { OpenModalButton } from "@/components/shell/buttons";
 import { GroupsPanel } from "@/components/shared/groups-panel";
 import { InviteButton } from "@/components/shared/invite-button";
-import { ModuleActivity } from "@/components/shell/module-activity";
+import { ModuleTabs, SHARED_TABS } from "@/components/shell/module-tabs";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleHero } from "@/components/shell/module-hero";
 import { friendlyDay, toYMD } from "@/lib/dates";
@@ -48,6 +48,7 @@ export default async function SharedPage() {
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+      <ModuleTabs tabs={SHARED_TABS} />
       {/* #188: the screen answers "who needs to settle?" first. The old header
           led with ＋ Add split expense (the largest element on the screen) above
           three equal-weight stat cards that gave the eye nothing to land on.
@@ -169,7 +170,6 @@ export default async function SharedPage() {
           ))}
         </section>
       </div>
-      <ModuleActivity entities={["Settlement"]} />
     </div>
   );
 }

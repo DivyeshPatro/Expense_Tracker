@@ -1,7 +1,7 @@
 import { OpenModalButton, PayBillButton } from "@/components/shell/buttons";
 import { ModuleHero } from "@/components/shell/module-hero";
 import { EmptyState } from "@/components/shell/empty-state";
-import { ModuleActivity } from "@/components/shell/module-activity";
+import { ModuleTabs, BILLS_TABS } from "@/components/shell/module-tabs";
 import { BillActions, MobileBills, PaidBills } from "./bill-actions";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
@@ -24,6 +24,7 @@ export default async function BillsPage() {
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+      <ModuleTabs tabs={BILLS_TABS} />
       {bills.length > 0 && next && (
         <ModuleHero
           eyebrow={overdue > 0 ? `Next up · ${overdue} overdue` : "Next up"}
@@ -77,7 +78,6 @@ export default async function BillsPage() {
       )}
 
       <PaidBills bills={paidBills} />
-      <ModuleActivity entities={["Bill"]} />
     </div>
   );
 }

@@ -14,7 +14,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { queryTransactionsAction, txTotalsAction } from "@/app/actions";
 import { EmptyState } from "@/components/shell/empty-state";
 import { useOffline } from "@/components/shell/offline-context";
-import { SpendInsightsTabs } from "@/components/shell/section-tabs";
+import { ModuleTabs, SPENDING_TABS } from "@/components/shell/module-tabs";
 import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
@@ -231,7 +231,7 @@ export function TransactionsList({
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
-      <SpendInsightsTabs />
+      <ModuleTabs tabs={SPENDING_TABS} />
       {/* Overall summary for the current view — income, expense and net update
           with the tabs, month, account, category and search filters. */}
       <section
