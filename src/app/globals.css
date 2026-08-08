@@ -72,6 +72,13 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* #214: the nav bar's sweep is its only signal, and the blanket rule above
+     would freeze it mid-track at 40% width — reading as an arbitrary stub
+     rather than "loading". Show a solid bar instead. */
+  [data-nav-progress] > span {
+    width: 100% !important;
+    transform: none !important;
+  }
 }
 
 /* Accent skins (Appearance settings). Override only --acc: the *Soft mixes and
@@ -147,6 +154,12 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* #214: indeterminate sweep for the navigation progress bar. */
+@keyframes nav-progress {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }

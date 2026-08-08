@@ -15,7 +15,21 @@
 // normally) or right after a router.push(). It only fires the hard nav if
 // the URL truly hasn't changed by the time the grace period elapses, so a
 // user who's since navigated elsewhere on their own is left alone.
-export function armStuckNavFallback(href: string, graceMs = 500) {
+// #211/#214: the grace period was 500 ms, tuned on a fast local connection
+// where a soft nav commits in ~150 ms or never. That assumption does not hold
+// on a real phone. Measured in the production build at 390px under a 150 ms
+// RTT / 1.6 Mbps / 4x CPU throttle, perfectly healthy soft navigations changed
+// the URL at:
+//
+//     Cards 447 ms · People 596 ms · Dashboard 660 ms · Spending 909 ms
+//
+// — so on a slow connection this net was firing on almost every tab tap,
+// converting a client navigation into a full document reload: the router
+// cache discarded, the document re-fetched, hydration re-run. It made the
+// slowest navigations dramatically slower, which is the opposite of its
+// intent. 3 s sits well clear of a legitimate slow navigation while still
+// recovering a genuinely stuck one long before a user would retry by hand.
+export function armStuckNavFallback(href: string, graceMs = 3000) {
   const before = window.location.pathname + window.location.search;
   window.setTimeout(() => {
     const stillHere = window.location.pathname + window.location.search === before;
