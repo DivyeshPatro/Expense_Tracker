@@ -32,6 +32,24 @@ const TABS: { label: string; value: TxType | null }[] = [
   { label: "Transfers", value: "TRANSFER" },
 ];
 
+
+/** #213: stable key for a filter combination, including the period — two
+ *  different periods with the same text query are different result sets. */
+function makeFilterKey(period: Period) {
+  return (f: { type?: TxType; monthKey?: string | null; categoryId?: string | null; accountId?: string | null; textQuery?: string; batch?: string | null }) =>
+    JSON.stringify([
+      f.type ?? "",
+      f.monthKey ?? "",
+      f.categoryId ?? "",
+      f.accountId ?? "",
+      (f.textQuery ?? "").trim().toLowerCase(),
+      f.batch ?? "",
+      period.p ?? "",
+      period.from ?? "",
+      period.to ?? "",
+    ]);
+}
+
 export function TransactionsList({
   initialRows,
   initialHasMore,
@@ -58,6 +76,7 @@ export function TransactionsList({
   initialOpenTransactionId?: string | null;
 }) {
   const { openModal } = useUI();
+  const filterKey = makeFilterKey(period);
 
   // ?tx=<id> deep link — same idea as "Full history"'s existing
   // /activity?entity=<id> link, just one hop deeper into the detail sheet
@@ -89,6 +108,10 @@ export function TransactionsList({
   // by the fetch effect — leaving it armed to silently swallow the *next*
   // real change instead, such as a search typed right after switching period.)
   const appliedFilter = useRef({ q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, accountId: initialAccount?.id ?? null, batch: initialBatch });
+  // #213: filter combination → the page-0 result we already fetched for it.
+  // Session-scoped and per-mount, so it is naturally bounded by how many
+  // distinct searches one person runs on one screen.
+  const resultCache = useRef(new Map<string, { rows: LedgerRow[]; hasMore: boolean; totals: TxTotals }>());
   const periodKey = `${period.p ?? ""}|${period.from ?? ""}|${period.to ?? ""}`;
 
   async function refetch(filter: { type?: TxType; monthKey?: string | null; categoryId?: string | null; accountId?: string | null; textQuery?: string; batch?: string | null }) {
@@ -103,6 +126,7 @@ export function TransactionsList({
       importBatchId: filter.batch ?? undefined,
     };
     const [result, tot] = await Promise.all([queryTransactionsAction(query, 0), txTotalsAction(query)]);
+    resultCache.current.set(filterKey(filter), { rows: result.rows, hasMore: result.hasMore, totals: tot });
     setRows(result.rows);
     setHasMore(result.hasMore);
     setTotals(tot);
@@ -125,6 +149,9 @@ export function TransactionsList({
     setHasMore(initialHasMore);
     setTotals(initialTotals);
     setPage(0);
+    // #213: fresh server data means anything cached may now be stale — a
+    // deleted or edited transaction must never reappear from the cache.
+    resultCache.current.clear();
     appliedFilter.current = { q: initialQ, tab: initialTab, month: initialMonth, categoryId: initialCategory?.id ?? null, accountId: initialAccount?.id ?? null, batch: initialBatch };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQ, initialTab, initialMonth, initialCategory?.id, initialAccount?.id, initialBatch, periodKey, initialRows]);
@@ -143,10 +170,30 @@ export function TransactionsList({
     ) {
       return; // matches what's already loaded — nothing to refetch
     }
+    const filter = { type: tab ?? undefined, monthKey: month, categoryId, accountId, textQuery: q, batch };
+
+    // #213: a filter combination we have already fetched in this session is
+    // applied immediately — no debounce, no round trip. Measured before this,
+    // retyping an identical query cost the full ~600 ms again (1220 ms
+    // throttled), which is what made backspacing through a search feel heavy.
+    // The cache is dropped whenever the server sends fresh rows (see the
+    // resync effect), so it can never outlive a mutation.
+    const cached = resultCache.current.get(filterKey(filter));
+    if (cached) {
+      if (debounce.current) clearTimeout(debounce.current);
+      appliedFilter.current = { q, tab, month, categoryId, accountId, batch };
+      setRows(cached.rows);
+      setHasMore(cached.hasMore);
+      setTotals(cached.totals);
+      setPage(0);
+      setLoading(false);
+      return;
+    }
+
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       appliedFilter.current = { q, tab, month, categoryId, accountId, batch };
-      refetch({ type: tab ?? undefined, monthKey: month, categoryId, accountId, textQuery: q, batch });
+      refetch(filter);
     }, 300);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
