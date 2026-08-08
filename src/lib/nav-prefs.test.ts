@@ -63,10 +63,13 @@ describe("shownItems", () => {
 describe("bottomNav", () => {
   it("default splits into a 5-tab bar + a More sheet that still reaches everything", () => {
     const { visible, more } = bottomNav(DEFAULT_PREFS);
-    expect(ids(visible)).toEqual(["/dashboard", "/transactions", "/lending", "/shared", "/cards"]);
+    // #207: People took a daily slot — it answers "what does this person owe me,
+    // in total?", which Lending and Shared each answered only half of. Both keep
+    // their own routes and moved to the weekly tier; nothing was removed.
+    expect(ids(visible)).toEqual(["/dashboard", "/transactions", "/people", "/cards", "/bills"]);
     expect(visible).toHaveLength(DEFAULT_MAX_TABS - 1); // last slot is the More button
     // hidden + overflow modules are all reachable under More
-    for (const id of ["/accounts", "/budgets", "/bills", "/settings", "/analytics", "/activity", "/import"]) {
+    for (const id of ["/lending", "/shared", "/accounts", "/budgets", "/settings", "/analytics", "/activity", "/import"]) {
       expect(ids(more)).toContain(id);
     }
   });
@@ -89,9 +92,10 @@ describe("bottomNav", () => {
   });
 
   it("a pinned overflow module is pulled into the visible bar", () => {
-    // Bills is 8th by default → normally in More; pinning it floats it into view.
-    expect(ids(bottomNav(DEFAULT_PREFS).visible)).not.toContain("/bills");
-    expect(ids(bottomNav({ ...DEFAULT_PREFS, pinned: ["/bills"] }).visible)).toContain("/bills");
+    // Budgets sits in the weekly tier → normally in More; pinning floats it in.
+    // (This used to use Bills, which moved into the daily bar in #207.)
+    expect(ids(bottomNav(DEFAULT_PREFS).visible)).not.toContain("/budgets");
+    expect(ids(bottomNav({ ...DEFAULT_PREFS, pinned: ["/budgets"] }).visible)).toContain("/budgets");
   });
 });
 

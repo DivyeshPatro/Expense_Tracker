@@ -36,11 +36,16 @@ export const NAV_ITEMS: NavItem[] = [
   // daily — the five things a person opens the app to do
   { id: "/dashboard", icon: "home", label: "Dashboard", tier: "daily" },
   { id: "/transactions", icon: "txns", label: "Spending", tier: "daily" },
-  { id: "/lending", icon: "lending", label: "Lending", tier: "daily" },
-  { id: "/shared", icon: "shared", label: "Shared", tier: "daily" },
+  // #207: People answers "what does this person owe me, in total?" — the
+  // question Lending and Shared each answered half of. Both still exist below
+  // for their specialist views (loan reports, groups, settlement history);
+  // this is just the first place you look.
+  { id: "/people", icon: "shared", label: "People", tier: "daily" },
   { id: "/cards", icon: "cards", label: "Cards", tier: "daily" },
+  { id: "/bills", icon: "bills", label: "Bills", tier: "daily" },
   // weekly — checked, not lived in
-  { id: "/bills", icon: "bills", label: "Bills", tier: "weekly" },
+  { id: "/lending", icon: "lending", label: "Lending", tier: "weekly" },
+  { id: "/shared", icon: "shared", label: "Shared", tier: "weekly" },
   { id: "/budgets", icon: "budgets", label: "Budgets", tier: "weekly" },
   { id: "/accounts", icon: "accounts", label: "Accounts", tier: "weekly" },
   { id: "/analytics", icon: "analytics", label: "Insights", tier: "weekly" },
