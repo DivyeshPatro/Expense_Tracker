@@ -21,6 +21,7 @@ import { useNavPrefs } from "./use-nav-prefs";
 import { NavGlyph } from "./nav-glyph";
 import { bottomNav, sidebarItems, NAV_ITEMS, TIER_LABEL } from "@/lib/nav-prefs";
 import { BottomSheet } from "./bottom-sheet";
+import { NavProgressProvider, useStartNavProgress } from "./nav-progress";
 
 // #201: the shell used to carry its own parallel catalogue here, with its own
 // labels and its own emoji icon set — which is how four routes ended up with
@@ -67,9 +68,11 @@ export function AppShell({
   return (
     <UIProvider refData={refData}>
       <OfflineProvider userId={userId}>
-        <ShellInner badge={badge} notifBadge={notifBadge}>
-          {children}
-        </ShellInner>
+        <NavProgressProvider>
+          <ShellInner badge={badge} notifBadge={notifBadge}>
+            {children}
+          </ShellInner>
+        </NavProgressProvider>
       </OfflineProvider>
     </UIProvider>
   );
@@ -177,6 +180,7 @@ function AuthExpiredBanner() {
 }
 
 function Sidebar({ badge, userName }: { badge: number; userName: string }) {
+  const startNav = useStartNavProgress();
   const pathname = usePathname();
   const router = useRouter();
   const params = useSearchParams().toString();
@@ -205,7 +209,7 @@ function Sidebar({ badge, userName }: { badge: number; userName: string }) {
             )}
             <Link
               href={withPeriod(n.id, params)}
-              onClick={() => armStuckNavFallback(withPeriod(n.id, params))}
+              onClick={() => { startNav(); armStuckNavFallback(withPeriod(n.id, params)); }}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] no-underline min-h-[40px] ${
                 active ? "bg-acc text-white font-bold" : "text-mut font-medium hover:bg-accsoft"
               }`}
@@ -281,6 +285,7 @@ function ThemeToggle() {
 
 
 function BottomNav({ badge }: { badge: number }) {
+  const startNav = useStartNavProgress();
   const pathname = usePathname();
   const { openModal } = useUI();
   const { prefs } = useNavPrefs();
@@ -331,7 +336,7 @@ function BottomNav({ badge }: { badge: number }) {
               <Link
                 key={n.id}
                 href={withPeriod(n.id, params)}
-                onClick={() => armStuckNavFallback(withPeriod(n.id, params))}
+                onClick={() => { startNav(); armStuckNavFallback(withPeriod(n.id, params)); }}
                 aria-current={active ? "page" : undefined}
                 className="flex-1 min-w-[58px] flex flex-col items-center gap-[3px] pt-2 pb-1.5 min-h-[56px] box-border no-underline"
               >
@@ -388,6 +393,7 @@ function BottomNav({ badge }: { badge: number }) {
 }
 
 function MoreSheet({ items, params, close }: { items: { id: string; icon: string; label: string }[]; params: string; close: () => void }) {
+  const startNav = useStartNavProgress();
   const pathname = usePathname();
   return (
     <BottomSheet onClose={close} label="More sections" className="gap-1">
@@ -400,6 +406,7 @@ function MoreSheet({ items, params, close }: { items: { id: string; icon: string
               key={n.id}
               href={withPeriod(n.id, params)}
               onClick={() => {
+                startNav();
                 armStuckNavFallback(withPeriod(n.id, params));
                 close();
               }}
