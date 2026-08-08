@@ -1,10 +1,10 @@
 "use client";
 
 // The wallet: a compact, scannable list of cards. One row per card, the whole
-// row a tap target into the dedicated detail screen (/cards/[id]). Search,
-// network filters and the archived drawer live here; per-card actions (reveal,
-// edit, delete, default) moved to the detail screen where there's room for them
-// to be unambiguous.
+// row a tap target into the dedicated detail screen (/cards/[id]). Search and
+// the archived drawer live here; per-card actions (reveal, edit, delete,
+// default) moved to the detail screen where there's room for them to be
+// unambiguous.
 //
 // Filtering happens in the browser, not the database — a person has a handful of
 // cards, they're already on the page, and a round trip per keystroke would feel
@@ -17,13 +17,19 @@ import { useRouter } from "next/navigation";
 import { EmptyState } from "@/components/shell/empty-state";
 import { setCreditCardFavoriteAction } from "@/app/actions";
 import { useUI } from "@/components/shell/ui-context";
-import { networkLabel, type CardNetwork } from "@/lib/card-identity";
+import { networkLabel } from "@/lib/card-identity";
 import { cardGradient } from "@/lib/card-visual";
 import { cardMatchesQuery } from "@/lib/card-search";
 import type { CreditCardListItem } from "@/server/services/credit-cards";
 
-/** Below this, the whole set is visible at a glance and filters just add noise. */
-const FILTER_THRESHOLD = 4;
+/** Below this, the whole set is visible at a glance and filters just add noise.
+ *
+ *  #206: this was 4, so a four-card wallet rendered a search box, a sort select
+ *  AND a row of network chips above the cards themselves — roughly 100px of
+ *  administration furniture in front of the thing you came to look at. A wallet
+ *  is something you flick through; you do not search four cards. Raised to the
+ *  point where scanning genuinely stops working. */
+const FILTER_THRESHOLD = 8;
 
 type SortKey = "recommended" | "name" | "bank" | "network";
 
@@ -44,17 +50,12 @@ function sortCards(cards: CreditCardListItem[], key: SortKey): CreditCardListIte
 
 export function CardList({ cards }: { cards: CreditCardListItem[] }) {
   const [query, setQuery] = useState("");
-  const [network, setNetwork] = useState<CardNetwork | "">("");
   const [sort, setSort] = useState<SortKey>("recommended");
   const [showArchived, setShowArchived] = useState(false);
 
-  // Only networks actually present — offering "Diners" to someone who has none
-  // is a filter that can only ever return nothing.
-  const networks = useMemo(() => [...new Set(cards.map((c) => c.network))], [cards]);
-
   const matched = useMemo(
-    () => cards.filter((c) => (network === "" || c.network === network) && cardMatchesQuery(c, query)),
-    [cards, network, query]
+    () => cards.filter((c) => cardMatchesQuery(c, query)),
+    [cards, query]
   );
   const active = useMemo(() => sortCards(matched.filter((c) => !c.isArchived), sort), [matched, sort]);
   const archived = useMemo(() => sortCards(matched.filter((c) => c.isArchived), sort), [matched, sort]);
@@ -82,18 +83,9 @@ export function CardList({ cards }: { cards: CreditCardListItem[] }) {
               ))}
             </select>
           </div>
-          {networks.length > 1 && (
-            <div className="flex gap-1.5 flex-wrap">
-              <FilterChip active={network === ""} onClick={() => setNetwork("")}>
-                All
-              </FilterChip>
-              {networks.map((n) => (
-                <FilterChip key={n} active={network === n} onClick={() => setNetwork(n)}>
-                  {networkLabel(n)}
-                </FilterChip>
-              ))}
-            </div>
-          )}
+          {/* #206: the network chips were a third filter on top of search and
+              sort. Network is already printed on every row and in the search
+              index, so this row bought nothing and cost a line of chrome. */}
         </div>
       )}
 
@@ -212,7 +204,7 @@ function RowFavorite({ card }: { card: CreditCardListItem }) {
       aria-pressed={card.isFavorite}
       aria-label={card.isFavorite ? "Remove from favorites" : "Add to favorites"}
       title={card.isFavorite ? "Remove from favorites" : "Add to favorites"}
-      className="flex-none w-8 h-8 grid place-items-center rounded-full text-[15px] leading-none cursor-pointer border-none bg-transparent hover:bg-accsoft disabled:opacity-60 transition-colors"
+      className="flex-none w-11 h-11 grid place-items-center rounded-full text-[16px] leading-none cursor-pointer border-none bg-transparent hover:bg-accsoft disabled:opacity-60 transition-colors"
       style={{ color: card.isFavorite ? "#f5b301" : "var(--mut2)" }}
     >
       {card.isFavorite ? "★" : "☆"}
@@ -220,19 +212,3 @@ function RowFavorite({ card }: { card: CreditCardListItem }) {
   );
 }
 
-function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      className="px-2.5 py-1.5 rounded-full text-[11.5px] font-bold cursor-pointer whitespace-nowrap"
-      style={{
-        border: `1px solid ${active ? "var(--acc)" : "var(--line2)"}`,
-        background: active ? "var(--acc)" : "transparent",
-        color: active ? "#fff" : "var(--mut)",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
