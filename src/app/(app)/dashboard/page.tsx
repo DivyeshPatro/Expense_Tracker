@@ -24,14 +24,12 @@ import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
 import { MobileDashboard, type MobileDashboardData } from "./mobile-dashboard";
-import { billUrgencyColor } from "@/lib/urgency";
 import { listAccountRows } from "@/server/services/accounts";
 import { activityPage } from "@/server/services/activity";
 import { listBills } from "@/server/services/bills";
 import { listBudgets } from "@/server/services/budgets";
 import { cashTotals, categoryTotals, loadLedgerAgg, loadLedgerAggRange, monthAgg, recentTransactions } from "@/server/services/ledger";
 import { lendingDashboardSummary, lendingReminders } from "@/server/services/lending";
-import { listGroups } from "@/server/services/groups";
 import { sharedSummary } from "@/server/services/shared";
 import { requireUser } from "@/server/session";
 
@@ -59,7 +57,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // listBudgets below instead of that service doing its own narrower 1-month
   // fetch — same in-flight promise, no extra round trip, still fully parallel.
   const rowsPromise = loadLedgerAgg(user.id, 6, now);
-  const [rows, periodRows, period, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared, lending, reminders, groups, activity] =
+  const [rows, periodRows, period, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared, lending, reminders, activity] =
     await Promise.all([
       rowsPromise,
       loadLedgerAggRange(user.id, range.start, range.end),
@@ -76,7 +74,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       sharedSummary(user.id),
       lendingDashboardSummary(user.id),
       lendingReminders(user.id),
-      listGroups(user.id),
       activityPage(user.id, { limit: 6 }),
     ]);
 
@@ -120,9 +117,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   });
   const donutBg = `conic-gradient(${segs.join(", ") || "var(--accSoft) 0 100%"})`;
 
-  const bills7 = bills.filter((b) => b.days <= 10).slice(0, 4);
   const billsOverdueCount = bills.filter((b) => b.urgency === "overdue").length;
-  const billsUpcomingCount = bills.filter((b) => b.days >= 0 && b.days <= 10).length;
   const overBudgets = budgets.filter((b) => b.over);
   const pending = shared.members.filter((m) => Math.abs(m.net) > 100);
   const recent = recentRows.map(txDisplay);
@@ -138,16 +133,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     netPosition: accountsTotal + lending.net,
   };
 
-  // attention strip (desktop: every applicable chip, unchanged)
-  const attention: { icon: string; text: string; href: string; bg: string; color: string }[] = [];
-  for (const b of bills.filter((x) => x.days <= 7)) {
-    attention.push({ icon: "🔴", text: `${b.name} ${formatPaise(b.amount)} · ${b.dueLabel.toLowerCase()}`, href: "/bills", bg: "var(--redSoft)", color: "var(--red)" });
-  }
-  for (const b of overBudgets) {
-    attention.push({ icon: "⚠️", text: `${b.category} budget exceeded · over by ${formatPaise(b.spent - b.limit)}`, href: "/budgets", bg: "var(--amberSoft)", color: "var(--amber)" });
-  }
-  if (shared.owedToYou > 100) attention.push({ icon: "👥", text: `Friends owe you ${formatPaise(shared.owedToYou)}`, href: "/shared", bg: "var(--greenSoft)", color: "var(--green)" });
-  if (shared.youOwe > 100) attention.push({ icon: "💸", text: `You owe ${formatPaise(shared.youOwe)}`, href: "/shared", bg: "var(--accSoft)", color: "var(--acc)" });
+  // #193: the desktop attention-chip array lived here and duplicated every
+  // row already rendered by NotificationCenter. Deleted with its markup.
 
   // mobile home shows a single most-urgent item instead of the full strip
   const urgentBill = bills.find((b) => b.urgency === "overdue" || b.urgency === "urgent");
@@ -215,17 +202,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           {mobileAttention.text}
         </Link>
       )}
-      {/* desktop: every applicable chip, unchanged */}
-      {attention.length > 0 && (
-        <div className="hidden md:flex flex-wrap gap-2">
-          {attention.map((a, i) => (
-            <Link key={i} href={a.href} className="flex items-center gap-[7px] px-3 py-[7px] rounded-full text-xs font-semibold no-underline hover:brightness-97" style={{ background: a.bg, color: a.color }}>
-              <span>{a.icon}</span>
-              {a.text}
-            </Link>
-          ))}
-        </div>
-      )}
+      {/* #193: the desktop chip row used to repeat, verbatim, every obligation
+          already listed in "Needs your attention" below — and "Upcoming bills"
+          and "Settlements" repeated them a third time. One surface now. */}
 
       {/* period stat cards — every card deep-links (Finance Hub requirement) */}
       <div className="flex flex-wrap gap-3.5">
@@ -245,9 +224,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <span>− Expense {formatPaise(period.expense)}</span>
           </div>
         </div>
-        <StatCard label="CARRY FORWARD" value={<span style={carryForward < 0 ? { color: "var(--red)" } : undefined}>{signed(carryForward)}</span>} className="hidden md:block" href={withPeriodQS("/accounts")}>
-          <div className="text-[11.5px] mt-[7px] text-mut2">{mode === "all" ? "opening balances before tracking began" : "balance before this period"}</div>
-        </StatCard>
+        {/* #192: CARRY FORWARD had its own card while also appearing in the
+            hero's own footnote two inches to the left. The footnote stays. */}
         <StatCard label={`INCOME · ${periodLabel}`} value={<span className="text-green">+{formatPaise(period.income)}</span>} className="hidden md:block" href={withPeriodQS("/transactions")}>
           <div className="text-[11.5px] mt-[7px] text-mut2">money in</div>
         </StatCard>
@@ -274,9 +252,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         }}
       />
 
-      {/* cash flow + accounts — already have their own pages (Analytics/Accounts), so mobile home skips them */}
+      {/* #192: accounts stay visible — they are the balance, broken down.
+          Cash flow moved into "More detail": it's a trend, not an answer. */}
       <div className="hidden md:flex flex-wrap gap-3.5">
-        <CashFlowCard series={series} />
         <section className="card p-[var(--pad)] flex-[1_1_260px] flex flex-col gap-[11px]">
           <div className="flex justify-between items-center">
             <h2 className="text-[13.5px] font-bold m-0">Accounts</h2>
@@ -302,19 +280,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </section>
       </div>
 
-      {/* financial world row: health + needs-attention feed + recent activity (Finance Hub) */}
+      {/* #192/#193: the one attention surface, always visible. */}
       <div className="hidden md:flex flex-wrap gap-3.5 items-start">
-        <HealthWidget data={healthData} />
         <NotificationCenter
           reminders={reminders}
           bills={bills.map((b) => ({ id: b.id, name: b.name, amount: b.amount, days: b.days, dueLabel: b.dueLabel, urgency: b.urgency }))}
           settlements={pending.map((m) => ({ participantId: m.id, name: m.name, net: m.net }))}
         />
-        <RecentActivityPanel events={activity.events} />
       </div>
 
-      {/* categories + lending + bills + settlements */}
-      <div className="hidden md:flex flex-wrap gap-3.5">
+      {/* #192: everything below is secondary — each of these has its own page,
+          and the dashboard's job is to answer "how much do I have, and what
+          needs me?" then get out of the way. Collapsed by default; <details>
+          so it works without JS and keeps this a server component. */}
+      <details className="hidden md:block group">
+        <summary className="cursor-pointer list-none text-[12.5px] font-semibold text-mut hover:text-ink select-none py-2 flex items-center gap-1.5">
+          <span className="transition-transform group-open:rotate-90" aria-hidden>›</span>
+          More detail
+          <span className="text-mut2 font-medium">— spending, lending, budgets, health, activity</span>
+        </summary>
+        <div className="flex flex-wrap gap-3.5 pt-2">
+        <CashFlowCard series={series} />
         <section className="card p-[var(--pad)] flex-[1.1_1_280px]">
           <h2 className="text-[13.5px] font-bold m-0">Spending by category</h2>
           <div className="flex items-center gap-[18px] mt-3.5 flex-wrap">
@@ -337,6 +323,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </div>
           </div>
         </section>
+        <HealthWidget data={healthData} />
+        <RecentActivityPanel events={activity.events} />
+        {/* #195: an empty lending card is a card that says nothing */}
+        {(lending.youAreOwed > 0 || lending.youOwe > 0) && (
         <section className="card p-[var(--pad)] flex-[1_1_230px] flex flex-col gap-[11px]">
           <SectionHeader title="Lending" href="/lending" />
           <Link href="/lending" className="no-underline text-ink flex flex-col gap-2">
@@ -359,65 +349,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             )}
           </Link>
         </section>
-        <section className="card p-[var(--pad)] flex-[1_1_250px] flex flex-col gap-[11px]">
-          <div className="flex justify-between items-center">
-            <h2 className="text-[13.5px] font-bold m-0">
-              Upcoming bills
-              {(billsUpcomingCount > 0 || billsOverdueCount > 0) && (
-                <span className="ml-1.5 text-[10.5px] font-semibold text-mut2">
-                  {billsUpcomingCount} upcoming{billsOverdueCount > 0 && <span className="text-red"> · {billsOverdueCount} overdue</span>}
-                </span>
-              )}
-            </h2>
-            <Link href="/bills" className="text-[11.5px] font-semibold no-underline">All →</Link>
-          </div>
-          {bills7.map((b) => (
-            <Link key={b.id} href="/bills" className="flex items-center gap-2.5 no-underline text-ink">
-              <div className="w-[30px] h-[30px] rounded-[9px] grid place-items-center text-[13px]" style={{ background: soft(b.color) }}>{b.icon}</div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] font-semibold truncate">{b.name}</div>
-                <div className="text-[11px] font-semibold" style={{ color: billUrgencyColor(b.urgency) }}>{b.dueLabel}</div>
-              </div>
-              <div className="text-[12.5px] font-bold">{formatPaise(b.amount)}</div>
-            </Link>
-          ))}
-          {bills7.length === 0 && <div className="text-[12px] text-mut2">Nothing due in the next 10 days 🎉</div>}
-        </section>
-        <section className="card p-[var(--pad)] flex-[1_1_250px] flex flex-col gap-[11px]">
-          <div className="flex justify-between items-center">
-            <h2 className="text-[13.5px] font-bold m-0">
-              Settlements
-              {groups.length > 0 && <span className="ml-1.5 text-[10.5px] font-semibold text-mut2">{groups.length} group{groups.length > 1 ? "s" : ""}</span>}
-            </h2>
-            <Link href="/shared" className="text-[11.5px] font-semibold no-underline">Shared →</Link>
-          </div>
-          {pending.map((m) => (
-            <Link key={m.id} href="/shared" className="flex items-center gap-2.5 no-underline text-ink">
-              <div className="w-[30px] h-[30px] rounded-full grid place-items-center text-[11.5px] font-bold text-white" style={{ background: m.color }}>{m.initial}</div>
-              <div className="flex-1">
-                <div className="text-[12.5px] font-semibold">{m.name}</div>
-                <div className="text-[11px] text-mut2">{m.net > 0 ? "owes you" : "you owe"}</div>
-              </div>
-              <div className="text-[12.5px] font-bold" style={{ color: m.net > 0 ? "var(--green)" : "var(--red)" }}>{formatPaise(m.net)}</div>
-            </Link>
-          ))}
-          {pending.length === 0 && <div className="text-[12px] text-mut2">All settled up ✨</div>}
-        </section>
-      </div>
-
-      {/* recent + budgets. min-w-0: without it, a flex item won't shrink
-          below its content's intrinsic width, so a long untruncated
-          transaction meta line can force this section (and the page) wider
-          than the viewport before the row's own `truncate` ever gets a
-          chance to clip it. */}
-      <div className="flex flex-wrap gap-3.5">
-        <section className="card p-[var(--pad)] flex-[1.6_1_340px] min-w-0 flex flex-col gap-3">
-          <SectionHeader title="Recent transactions" href={withPeriodQS("/transactions")} />
-          <RecentTxList rows={recent.map((t) => ({ id: t.id, icon: t.icon, iconBg: t.iconBg, name: t.name, meta: t.meta, amtF: t.amtF, amtColor: t.amtColor }))} />
-        </section>
-        {/* full budget list already has its own page — mobile home relies on
-            the attention item above for anything urgent instead of repeating it */}
-        <section className="hidden md:flex card p-[var(--pad)] flex-[1_1_280px] flex-col gap-[13px]">
+        )}
+        {/* #193: "Upcoming bills" and "Settlements" lived here, repeating the
+            same rows already shown in the attention surface above. Deleted —
+            /bills and /shared own the full lists. */}
+        {/* #195: an all-within-limit budget list is not news */}
+        {budgets.length > 0 && (
+        <section className="card p-[var(--pad)] flex-[1_1_280px] flex flex-col gap-[13px]">
           <SectionHeader title="Budgets" href="/budgets" />
           {budgets.slice(0, 4).map((b) => (
             <div key={b.id}>
@@ -433,6 +371,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </div>
           ))}
         </section>
+        )}
+        </div>
+      </details>
+
+      {/* recent + budgets. min-w-0: without it, a flex item won't shrink
+          below its content's intrinsic width, so a long untruncated
+          transaction meta line can force this section (and the page) wider
+          than the viewport before the row's own `truncate` ever gets a
+          chance to clip it. */}
+      <div className="flex flex-wrap gap-3.5">
+        <section className="card p-[var(--pad)] flex-[1.6_1_340px] min-w-0 flex flex-col gap-3">
+          <SectionHeader title="Recent transactions" href={withPeriodQS("/transactions")} />
+          <RecentTxList rows={recent.map((t) => ({ id: t.id, icon: t.icon, iconBg: t.iconBg, name: t.name, meta: t.meta, amtF: t.amtF, amtColor: t.amtColor }))} />
+        </section>
+        {/* Budgets moved into "More detail" above — it was rendering twice. */}
       </div>
       </div>
     </>
