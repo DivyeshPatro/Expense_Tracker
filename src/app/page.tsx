@@ -49,7 +49,7 @@ const JSON_LD = {
     "Bills and budgets",
     "Analytics",
     "Import center",
-    "Audit log",
+    "Activity log",
     "Offline-ready PWA",
     "Self-hosted",
   ],

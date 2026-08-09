@@ -51,7 +51,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "/analytics", icon: "analytics", label: "Insights", tier: "weekly" },
   // rare — errands and admin
   { id: "/import", icon: "import", label: "Import", tier: "rare" },
-  { id: "/activity", icon: "activity", label: "Audit Log", tier: "rare" },
+  { id: "/activity", icon: "activity", label: "Activity", tier: "rare" },
   { id: "/settings", icon: "settings", label: "Settings", tier: "rare" },
 ];
 

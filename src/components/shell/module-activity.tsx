@@ -32,7 +32,7 @@ export async function ModuleActivity({
   return (
     <section className="card p-[var(--pad)]">
       <div className="flex justify-between items-baseline mb-1.5">
-        <h2 className="text-[13.5px] font-bold m-0">Audit log</h2>
+        <h2 className="text-[13.5px] font-bold m-0">Activity</h2>
         <Link href="/activity" className="text-[11.5px] font-semibold text-acc no-underline">View all →</Link>
       </div>
       {events.length === 0 ? (

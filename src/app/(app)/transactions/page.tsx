@@ -1,4 +1,3 @@
-import { ModuleActivity } from "@/components/shell/module-activity";
 import { prisma } from "@/server/db";
 import { queryTransactions, txTotals } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
@@ -43,7 +42,6 @@ export default async function TransactionsPage({
         period={period}
         initialOpenTransactionId={params.tx || null}
       />
-      <ModuleActivity entities={["Transaction"]} />
     </div>
   );
 }

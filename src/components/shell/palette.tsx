@@ -86,7 +86,7 @@ export function CommandPalette() {
         close();
       },
     },
-    ...([["Dashboard", "/dashboard"], ["Transactions", "/transactions"], ["Accounts", "/accounts"], ["Cards", "/cards"], ["Budgets", "/budgets"], ["Bills", "/bills"], ["Shared", "/shared"], ["Lending", "/lending"], ["Analytics", "/analytics"], ["Audit Log", "/activity"]] as const).map(([l, path]) => ({
+    ...([["Dashboard", "/dashboard"], ["Transactions", "/transactions"], ["Accounts", "/accounts"], ["Cards", "/cards"], ["Budgets", "/budgets"], ["Bills", "/bills"], ["Shared", "/shared"], ["Lending", "/lending"], ["Analytics", "/analytics"], ["Activity", "/activity"]] as const).map(([l, path]) => ({
       icon: "→",
       label: `Go to ${l}`,
       hint: "",

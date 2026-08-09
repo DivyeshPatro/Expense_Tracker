@@ -11,7 +11,7 @@
 // the client router cache after you navigate away.
 
 import { EmptyState } from "@/components/shell/empty-state";
-import { ModuleActivity } from "@/components/shell/module-activity";
+import { ModuleTabs, CARDS_TABS } from "@/components/shell/module-tabs";
 import { AddCardButton } from "./card-actions";
 import { CardList } from "./card-list";
 import { listCreditCards } from "@/server/services/credit-cards";
@@ -26,6 +26,7 @@ export default async function CardsPage() {
   if (cards.length === 0) {
     return (
       <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+        <ModuleTabs tabs={CARDS_TABS} />
         <div className="card px-4 py-1.5">
           <EmptyState
             icon="💳"
@@ -40,6 +41,7 @@ export default async function CardsPage() {
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
+      <ModuleTabs tabs={CARDS_TABS} />
       {/* #189: the wallet is the content — the cards themselves carry the
           visual weight, as in Apple/Google Wallet. It still needs a headline
           though: before this the largest text on the screen was 15px, so
@@ -54,7 +56,6 @@ export default async function CardsPage() {
         <AddCardButton />
       </div>
       <CardList cards={cards} />
-      <ModuleActivity entities={["CreditCard"]} />
     </div>
   );
 }

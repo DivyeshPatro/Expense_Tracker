@@ -58,7 +58,6 @@ export function NavProgressProvider({ children }: { children: React.ReactNode })
   // The destination has rendered — whatever it was, we're done.
   useEffect(() => {
     stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, search]);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
