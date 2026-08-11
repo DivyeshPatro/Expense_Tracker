@@ -6,6 +6,8 @@ import { SettingsSubPage } from "../settings-nav";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Backup & data · Settings" };
+
 export default async function BackupSettingsPage() {
   const user = await requireUser();
   const batches = await listImportBatches(user.id);

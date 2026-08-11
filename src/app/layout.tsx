@@ -21,7 +21,12 @@ const schibsted = Schibsted_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Ledgerly",
+  // A template, so each route supplies only its own name and the product name
+  // is appended once. Every page previously rendered the bare title "Ledgerly":
+  // browser tabs, history entries and bookmarks were mutually indistinguishable,
+  // and a screen reader announced the same title on every navigation — removing
+  // the main cue that the page had changed at all.
+  title: { default: "Ledgerly", template: "%s · Ledgerly" },
   description: "Personal finance & shared expense tracker",
   applicationName: "Ledgerly",
   manifest: "/manifest.webmanifest",

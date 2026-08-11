@@ -19,6 +19,8 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Cards" };
+
 export default async function CardsPage() {
   const user = await requireUser();
   const cards = await listCreditCards(user.id);

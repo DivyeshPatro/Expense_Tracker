@@ -16,6 +16,8 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "People" };
+
 export default async function PeoplePage() {
   const user = await requireUser();
   const { rows, totals } = await peopleSummary(user.id);

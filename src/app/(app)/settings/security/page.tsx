@@ -4,6 +4,8 @@ import { SettingsSubPage } from "../settings-nav";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Security · Settings" };
+
 export default async function SecuritySettingsPage() {
   await requireUser();
   return (

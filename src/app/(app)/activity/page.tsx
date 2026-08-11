@@ -10,6 +10,8 @@ import { ActivityList } from "./activity-list";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Activity" };
+
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const sp = await searchParams;

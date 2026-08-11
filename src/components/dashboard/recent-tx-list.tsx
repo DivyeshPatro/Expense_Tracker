@@ -6,6 +6,7 @@
 // openModal needs the UI context; rows receive already-computed display
 // props from the server page.
 
+import { EmptyState } from "@/components/shell/empty-state";
 import { useUI } from "@/components/shell/ui-context";
 
 export interface RecentTxRow {
@@ -20,6 +21,26 @@ export interface RecentTxRow {
 
 export function RecentTxList({ rows }: { rows: RecentTxRow[] }) {
   const { openModal } = useUI();
+  // With no rows this card used to render its heading and an "All →" link over
+  // nothing at all — 146 characters of markup and no content. A new user's
+  // first impression of the dashboard included one card that just looked
+  // broken. Every other empty surface in the app says something; this one now
+  // does too, and offers the action instead of only naming the absence.
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        compact
+        icon="🧾"
+        title="No transactions yet"
+        detail="Add one and it shows up here, on your budgets, and in Insights."
+        action={
+          <button onClick={() => openModal("exp")} className="btn-primary text-[12.5px] font-bold px-3.5 min-h-[40px]">
+            Add your first expense
+          </button>
+        }
+      />
+    );
+  }
   return (
     <>
       {rows.map((t) => (

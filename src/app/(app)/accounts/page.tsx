@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { OpenModalButton } from "@/components/shell/buttons";
 import { ModuleHero } from "@/components/shell/module-hero";
@@ -5,7 +6,9 @@ import { EmptyState } from "@/components/shell/empty-state";
 import { AccountCardActions, ArchivedAccounts } from "./account-actions";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
-import { parsePeriod } from "@/lib/period";
+import { readPref } from "@/lib/preferences";
+import { periodPref } from "@/lib/prefs-registry";
+import { resolvePeriod } from "@/lib/period";
 import { soft } from "@/lib/tx-display";
 import { listAccounts, listArchivedAccounts, referencedAccountIds } from "@/server/services/accounts";
 import { loadLedgerAggRange } from "@/server/services/ledger";
@@ -13,11 +16,17 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Accounts" };
+
 export default async function AccountsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const now = new Date();
   const sp = await searchParams;
-  const { range, label } = parsePeriod(sp, now);
+  const cookieJar = await cookies();
+  // Remembered period — the URL always wins, so shared links keep the
+  // sender's window rather than resolving against the recipient's habit.
+  const storedPeriod = readPref(periodPref, (k) => cookieJar.get(k)?.value);
+  const { range, label } = resolvePeriod(sp, storedPeriod, now);
 
   const [accounts, rows, archived, referenced] = await Promise.all([
     listAccounts(user.id, range, now),

@@ -12,9 +12,40 @@
 // footer) or the period picker's desktop popover (anchored to its trigger),
 // which are deliberately their own components.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "./use-focus-trap";
+
+/**
+ * The visible viewport, i.e. what's left after the on-screen keyboard.
+ *
+ * `100dvh` is not enough here. The dynamic viewport unit follows browser
+ * chrome (the collapsing address bar), but on Android the keyboard overlays
+ * the page WITHOUT resizing the layout viewport, so a sheet anchored to the
+ * layout bottom keeps roughly its lower half underneath the keyboard. That is
+ * why searching for a category and getting one result put that result out of
+ * reach: the sheet had not moved, the keyboard had covered it.
+ *
+ * visualViewport reports the actually-visible rectangle, so the sheet can be
+ * sized and positioned against that instead. Returns null until measured and
+ * on browsers without the API, where the existing dvh behaviour is kept.
+ */
+function useVisualViewport() {
+  const [vv, setVv] = useState<{ height: number; offsetTop: number } | null>(null);
+  useEffect(() => {
+    const v = window.visualViewport;
+    if (!v) return;
+    const sync = () => setVv({ height: v.height, offsetTop: v.offsetTop });
+    sync();
+    v.addEventListener("resize", sync);
+    v.addEventListener("scroll", sync);
+    return () => {
+      v.removeEventListener("resize", sync);
+      v.removeEventListener("scroll", sync);
+    };
+  }, []);
+  return vv;
+}
 
 export function BottomSheet({
   onClose,
@@ -38,6 +69,7 @@ export function BottomSheet({
   z?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const vv = useVisualViewport();
   useFocusTrap(ref, true);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -55,7 +87,20 @@ export function BottomSheet({
   }, []);
 
   return createPortal(
-    <div onClick={onClose} className="fixed inset-0 flex items-end md:items-center md:justify-center" style={{ background: "var(--ov)", zIndex: z }}>
+    <div
+      onClick={onClose}
+      className="fixed left-0 right-0 flex items-end md:items-center md:justify-center"
+      style={{
+        background: "var(--ov)",
+        zIndex: z,
+        // Pin the overlay to the VISIBLE rectangle when we can measure it, so
+        // `items-end` means "above the keyboard" rather than "under it".
+        // Falls back to inset-0 where visualViewport isn't available.
+        top: vv ? vv.offsetTop : 0,
+        height: vv ? vv.height : undefined,
+        bottom: vv ? undefined : 0,
+      }}
+    >
       <div
         ref={ref}
         tabIndex={-1}
@@ -63,8 +108,15 @@ export function BottomSheet({
         aria-modal="true"
         aria-label={label}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-h-[92dvh] md:max-h-[88vh] overflow-y-auto bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none ${className}`}
-        style={{ animation: "rise .22s ease", paddingBottom: "calc(16px + env(safe-area-inset-bottom))", boxShadow: "var(--shLg)", maxWidth: `min(100%, ${maxWidth}px)` }}
+        className={`w-full ${vv ? "" : "max-h-[92dvh]"} md:max-h-[88vh] overflow-y-auto bg-card rounded-t-[20px] md:rounded-[20px] px-4 pt-3 flex flex-col outline-none ${className}`}
+        style={{
+          animation: "rise .22s ease",
+          paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+          boxShadow: "var(--shLg)",
+          maxWidth: `min(100%, ${maxWidth}px)`,
+          // 92% of what's visible, matching the dvh behaviour it replaces.
+          ...(vv ? { maxHeight: Math.round(vv.height * 0.92) } : {}),
+        }}
       >
         <div className="w-[38px] h-1 rounded-sm bg-line2 mx-auto mb-3 md:hidden" />
         {children}

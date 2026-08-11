@@ -72,6 +72,7 @@ import {
   addIncome,
   addTransfer,
   getTransactionDetail,
+  merchantSuggestions,
   restoreTransaction,
   softDeleteTransaction,
   updateExpense,
@@ -533,6 +534,13 @@ export async function queryTransactionsAction(filter: TxListFilter, page: number
 export async function txTotalsAction(filter: TxListFilter) {
   const user = await requireUser();
   return txTotals(user.id, filter);
+}
+
+/** Recent merchants for the expense form's autocomplete. Fetched when the form
+ *  opens rather than preloaded in the layout, which runs on every navigation. */
+export async function merchantSuggestionsAction() {
+  const user = await requireUser();
+  return merchantSuggestions(user.id);
 }
 
 export async function activityPageAction(input: {

@@ -1,5 +1,7 @@
 import { ImportWizard } from "./import-wizard";
 
+export const metadata = { title: "Import" };
+
 export default function ImportPage() {
   return (
     // #191: this screen had no headline, so its largest element was a source

@@ -4,6 +4,8 @@ import { signupAllowed } from "@/server/auth";
 import { getSession } from "@/server/session";
 import { AuthForm } from "../auth-form";
 
+export const metadata = { title: "Create your account" };
+
 export default async function SignUpPage() {
   if (await getSession()) redirect("/dashboard");
 

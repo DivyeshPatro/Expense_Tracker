@@ -5,6 +5,8 @@ import { SettingsSubPage } from "../settings-nav";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Dashboard · Settings" };
+
 export default async function DashboardSettingsPage() {
   const user = await requireUser();
   const recurringRules = await listRecurringRules(user.id);

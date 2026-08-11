@@ -24,6 +24,7 @@ import { AccountOptions } from "./account-options";
 import { DateField } from "./date-field";
 import { createRuleFor, RepeatBlock, useRepeat } from "./repeat-block";
 import { AdvancedFields, AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
+import { MerchantInput } from "./merchant-input";
 import { CategoryPicker } from "./category-picker";
 import { GroupCategorySelect } from "./group-category-select";
 import { LendingContactSheet } from "./lending-detail";
@@ -179,6 +180,12 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
     () => prefill?.dupCategoryId ?? (refData.expenseCategories.find((c) => c.name === "Food") ?? refData.expenseCategories[0])?.id ?? ""
   );
   const [merchant, setMerchant] = useState(prefill?.dupMerchant ?? "");
+  // Merchant recall may set the account, but only until the user picks one
+  // themselves — after that their choice stands for the rest of the form.
+  // A ref, not state: it must not cause a re-render, and the recall callback
+  // needs the current value rather than a closed-over one.
+  const touchedAccount = useRef(!!prefill?.dupAccountId);
+  const touchedCategory = useRef(!!prefill?.dupCategoryId);
   const [date, setDate] = useState(todayYMD());
   const [notes, setNotes] = useState(prefill?.dupNotes ?? "");
   const [groupId, setGroupId] = useState(prefill?.dupGroupId ?? ""); // "" = personal — collaboration-architecture-rfc §2/§4 (migration step 4)
@@ -229,11 +236,50 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
       <Field label="AMOUNT (₹)">
         <AmountInput value={amount} onChange={setAmount} autoFocus />
       </Field>
+      {/* #197 promoted Amount and Category; MERCHANT now joins them, because it
+          was the field that made the rest unnecessary and nobody could see it.
+          The server already auto-categorises from MerchantRule and upserts that
+          rule whenever a category is picked explicitly — but only when a
+          merchant is supplied, and it was buried in "More details", so the
+          self-improving path almost never ran. Typing "Swiggy" now fills the
+          category and account from last time, which is the whole two-field
+          entry flow: amount, merchant, save. */}
+      <Field label="MERCHANT">
+        <MerchantInput
+          value={merchant}
+          onChange={setMerchant}
+          onRecognized={(s) => {
+            // Only overwrite values the user hasn't chosen themselves. Note
+            // this is "untouched", not "empty": category is pre-seeded to Food
+            // and account to the first account, so an emptiness check would
+            // never fire — which is exactly what happened the first time.
+            // A standing default is a guess and should yield to recall; a
+            // deliberate pick must not.
+            if (s.categoryId && !groupId && !touchedCategory.current) setCategoryId(s.categoryId);
+            if (s.accountId && !touchedAccount.current) setAccountId(s.accountId);
+          }}
+        />
+      </Field>
       <Field label="CATEGORY">
         {groupId ? (
-          <GroupCategorySelect groupId={groupId} value={categoryId} onChange={setCategoryId} />
+          <GroupCategorySelect
+            groupId={groupId}
+            value={categoryId}
+            onChange={(id) => {
+              touchedCategory.current = true;
+              setCategoryId(id);
+            }}
+          />
         ) : (
-          <CategoryPicker categories={refData.expenseCategories} value={categoryId} onChange={setCategoryId} recentKey="ledgerly-recent-cat-expense" />
+          <CategoryPicker
+            categories={refData.expenseCategories}
+            value={categoryId}
+            onChange={(id) => {
+              touchedCategory.current = true;
+              setCategoryId(id);
+            }}
+            recentKey="ledgerly-recent-cat-expense"
+          />
         )}
       </Field>
 
@@ -245,17 +291,20 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
       >
         <div className="flex gap-2.5 flex-wrap">
           <Field label="ACCOUNT">
-            <select className="field" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <select
+              className="field"
+              value={accountId}
+              onChange={(e) => {
+                // Once chosen by hand, merchant recall must stop overriding it.
+                touchedAccount.current = true;
+                setAccountId(e.target.value);
+              }}
+            >
               <AccountOptions accounts={refData.accounts} />
             </select>
           </Field>
           <Field label="DATE">
             <DateField value={date} onChange={setDate} />
-          </Field>
-        </div>
-        <div className="flex gap-2.5 flex-wrap">
-          <Field label="MERCHANT">
-            <input className="field" value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Swiggy" />
           </Field>
         </div>
         <Field label="NOTES">

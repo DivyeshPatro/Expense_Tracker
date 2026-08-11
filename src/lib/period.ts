@@ -74,3 +74,43 @@ export function periodQueryParams(p: Pick<Period, "mode" | "periodKey" | "from" 
   if (p.mode === "month") return `p=${p.periodKey}`;
   return "";
 }
+
+// ── Remembering the last selected period ───────────────────────────────────
+//
+// Stored as the same query string periodQueryParams emits, so the stored form
+// and the URL form are the same language and there is nothing extra to keep in
+// sync. "" means the rolling default.
+//
+// The URL always wins over the stored value. That matters for correctness, not
+// just precedence: a shared or bookmarked link carries an explicit period, and
+// resolving it against the *recipient's* saved preference would silently show
+// them a different window than the sender meant.
+
+/** Turn a stored preference string back into search params parsePeriod understands. */
+export function periodParamsFromPref(raw: string | undefined | null): Record<string, string | undefined> {
+  if (!raw) return {};
+  const params = new URLSearchParams(raw);
+  const p = params.get("p") ?? undefined;
+  const from = params.get("from") ?? undefined;
+  const to = params.get("to") ?? undefined;
+  return { p, from, to };
+}
+
+/** Does this URL already specify a period? If so the stored preference is ignored. */
+export function hasExplicitPeriod(sp: Record<string, string | undefined>): boolean {
+  return Boolean(sp.p || (sp.from && sp.to));
+}
+
+/**
+ * The period for a request: whatever the URL says, else the remembered one,
+ * else the rolling default. A stored value that no longer parses (an old
+ * format, a hand-edited cookie, a month that has since become the future)
+ * falls through parsePeriod's own validation to the default.
+ */
+export function resolvePeriod(
+  sp: Record<string, string | undefined>,
+  storedPref: string | undefined | null,
+  now = new Date()
+): Period {
+  return parsePeriod(hasExplicitPeriod(sp) ? sp : periodParamsFromPref(storedPref), now);
+}

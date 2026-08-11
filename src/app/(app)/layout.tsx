@@ -1,4 +1,7 @@
+import { cookies } from "next/headers";
 import { AppShell } from "@/components/shell/app-shell";
+import { readPref } from "@/lib/preferences";
+import { periodPref } from "@/lib/prefs-registry";
 import type { RefData } from "@/components/shell/ui-context";
 import { listAccountRows } from "@/server/services/accounts";
 import { listCategories } from "@/server/services/categories";
@@ -9,6 +12,11 @@ import { requireUser } from "@/server/session";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  // Read here rather than in the picker: the picker is a client component, so
+  // reading document.cookie there would either mismatch on hydration or flash
+  // the default label before correcting itself.
+  const cookieJar = await cookies();
+  const storedPeriod = readPref(periodPref, (k) => cookieJar.get(k)?.value);
 
   // Kept intentionally cheap — this runs on every navigation (App Router
   // re-invokes layouts per request). Merchant suggestions for the palette are
@@ -64,7 +72,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const badge = nets.filter((n) => Math.abs(n.net) > 100).length;
 
   return (
-    <AppShell refData={refData} badge={badge} notifBadge={notifBadge} userId={user.id}>
+    <AppShell refData={refData} badge={badge} notifBadge={notifBadge} userId={user.id} storedPeriod={storedPeriod}>
       {children}
     </AppShell>
   );

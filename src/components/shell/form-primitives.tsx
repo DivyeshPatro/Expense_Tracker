@@ -5,8 +5,10 @@
 // reuse never grows into coupling.
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useRef, useState, useId } from "react";
 import type { ActionResult } from "@/app/actions";
+import { evaluateAmount, looksLikeExpression } from "@/lib/expression";
+import { formatPaise } from "@/lib/money";
 import { useUI } from "./ui-context";
 
 export function useSubmit() {
@@ -113,20 +115,61 @@ export function AmountInput({
    * label alone doesn't say which row it belongs to. */
   ariaLabel?: string;
 }) {
+  const hintId = useId();
+  const trimmed = value.trim();
+  const isExpr = looksLikeExpression(trimmed);
+  // Only evaluated for the preview; the stored value is normalised on blur.
+  const result = isExpr ? evaluateAmount(trimmed) : null;
+
+  // Resolve the expression to its result when the field loses focus, so every
+  // existing caller keeps receiving a plain numeric string and nothing
+  // downstream (toPaise, validation, the offline outbox) has to learn about
+  // arithmetic. Tapping a button blurs the field first, so Save sees the
+  // resolved number.
+  const settle = () => {
+    if (result?.ok) onChange(String(result.paise / 100));
+  };
+
   return (
-    <input
-      type="number"
-      inputMode="decimal"
-      min="0"
-      step="0.01"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder="0"
-      autoFocus={autoFocus}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      className="field !py-3 !text-[19px] !font-bold disabled:opacity-60 disabled:cursor-not-allowed"
-    />
+    <>
+      <input
+        // Deliberately text, not number: a number input silently refuses "+",
+        // "(" and "%" so the expression could never be typed. It also drops
+        // the spinner arrows (meaningless for currency) and the scroll-wheel
+        // capture that could change an amount while scrolling past it.
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={settle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") settle();
+        }}
+        placeholder="0"
+        autoFocus={autoFocus}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-invalid={result && !result.ok ? true : undefined}
+        aria-describedby={isExpr ? hintId : undefined}
+        className="field !py-3 !text-[19px] !font-bold disabled:opacity-60 disabled:cursor-not-allowed"
+      />
+      {/* The preview is what makes arithmetic safe to allow at all: the
+          resolved figure is visible before saving, so a convention like
+          "2500+18% = 2950" is never something the user has to guess.
+          role="status" is polite — it must not interrupt typing. */}
+      {isExpr && result && (
+        <div
+          id={hintId}
+          role="status"
+          aria-live="polite"
+          className="text-[12px] font-semibold mt-1 tabular-nums"
+          style={{ color: result.ok ? "var(--green)" : "var(--red)" }}
+        >
+          {result.ok ? `= ${formatPaise(result.paise)}` : result.error}
+        </div>
+      )}
+    </>
   );
 }
 

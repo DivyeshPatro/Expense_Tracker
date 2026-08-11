@@ -25,6 +25,8 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Lending" };
+
 export default async function LendingPage() {
   const user = await requireUser();
   const [summary, recent, reminders, reports, importedContacts] = await Promise.all([

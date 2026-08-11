@@ -15,6 +15,8 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Shared" };
+
 export default async function SharedPage() {
   const user = await requireUser();
   const [summary, history, groups, rows] = await Promise.all([

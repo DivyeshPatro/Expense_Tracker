@@ -19,7 +19,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { currentMonthKey, MONTH_NAMES, shiftMonthKey, todayYMD } from "@/lib/dates";
-import { parsePeriod } from "@/lib/period";
+import { parsePeriod, resolvePeriod } from "@/lib/period";
+import { writePref } from "@/lib/preferences";
+import { periodPref } from "@/lib/prefs-registry";
 import { armStuckNavFallback } from "@/lib/resilient-nav";
 import { BottomSheet } from "./bottom-sheet";
 import { DateField } from "./date-field";
@@ -27,7 +29,7 @@ import { useFocusTrap } from "./use-focus-trap";
 
 const PERIOD_AWARE_ROUTES = ["/dashboard", "/transactions", "/accounts", "/analytics", "/shared/groups"];
 
-export function HeaderPeriodPicker() {
+export function HeaderPeriodPicker({ storedPeriod }: { storedPeriod: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -42,9 +44,19 @@ export function HeaderPeriodPicker() {
     from: searchParams.get("from") ?? undefined,
     to: searchParams.get("to") ?? undefined,
   };
-  const period = parsePeriod(sp, now);
+  // Resolve exactly as the server pages do, so the trigger label can never
+  // disagree with what the page below it is showing — which is what happens
+  // when you reach a period-aware page from the sidebar (bare URL) while a
+  // period is remembered.
+  const period = resolvePeriod(sp, storedPeriod, now);
 
   const go = (qs: string) => {
+    // Remember the choice before navigating, so arriving at any period-aware
+    // page with a bare URL later restores this window instead of snapping back
+    // to the rolling default. `qs` is exactly what periodQueryParams emits, so
+    // the stored form and the URL form stay one language.
+    writePref(periodPref, qs);
+
     const params = new URLSearchParams(searchParams.toString());
     params.delete("p");
     params.delete("from");

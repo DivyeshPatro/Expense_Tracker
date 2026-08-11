@@ -58,18 +58,21 @@ export function AppShell({
   notifBadge,
   userId,
   children,
+  storedPeriod,
 }: {
   refData: RefData;
   badge: number;
   notifBadge: number;
   userId: string;
+  /** Remembered period, resolved server-side so the trigger label matches the page. */
+  storedPeriod: string;
   children: React.ReactNode;
 }) {
   return (
     <UIProvider refData={refData}>
       <OfflineProvider userId={userId}>
         <NavProgressProvider>
-          <ShellInner badge={badge} notifBadge={notifBadge}>
+          <ShellInner badge={badge} notifBadge={notifBadge} storedPeriod={storedPeriod}>
             {children}
           </ShellInner>
         </NavProgressProvider>
@@ -78,7 +81,18 @@ export function AppShell({
   );
 }
 
-function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge: number; children: React.ReactNode }) {
+function ShellInner({
+  badge,
+  notifBadge,
+  storedPeriod,
+  children,
+}: {
+  badge: number;
+  notifBadge: number;
+  /** Remembered period, resolved server-side so the picker's label matches the page. */
+  storedPeriod: string;
+  children: React.ReactNode;
+}) {
   const { openModal, setPaletteOpen, closeModal, refData } = useUI();
   const pathname = usePathname();
   // #201: one catalogue, so the header title and the tab label are the same string
@@ -139,7 +153,7 @@ function ShellInner({ badge, notifBadge, children }: { badge: number; notifBadge
             ＋ Add expense
           </button>
         </div>
-        <HeaderPeriodPicker />
+        <HeaderPeriodPicker storedPeriod={storedPeriod} />
         </header>
         <AuthExpiredBanner />
         {/* content */}

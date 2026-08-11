@@ -11,6 +11,8 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Bills" };
+
 export default async function BillsPage() {
   const user = await requireUser();
   const [bills, paidBills] = await Promise.all([listBills(user.id), listPaidBills(user.id)]);

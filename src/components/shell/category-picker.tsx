@@ -6,7 +6,7 @@
 // stored per-device), and the full category grid. Recent doubles as
 // "frequently used" without any server query — the app layout is kept cheap.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BottomSheet } from "./bottom-sheet";
 
 export type PickerCategory = { id: string; name: string; icon: string };
@@ -48,11 +48,17 @@ export function CategoryPicker({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [recentIds, setRecentIds] = useState<string[]>([]);
+  // Which result Enter will choose. Reset to the top on every keystroke, so
+  // narrowing the list never leaves the highlight pointing at something the
+  // user can no longer see.
+  const [active, setActive] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
       setRecentIds(readRecent(recentKey));
       setQ("");
+      setActive(0);
     }
   }, [open, recentKey]);
 
@@ -68,23 +74,59 @@ export function CategoryPicker({
     setOpen(false);
   }
 
-  const catBtn = (c: PickerCategory, chip = false) => (
-    <button
-      key={c.id}
-      type="button"
-      onClick={() => pick(c.id)}
-      aria-pressed={c.id === value}
-      className={
-        chip
-          ? "inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full text-[12px] font-semibold cursor-pointer border border-line2 bg-card hover:bg-accsoft"
-          : "flex items-center gap-2 px-3 min-h-[44px] rounded-[11px] text-[13px] font-semibold text-left cursor-pointer border border-line2 hover:bg-accsoft"
-      }
-      style={c.id === value ? { background: "var(--accSoft)", borderColor: "var(--acc)", color: "var(--acc)" } : undefined}
-    >
-      <span className="text-[15px]">{c.icon}</span>
-      <span className="truncate">{c.name}</span>
-    </button>
-  );
+  // Keep the highlighted result in view. On a phone the grid scrolls inside the
+  // sheet, so without this the "active" row can sit below the fold even once
+  // the sheet itself clears the keyboard.
+  useEffect(() => {
+    if (!query) return;
+    listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [active, query]);
+
+  function onSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (filtered.length === 0) return;
+      setActive((i) => (e.key === "ArrowDown" ? (i + 1) % filtered.length : (i - 1 + filtered.length) % filtered.length));
+      return;
+    }
+    if (e.key === "Enter") {
+      // The heart of the mobile fix: with the keyboard up and one match left,
+      // the phone's Go/Done key selects it outright — no reaching past the
+      // keyboard, no dismissing it first.
+      e.preventDefault();
+      const choice = filtered[active] ?? filtered[0];
+      if (choice) pick(choice.id);
+    }
+  }
+
+  const catBtn = (c: PickerCategory, chip = false, idx?: number) => {
+    const isActive = query !== "" && idx === active;
+    return (
+      <button
+        key={c.id}
+        type="button"
+        onClick={() => pick(c.id)}
+        onMouseEnter={idx === undefined ? undefined : () => setActive(idx)}
+        aria-pressed={c.id === value}
+        data-active={isActive || undefined}
+        className={
+          chip
+            ? "inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full text-[12px] font-semibold cursor-pointer border border-line2 bg-card hover:bg-accsoft"
+            : "flex items-center gap-2 px-3 min-h-[44px] rounded-[11px] text-[13px] font-semibold text-left cursor-pointer border border-line2 hover:bg-accsoft"
+        }
+        style={
+          c.id === value
+            ? { background: "var(--accSoft)", borderColor: "var(--acc)", color: "var(--acc)" }
+            : isActive
+              ? { borderColor: "var(--acc)", background: "var(--accSoft)" }
+              : undefined
+        }
+      >
+        <span className="text-[15px]">{c.icon}</span>
+        <span className="truncate">{c.name}</span>
+      </button>
+    );
+  };
 
   return (
     <>
@@ -95,25 +137,53 @@ export function CategoryPicker({
 
       {open && (
         <BottomSheet onClose={() => setOpen(false)} label={label} maxWidth={480} className="gap-2" z={65}>
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search categories…"
-            aria-label="Search categories"
-            className="field"
-          />
+          {/* Sticky so the search box stays put while results scroll beneath
+              it — on a phone the field is the one thing that must never leave
+              the screen while typing. */}
+          <div className="sticky top-0 z-10 bg-card pb-2 -mx-4 px-4">
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setActive(0);
+              }}
+              onKeyDown={onSearchKeyDown}
+              placeholder="Search categories…"
+              aria-label="Search categories"
+              // "go" gives the phone keyboard a Go key instead of a newline,
+              // which is what makes one-handed "type, Go, done" work.
+              enterKeyHint="go"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              className="field"
+            />
+            {/* Announced, not just shown: a screen-reader user typing needs to
+                know the list narrowed and what Enter will choose. */}
+            <div role="status" aria-live="polite" className="sr-only">
+              {query
+                ? filtered.length === 0
+                  ? `No categories match ${q}`
+                  : `${filtered.length} ${filtered.length === 1 ? "category" : "categories"}, ${(filtered[active] ?? filtered[0]).name} selected`
+                : ""}
+            </div>
+          </div>
           {!query && recent.length > 0 && (
             <>
               <div className="label-caps mt-1">Recent</div>
               <div className="flex flex-wrap gap-1.5">{recent.map((c) => catBtn(c, true))}</div>
             </>
           )}
-          <div className="label-caps mt-1">{query ? "Results" : "All categories"}</div>
+          <div className="label-caps mt-1">
+            {query ? (filtered.length === 1 ? "1 result — press Enter to choose" : "Results") : "All categories"}
+          </div>
           {filtered.length === 0 ? (
             <div className="text-[12.5px] text-mut2 py-3 text-center">No categories match “{q}”.</div>
           ) : (
-            <div className="grid grid-cols-2 gap-1.5">{filtered.map((c) => catBtn(c))}</div>
+            <div ref={listRef} className="grid grid-cols-2 gap-1.5">
+              {filtered.map((c, i) => catBtn(c, false, i))}
+            </div>
           )}
         </BottomSheet>
       )}

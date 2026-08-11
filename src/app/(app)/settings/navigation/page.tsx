@@ -4,6 +4,8 @@ import { NavEditor } from "./nav-editor";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Navigation · Settings" };
+
 export default async function NavigationSettingsPage() {
   await requireUser();
   return (

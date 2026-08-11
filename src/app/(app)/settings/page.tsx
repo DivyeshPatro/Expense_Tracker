@@ -7,6 +7,8 @@ import { SyncCard } from "./sync-card";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Settings" };
+
 export default async function SettingsPage() {
   const user = await requireUser();
 

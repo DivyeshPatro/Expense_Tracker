@@ -700,3 +700,47 @@ export async function restoreTransaction(actingUserId: string, id: string) {
     await audit(db, t.userId, "restore", "Transaction", id, undefined, t, actingUserId);
   });
 }
+
+export interface MerchantSuggestion {
+  merchant: string;
+  /** The category this merchant maps to, if a rule exists. */
+  categoryId: string | null;
+  /** The account it was last paid from, so the default can follow the habit. */
+  accountId: string | null;
+}
+
+/**
+ * Recent merchants, for autocomplete in the expense form.
+ *
+ * Deliberately bounded to the most recent slice of the ledger rather than
+ * ranking every row: the app layout comment is right that a full merchant
+ * ranking scans the whole table and gets slower with every imported year, and
+ * "what did I type lately" is what autocomplete actually needs. Fetched on
+ * demand when the form opens, never in the layout.
+ */
+export async function merchantSuggestions(userId: string, limit = 40): Promise<MerchantSuggestion[]> {
+  const [rows, rules] = await Promise.all([
+    prisma.transaction.findMany({
+      where: { userId, deletedAt: null, type: "EXPENSE", merchant: { not: "" } },
+      select: { merchant: true, categoryId: true, accountId: true },
+      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      take: 300,
+    }),
+    prisma.merchantRule.findMany({ where: { userId }, select: { merchant: true, categoryId: true } }),
+  ]);
+
+  const ruleFor = new Map(rules.map((r) => [r.merchant, r.categoryId]));
+  const seen = new Map<string, MerchantSuggestion>();
+  for (const r of rows) {
+    const key = r.merchant.toLowerCase().trim();
+    if (!key || seen.has(key)) continue; // rows are newest-first, so first wins
+    seen.set(key, {
+      merchant: r.merchant,
+      // A rule the user has confirmed beats whatever the last row happened to use.
+      categoryId: ruleFor.get(key) ?? r.categoryId,
+      accountId: r.accountId,
+    });
+    if (seen.size >= limit) break;
+  }
+  return [...seen.values()];
+}

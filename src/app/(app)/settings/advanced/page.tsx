@@ -4,6 +4,8 @@ import { SettingsSubPage } from "../settings-nav";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Advanced · Settings" };
+
 export default async function AdvancedSettingsPage() {
   await requireUser();
   return (
