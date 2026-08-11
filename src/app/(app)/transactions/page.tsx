@@ -1,11 +1,15 @@
 import { cookies } from "next/headers";
-import { BASIS_COOKIE, parseBasisPref } from "@/lib/expense-basis";
+import { periodQueryParams, resolvePeriod } from "@/lib/period";
+import { readPref } from "@/lib/preferences";
+import { basisPref as basisPrefDef, periodPref } from "@/lib/prefs-registry";
 import { prisma } from "@/server/db";
 import { queryTransactions, txTotals } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
 import { TransactionsList } from "./tx-list";
 
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Spending" };
 
 export default async function TransactionsPage({
   searchParams,
@@ -14,14 +18,21 @@ export default async function TransactionsPage({
 }) {
   const user = await requireUser();
   const params = await searchParams;
-  // Read server-side so the correct figure is the large one on first paint —
-  // same reason the theme lives in a cookie rather than localStorage.
-  const basisPref = parseBasisPref((await cookies()).get(BASIS_COOKIE)?.value);
+  const cookieJar = await cookies();
+  const readCookie = (k: string) => cookieJar.get(k)?.value;
+  // Server-read so the correct figure is large, and the remembered window is
+  // applied, on first paint — the reason both live in cookies.
+  const basisPref = readPref(basisPrefDef, readCookie);
   const type = (params.tab as "EXPENSE" | "INCOME" | "TRANSFER" | undefined) || undefined;
   const categoryId = params.category || null;
   const accountId = params.account || null;
   const batchId = params.batch || null;
-  const period = { p: params.p, from: params.from, to: params.to };
+  // Resolve the remembered period into the concrete params the rest of this
+  // page (and the client list's refetches) pass around, so a stored "All time"
+  // survives navigating here with a bare URL. The URL still wins when set.
+  const resolved = resolvePeriod({ p: params.p, from: params.from, to: params.to }, readPref(periodPref, readCookie));
+  const qs = new URLSearchParams(periodQueryParams(resolved));
+  const period = { p: qs.get("p") ?? undefined, from: qs.get("from") ?? undefined, to: qs.get("to") ?? undefined };
   const filter = { type, monthKey: params.month, categoryId, accountId, period, textQuery: params.q, importBatchId: batchId };
   const [initialPage, initialTotals, category, account] = await Promise.all([
     queryTransactions(user.id, filter, 0),

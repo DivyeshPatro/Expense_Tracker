@@ -12,9 +12,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BASIS_COOKIE, BASIS_PREF, type ExpenseBasisPref } from "@/lib/expense-basis";
-
-const YEAR = 60 * 60 * 24 * 365;
+import { BASIS_PREF, type ExpenseBasisPref } from "@/lib/expense-basis";
+import { writePref } from "@/lib/preferences";
+import { basisPref as basisPrefDef } from "@/lib/prefs-registry";
 
 export function BasisPreference({ initial }: { initial: ExpenseBasisPref }) {
   const [pref, setPref] = useState<ExpenseBasisPref>(initial);
@@ -22,7 +22,7 @@ export function BasisPreference({ initial }: { initial: ExpenseBasisPref }) {
 
   function choose(next: ExpenseBasisPref) {
     setPref(next);
-    document.cookie = `${BASIS_COOKIE}=${next};path=/;max-age=${YEAR};samesite=lax`;
+    writePref(basisPrefDef, next);
     // The figures are server-rendered, so the open page needs re-rendering to
     // pick the new headline up.
     router.refresh();

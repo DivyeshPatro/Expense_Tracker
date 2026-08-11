@@ -8,9 +8,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { BASIS_COOKIE, BASIS_PREF, type ExpenseBasisPref } from "@/lib/expense-basis";
-
-const YEAR = 60 * 60 * 24 * 365;
+import { BASIS_PREF, type ExpenseBasisPref } from "@/lib/expense-basis";
+import { writePref } from "@/lib/preferences";
+import { basisPref as basisPrefDef } from "@/lib/prefs-registry";
 const OPTIONS: ExpenseBasisPref[] = ["cash", "personal"];
 
 export function BasisToggle({ value }: { value: ExpenseBasisPref }) {
@@ -23,7 +23,7 @@ export function BasisToggle({ value }: { value: ExpenseBasisPref }) {
   function choose(next: ExpenseBasisPref) {
     if (next === pref) return;
     setPref(next);
-    document.cookie = `${BASIS_COOKIE}=${next};path=/;max-age=${YEAR};samesite=lax`;
+    writePref(basisPrefDef, next);
     startTransition(() => router.refresh());
   }
 

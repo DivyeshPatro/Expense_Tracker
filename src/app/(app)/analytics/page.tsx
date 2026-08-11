@@ -1,10 +1,13 @@
+import { cookies } from "next/headers";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleTabs, SPENDING_TABS } from "@/components/shell/module-tabs";
 import { StatCard } from "@/components/shell/stat-card";
 import { currentMonthKey, daysBetweenYMD, monthName, shiftMonthKey, todayYMD } from "@/lib/dates";
 import { EXPENSE_BASIS } from "@/lib/expense-basis";
 import { formatPaise } from "@/lib/money";
-import { parsePeriod, periodQueryParams } from "@/lib/period";
+import { readPref } from "@/lib/preferences";
+import { periodPref } from "@/lib/prefs-registry";
+import { resolvePeriod, periodQueryParams } from "@/lib/period";
 import { listAccounts } from "@/server/services/accounts";
 import { categoryTotals, loadLedgerAgg, loadLedgerAggRange, merchantTotals, monthAgg } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
@@ -20,13 +23,19 @@ const BAR_MONTHS = 12;
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Insights" };
+
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const now = new Date();
   const key = currentMonthKey(now);
   const today = todayYMD(now);
   const sp = await searchParams;
-  const period = parsePeriod(sp, now);
+  const cookieJar = await cookies();
+  // Remembered period — the URL always wins, so shared links keep the
+  // sender's window rather than resolving against the recipient's habit.
+  const storedPeriod = readPref(periodPref, (k) => cookieJar.get(k)?.value);
+  const period = resolvePeriod(sp, storedPeriod, now);
   const periodQS = periodQueryParams(period);
 
   const [rows, periodRows, accounts] = await Promise.all([

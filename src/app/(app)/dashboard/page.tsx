@@ -12,6 +12,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { BasisToggle } from "@/components/dashboard/basis-toggle";
 import { CashFlowCard, type CashFlowSeries } from "@/components/dashboard/cashflow";
+import { FirstRunCard } from "@/components/dashboard/first-run";
 import { HealthWidget } from "@/components/dashboard/health-widget";
 import { LiveBalance } from "@/components/dashboard/live-balance";
 import { MobileHubStrip } from "@/components/dashboard/mobile-hub-strip";
@@ -22,9 +23,12 @@ import { OpenModalButton } from "@/components/shell/buttons";
 import { SectionHeader } from "@/components/shell/section-header";
 import { StatCard } from "@/components/shell/stat-card";
 import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonthKey, todayYMD, MONTH_NAMES } from "@/lib/dates";
-import { BASIS_COOKIE, BASIS_FIGURE_LABEL, EXPENSE_BASIS, frontedForOthers, parseBasisPref } from "@/lib/expense-basis";
+import { BASIS_FIGURE_LABEL, EXPENSE_BASIS, frontedForOthers } from "@/lib/expense-basis";
 import { formatPaise } from "@/lib/money";
-import { parsePeriod, periodQueryParams } from "@/lib/period";
+import { plural } from "@/lib/plural";
+import { readPref } from "@/lib/preferences";
+import { basisPref as basisPrefDef, periodPref } from "@/lib/prefs-registry";
+import { resolvePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
 import { MobileDashboard, type MobileDashboardData } from "./mobile-dashboard";
 import { listAccountRows } from "@/server/services/accounts";
@@ -38,6 +42,8 @@ import { requireUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Dashboard" };
+
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const now = new Date();
@@ -46,9 +52,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // ── selected period (?p=YYYY-MM | ?p=all | ?from&to; default: this month) —
   // shared across Dashboard/Transactions/Accounts/Analytics via the header picker ──
   const sp = await searchParams;
-  // Server-read so the right figure is large on first paint (theme does the same).
-  const basisPref = parseBasisPref((await cookies()).get(BASIS_COOKIE)?.value);
-  const selectedPeriod = parsePeriod(sp, now);
+  const cookieJar = await cookies();
+  const readCookie = (k: string) => cookieJar.get(k)?.value;
+  // Both server-read so the right figure is large, and the right window is
+  // selected, on FIRST paint — the whole reason these live in cookies rather
+  // than localStorage.
+  const basisPref = readPref(basisPrefDef, readCookie);
+  // The URL always wins over the remembered period, so a shared link keeps the
+  // sender's window instead of resolving against the recipient's habit.
+  const storedPeriod = readPref(periodPref, readCookie);
+  const selectedPeriod = resolvePeriod(sp, storedPeriod, now);
   const { mode, periodKey, range, label: periodLabel } = selectedPeriod;
   const donutLabel =
     mode === "month" ? monthName(periodKey).toUpperCase() : mode === "all" ? "TO DATE" : mode === "recent" ? "30 DAYS" : "RANGE";
@@ -143,6 +156,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const pending = shared.members.filter((m) => Math.abs(m.net) > 100);
   const recent = recentRows.map(txDisplay);
 
+  // First-run guidance, derived rather than flagged — see first-run.tsx.
+  // recentTransactions is unfiltered by period, so "no rows" really does mean
+  // an empty ledger and not just an empty window.
+  const firstRun = {
+    // The signup hook auto-creates one "Cash Wallet" at ₹0, so a second
+    // account or any opening balance is what actually signals intent.
+    accountsReady: accounts.length > 1 || accounts.some((a) => a.balance !== 0),
+    hasTransactions: recentRows.length > 0,
+  };
+  const showFirstRun = !firstRun.hasTransactions;
+
   // Financial Health widget data — composed entirely from what's already fetched
   const nearestBill = bills[0];
   const healthData = {
@@ -232,6 +256,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           already listed in "Needs your attention" below — and "Upcoming bills"
           and "Settlements" repeated them a third time. One surface now. */}
 
+      {/* Above the stat cards on purpose: with an empty ledger those cards are
+          a wall of ₹0, and the one thing worth reading first is what to do. */}
+      {showFirstRun && <FirstRunCard state={firstRun} />}
+
       {/* period stat cards — every card deep-links (Finance Hub requirement) */}
       <div className="flex flex-wrap gap-3.5">
         <div className="flex-[1.5_1_250px] rounded-[14px] p-[var(--pad)] text-white" style={{ background: "linear-gradient(135deg,var(--dark1),var(--dark2))", boxShadow: "0 8px 24px rgba(28,39,64,.25)" }}>
@@ -239,7 +267,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <LiveBalance basePaise={balanceAtEnd} live={isLiveWindow} />
           <div className="text-[11.5px] mt-[7px] opacity-75">
             {isLiveWindow && mode !== "all"
-              ? `${signed(accountsTotal)} across ${accounts.length} accounts${balanceNow !== accountsTotal ? ` · ${signed(balanceNow - accountsTotal)} net from unassigned history` : ""}`
+              ? `${signed(accountsTotal)} across ${plural(accounts.length, "account")}${balanceNow !== accountsTotal ? ` · ${signed(balanceNow - accountsTotal)} net from unassigned history` : ""}`
               : mode === "all"
                 ? "everything from your first transaction to today"
                 : "balance at the end of this period"}

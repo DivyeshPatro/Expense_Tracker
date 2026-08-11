@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
-import { BASIS_COOKIE, parseBasisPref } from "@/lib/expense-basis";
+import { readPref } from "@/lib/preferences";
+import { basisPref as basisPrefDef } from "@/lib/prefs-registry";
 import { listCategories } from "@/server/services/categories";
 import { requireUser } from "@/server/session";
 import { BasisPreference } from "../basis-preference";
@@ -9,9 +10,12 @@ import { SettingsSubPage } from "../settings-nav";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "General · Settings" };
+
 export default async function GeneralSettingsPage() {
   const user = await requireUser();
-  const basisPref = parseBasisPref((await cookies()).get(BASIS_COOKIE)?.value);
+  const cookieJar = await cookies();
+  const basisPref = readPref(basisPrefDef, (k) => cookieJar.get(k)?.value);
   const categories = await listCategories(user.id);
   const categoryRows: CategoryRow[] = categories
     .filter((c) => c.kind !== "TRANSFER")
