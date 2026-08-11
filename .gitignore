@@ -7,3 +7,30 @@ next-env.d.ts
 .DS_Store
 e2e-output/
 .claude/
+# Claude Code session-recovery runtime state
+HANDOFF.md
+.claude/settings.local.json
+.claude/rate-limit-state.json
+.claude/stop-failure-events.jsonl
+.claude/quota-blocked.json
+
+# ── Personal financial data — MUST NEVER BE COMMITTED ──────────────────────
+# This is a public repository. Real ledger exports were sitting untracked in
+# the repo root (Monito_All_Time_Backup_*.xls/.csv, ~1 MB of real salary,
+# merchants and contact names going back to Feb 2023). A `git add -A` would
+# have published them permanently — deleting a file later does not remove it
+# from history. Import fixtures for tests belong in e2e/fixtures/, not here.
+Monito_*.xls
+Monito_*.xlsx
+Monito_*.csv
+*_All_Time_Backup*.xls
+*_All_Time_Backup*.xlsx
+*_All_Time_Backup*.csv
+# Ledgerly's own exports, which contain the same thing
+ledgerly-backup*.json
+ledgerly-export*.csv
+
+# Local scratch / one-off scripts that shouldn't ship
+_vfab*.mjs
+session-recover.yaml
+setup_github_project*.ps1

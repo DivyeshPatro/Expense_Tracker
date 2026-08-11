@@ -8,7 +8,9 @@
 // horizontally-scrollable hub strip so every module stays reachable from
 // home (user-confirmed treatment).
 
+import { cookies } from "next/headers";
 import Link from "next/link";
+import { BasisToggle } from "@/components/dashboard/basis-toggle";
 import { CashFlowCard, type CashFlowSeries } from "@/components/dashboard/cashflow";
 import { HealthWidget } from "@/components/dashboard/health-widget";
 import { LiveBalance } from "@/components/dashboard/live-balance";
@@ -20,6 +22,7 @@ import { OpenModalButton } from "@/components/shell/buttons";
 import { SectionHeader } from "@/components/shell/section-header";
 import { StatCard } from "@/components/shell/stat-card";
 import { addDaysYMD, currentMonthKey, fullToday, greeting, monthName, shiftMonthKey, todayYMD, MONTH_NAMES } from "@/lib/dates";
+import { BASIS_COOKIE, BASIS_FIGURE_LABEL, EXPENSE_BASIS, frontedForOthers, parseBasisPref } from "@/lib/expense-basis";
 import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { soft, txDisplay } from "@/lib/tx-display";
@@ -28,7 +31,7 @@ import { listAccountRows } from "@/server/services/accounts";
 import { activityPage } from "@/server/services/activity";
 import { listBills } from "@/server/services/bills";
 import { listBudgets } from "@/server/services/budgets";
-import { cashTotals, categoryTotals, loadLedgerAgg, loadLedgerAggRange, monthAgg, recentTransactions } from "@/server/services/ledger";
+import { cashTotals, categoryTotals, loadLedgerAgg, loadLedgerAggRange, monthAgg, personalShareExpense, recentTransactions } from "@/server/services/ledger";
 import { lendingDashboardSummary, lendingReminders } from "@/server/services/lending";
 import { sharedSummary } from "@/server/services/shared";
 import { requireUser } from "@/server/session";
@@ -43,6 +46,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // ── selected period (?p=YYYY-MM | ?p=all | ?from&to; default: this month) —
   // shared across Dashboard/Transactions/Accounts/Analytics via the header picker ──
   const sp = await searchParams;
+  // Server-read so the right figure is large on first paint (theme does the same).
+  const basisPref = parseBasisPref((await cookies()).get(BASIS_COOKIE)?.value);
   const selectedPeriod = parsePeriod(sp, now);
   const { mode, periodKey, range, label: periodLabel } = selectedPeriod;
   const donutLabel =
@@ -57,11 +62,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // listBudgets below instead of that service doing its own narrower 1-month
   // fetch — same in-flight promise, no extra round trip, still fully parallel.
   const rowsPromise = loadLedgerAgg(user.id, 6, now);
-  const [rows, periodRows, period, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared, lending, reminders, activity] =
+  const [rows, periodRows, period, periodShareExpense, sinceEnd, unassignedAll, recentRows, accounts, budgets, bills, shared, lending, reminders, activity] =
     await Promise.all([
       rowsPromise,
       loadLedgerAggRange(user.id, range.start, range.end),
       cashTotals(user.id, { start: range.start, end: range.end }),
+      // canonical "what did I spend" figure — see src/lib/expense-basis.ts.
+      // Kept separate from `period` above, which is cash semantics and is what
+      // the balance arithmetic below has to use.
+      personalShareExpense(user.id, { start: range.start, end: range.end }),
       // cash moved after the period ends — walks today's balance back to the period-end balance
       range.end && range.end < now ? cashTotals(user.id, { start: range.end }) : Promise.resolve({ income: 0, expense: 0 }),
       // ledger rows never posted to an account (imported history without account info):
@@ -76,6 +85,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       lendingReminders(user.id),
       activityPage(user.id, { limit: 6 }),
     ]);
+
+  // Which expense figure is the large one. Presentation only — both are
+  // computed either way, so switching costs nothing and changes no arithmetic.
+  const cashFigure = { key: "paidByYou" as const, label: BASIS_FIGURE_LABEL.cash, value: period.expense };
+  const shareFigure = { key: "personalShare" as const, label: BASIS_FIGURE_LABEL.personal, value: periodShareExpense };
+  const headlineBasis = basisPref === "personal" ? shareFigure : cashFigure;
+  const otherCandidate = basisPref === "personal" ? cashFigure : shareFigure;
+  // Equal when nothing in the period was split — one figure is enough then.
+  const otherBasis = otherCandidate.value !== headlineBasis.value ? otherCandidate : null;
+  // Period-scoped: what you paid on other people's behalf in this window.
+  // Deliberately not the live settlement balance — see the Expense card below.
+  const fronted = frontedForOthers(period.expense, periodShareExpense);
 
   const accountsTotal = accounts.reduce((s, a) => s + a.balance, 0);
   const balanceNow = accountsTotal + (unassignedAll.income - unassignedAll.expense);
@@ -170,6 +191,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     monthDelta: period.income - period.expense,
     comp: { banks: bankTotal, cash: cashTotal, cards: Math.max(0, -cardTotal) },
     flow: { income: period.income, expense: period.expense },
+    basisPref,
+    outHeadline: headlineBasis.value,
+    outHeadlineLabel: headlineBasis.label,
+    outSecondary: otherBasis ? { label: otherBasis.label, value: otherBasis.value } : null,
+    fronted,
     needs: mobileNeeds.slice(0, 3),
     lending: { owed: lending.youAreOwed, owe: lending.youOwe, net: lending.net, overdue: lending.overdueCount, people: lending.contacts.filter((cc) => cc.net > 0).length },
     bills: upcomingBills.slice(0, 4).map((b) => ({ name: b.name, amount: b.amount, dueLabel: b.dueLabel })),
@@ -219,9 +245,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 : "balance at the end of this period"}
           </div>
           <div className="text-[10.5px] mt-2.5 pt-2.5 opacity-60 flex flex-wrap gap-x-3 gap-y-1" style={{ borderTop: "1px solid rgba(255,255,255,.15)" }}>
+            {/* This strip is a literal equation: carry forward + in − out = the
+                balance above it. It therefore has to stay on cash semantics
+                (what actually left your accounts), which is why it says "paid"
+                rather than "expense" — the EXPENSE card beside it answers a
+                different question on a different basis. See expense-basis.ts. */}
             <span>Carry forward {signed(carryForward)}</span>
             <span>+ Income {formatPaise(period.income)}</span>
-            <span>− Expense {formatPaise(period.expense)}</span>
+            <span>− Paid {formatPaise(period.expense)}</span>
           </div>
         </div>
         {/* #192: CARRY FORWARD had its own card while also appearing in the
@@ -229,8 +260,29 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <StatCard label={`INCOME · ${periodLabel}`} value={<span className="text-green">+{formatPaise(period.income)}</span>} className="hidden md:block" href={withPeriodQS("/transactions")}>
           <div className="text-[11.5px] mt-[7px] text-mut2">money in</div>
         </StatCard>
-        <StatCard label={`EXPENSE · ${periodLabel}`} value={<span>−{formatPaise(period.expense)}</span>} href={withPeriodQS("/transactions")}>
+        {/* Every figure on this card is scoped to the selected period, so the
+            three reconcile exactly: cash outflow − your share = you fronted.
+            Live settlement balances are deliberately NOT here — they ignore the
+            period selector, and mixing a period figure with an all-time one on
+            one card is what made the earlier "pending from friends ₹20,456.66"
+            look like it contradicted "you fronted ₹25,231.66". Outstanding
+            balances stay in the attention feed and on People/Shared. */}
+        <StatCard
+          label={`EXPENSE · ${periodLabel}`}
+          value={<span>−{formatPaise(headlineBasis.value)}</span>}
+          href={withPeriodQS("/transactions")}
+          action={<BasisToggle value={basisPref} />}
+        >
           <div className="text-[11.5px] mt-[7px] text-mut2">
+            <div className="mb-0.5" title={EXPENSE_BASIS[headlineBasis.key].hint}>
+              {headlineBasis.label.toLowerCase()}
+            </div>
+            {otherBasis && (
+              <div className="mb-0.5" title={EXPENSE_BASIS[otherBasis.key].hint}>
+                {otherBasis.label.toLowerCase()} {formatPaise(otherBasis.value)}
+              </div>
+            )}
+            {fronted > 0 && <div className="mb-0.5">you fronted {formatPaise(fronted)}</div>}
             {txCountPeriod} transactions
             {mode === "month" && periodKey === key && lastMonthAgg.expense > 0 && (
               <> · last month {formatPaise(lastMonthAgg.expense)}</>

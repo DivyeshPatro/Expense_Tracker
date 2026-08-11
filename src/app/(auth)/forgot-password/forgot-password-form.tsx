@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { BrandMark } from "@/components/shell/brand-mark";
 
 export function ForgotPasswordForm() {
+  const emailId = useId();
+  const errorId = useId();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
@@ -44,10 +46,25 @@ export function ForgotPasswordForm() {
               <div className="text-[12.5px] text-mut mt-1">Enter your email and we&apos;ll send you a reset link.</div>
             </div>
             <div>
-              <div className="label-caps">EMAIL</div>
-              <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus />
+              <label className="label-caps" htmlFor={emailId}>EMAIL</label>
+              <input
+                id={emailId}
+                className="field"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="username"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? errorId : undefined}
+                required
+                autoFocus
+              />
             </div>
-            {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
+            {/* Always mounted so the live region exists before the text does. */}
+            <div role="alert" aria-live="assertive" id={errorId} className={error ? "text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2" : "sr-only"}>
+              {error}
+            </div>
             <button type="submit" disabled={busy} className="btn-primary py-3 text-[13.5px] font-bold disabled:opacity-60">
               {busy ? "…" : "Send reset link"}
             </button>

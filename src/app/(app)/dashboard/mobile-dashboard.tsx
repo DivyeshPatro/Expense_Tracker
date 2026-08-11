@@ -8,6 +8,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { BasisToggle } from "@/components/dashboard/basis-toggle";
+import type { ExpenseBasisPref } from "@/lib/expense-basis";
 import { formatPaise } from "@/lib/money";
 import { useUI } from "@/components/shell/ui-context";
 import { BottomSheet } from "@/components/shell/bottom-sheet";
@@ -37,7 +39,15 @@ export interface MobileDashboardData {
   owed: number;
   monthDelta: number;
   comp: { banks: number; cash: number; cards: number };
+  /** Cash semantics — drives the spent-vs-earned bar, which is about money movement. */
   flow: { income: number; expense: number };
+  /** Which expense figure leads, and the two supporting ones. Presentation only. */
+  basisPref: ExpenseBasisPref;
+  outHeadline: number;
+  outHeadlineLabel: string;
+  outSecondary: { label: string; value: number } | null;
+  /** Period-scoped amount paid on other people's behalf. Not a settlement balance. */
+  fronted: number;
   needs: { icon: string; text: string; sub: string; href: string; sev: "red" | "amber" }[];
   lending: { owed: number; owe: number; net: number; overdue: number; people: number };
   bills: { name: string; amount: number; dueLabel: string }[];
@@ -211,8 +221,24 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
             <div className="text-[17px] font-extrabold tabular-nums" style={{ color: "var(--green)" }}>{formatPaise(data.flow.income)}</div>
           </div>
           <div className="flex-1 rounded-xl p-3" style={{ background: "var(--side)" }}>
-            <div className="text-[10.5px] uppercase tracking-wide font-bold text-mut2">Out</div>
-            <div className="text-[17px] font-extrabold tabular-nums" style={{ color: "var(--red)" }}>{formatPaise(data.flow.expense)}</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-[10.5px] uppercase tracking-wide font-bold text-mut2">Out</div>
+              {/* Mobile gets the same inline switch as desktop — this is the
+                  screen where opening Settings costs the most. */}
+              <div className="shrink-0 -mt-0.5">
+                <BasisToggle value={data.basisPref} />
+              </div>
+            </div>
+            <div className="text-[17px] font-extrabold tabular-nums" style={{ color: "var(--red)" }}>{formatPaise(data.outHeadline)}</div>
+            <div className="text-[10.5px] text-mut2 mt-0.5">{data.outHeadlineLabel.toLowerCase()}</div>
+            {data.outSecondary && (
+              <div className="text-[10.5px] text-mut2 tabular-nums">
+                {data.outSecondary.label.toLowerCase()} {formatPaise(data.outSecondary.value)}
+              </div>
+            )}
+            {data.fronted > 0 && (
+              <div className="text-[10.5px] text-mut2 tabular-nums">you fronted {formatPaise(data.fronted)}</div>
+            )}
           </div>
         </div>
         <div className="h-2 rounded-full mt-3 overflow-hidden" style={{ background: "var(--redSoft)" }}>

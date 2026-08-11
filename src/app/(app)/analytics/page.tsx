@@ -2,6 +2,7 @@ import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleTabs, SPENDING_TABS } from "@/components/shell/module-tabs";
 import { StatCard } from "@/components/shell/stat-card";
 import { currentMonthKey, daysBetweenYMD, monthName, shiftMonthKey, todayYMD } from "@/lib/dates";
+import { EXPENSE_BASIS } from "@/lib/expense-basis";
 import { formatPaise } from "@/lib/money";
 import { parsePeriod, periodQueryParams } from "@/lib/period";
 import { listAccounts } from "@/server/services/accounts";
@@ -94,8 +95,14 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         <PrintButton />
       </div>
       <div className="flex flex-wrap gap-3.5">
+        {/* Every figure on this page is already EXPENSE_BASIS.personalShare
+            (monthAgg/categoryTotals read myExpense). It was correct all along
+            and merely unlabelled, which is what made it look like it disagreed
+            with the dashboard. Labelling is the whole fix here. */}
         <StatCard label="AVG DAILY SPEND" value={formatPaise(avgDaily)}>
-          <div className="text-[11.5px] text-mut2 mt-[5px]">{period.label.toLowerCase()}</div>
+          <div className="text-[11.5px] text-mut2 mt-[5px]" title={EXPENSE_BASIS.personalShare.hint}>
+            {period.label.toLowerCase()} · {EXPENSE_BASIS.personalShare.label}
+          </div>
         </StatCard>
         <StatCard label="BIGGEST EXPENSE" value={biggest ? formatPaise(biggest.myExpense) : "—"}>
           <div className="text-[11.5px] text-mut2 mt-[5px]">{biggest?.merchant ?? ""}</div>

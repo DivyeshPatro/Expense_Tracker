@@ -192,6 +192,11 @@ export async function loadLedgerAggRange(userId: string, start?: Date, end?: Dat
  * net to zero and are excluded. With unassignedOnly, restricts to rows not
  * posted to any account (imported history without account info), whose cash
  * effect exists in the ledger but not in any account's balance.
+ *
+ * This is EXPENSE_BASIS.paidByYou and exists for *balance* arithmetic — it is
+ * what actually left your accounts. It is deliberately NOT the figure shown
+ * when a screen asks "how much did you spend"; use personalShareExpense for
+ * that. See src/lib/expense-basis.ts.
  */
 export async function cashTotals(
   userId: string,
@@ -210,6 +215,36 @@ export async function cashTotals(
     prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...base, type: "EXPENSE", paidByParticipantId: null } }),
   ]);
   return { income: Number(inc._sum.amount ?? 0), expense: Number(exp._sum.amount ?? 0) };
+}
+
+/**
+ * Your share of the expenses matching a transaction WHERE, as two DB
+ * aggregates — no rows loaded. This is EXPENSE_BASIS.personalShare, the
+ * canonical "what did I spend" figure.
+ *
+ * An expense is either split or it isn't, so the two halves can never
+ * double-count:
+ *   • unsplit rows  → the whole amount is yours
+ *   • split rows    → only the owner's own ExpenseSplit (participantId null)
+ *
+ * Rows a friend paid still count at your share: you owe it, so it is your
+ * expense even though no money left your account yet. That is exactly what
+ * separates this from cashTotals.
+ */
+async function personalShareOf(where: Prisma.TransactionWhereInput): Promise<number> {
+  const expenses: Prisma.TransactionWhereInput = { ...where, type: "EXPENSE" };
+  const [unsplit, ownShares] = await Promise.all([
+    prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...expenses, splits: { none: {} } } }),
+    prisma.expenseSplit.aggregate({ _sum: { owedAmount: true }, where: { participantId: null, tx: expenses } }),
+  ]);
+  return Number(unsplit._sum.amount ?? 0) + Number(ownShares._sum.owedAmount ?? 0);
+}
+
+/** personalShareOf for a plain date window — the dashboard's "EXPENSE · your share". */
+export async function personalShareExpense(userId: string, opts: { start?: Date; end?: Date } = {}): Promise<number> {
+  const occurredAt =
+    opts.start || opts.end ? { ...(opts.start ? { gte: opts.start } : {}), ...(opts.end ? { lt: opts.end } : {}) } : undefined;
+  return personalShareOf({ userId, deletedAt: null, ...(occurredAt ? { occurredAt } : {}) });
 }
 
 /** The last N transactions with full display fields — for "recent transactions" widgets that only ever show a handful. */
@@ -282,7 +317,22 @@ function txWhere(userId: string, filter: TxListFilter): Prisma.TransactionWhereI
 
 export interface TxTotals {
   income: number;
+  /** EXPENSE_BASIS.personalShare — what you bear after splits. */
   expense: number;
+  /** EXPENSE_BASIS.gross — every matching expense row at full amount, whoever paid. The literal sum of the list below. */
+  grossExpense: number;
+  /**
+   * EXPENSE_BASIS.paidByYou — full amount of rows you paid, i.e. what actually
+   * left your accounts. `net`, `carryForward` and `balance` are built from THIS,
+   * which is what makes `balance` equal the Accounts total.
+   *
+   * It previously used grossExpense, which counts expenses a friend paid —
+   * money that never left your account. That is why the transaction list showed
+   * a balance of ₹2,27,130 against an account total of ₹2,29,636: the ₹2,506
+   * difference was exactly gross − paidByYou.
+   */
+  paidByYouExpense: number;
+  /** income − paidByYouExpense. Cash movement, so it reconciles with Accounts. */
   net: number;
   count: number;
   /** Net of the same filter *before* the selected period began (0 for all-time). */
@@ -303,41 +353,54 @@ function periodStart(filter: TxListFilter): Date | null {
  *  accounts, so they're neither in nor out. */
 export async function txTotals(userId: string, filter: TxListFilter): Promise<TxTotals> {
   const where = txWhere(userId, filter);
-  const grouped = await prisma.transaction.groupBy({
-    by: ["type"],
-    where,
-    _sum: { amount: true },
-    _count: { _all: true },
+  const priorWhere: Prisma.TransactionWhereInput | null = (() => {
+    const start = periodStart(filter);
+    return start ? { ...where, occurredAt: { lt: start } } : null;
+  })();
+
+  const paidByYouWhere = (w: Prisma.TransactionWhereInput): Prisma.TransactionWhereInput => ({
+    ...w,
+    type: "EXPENSE",
+    paidByParticipantId: null,
   });
+
+  const [grouped, expense, paidByYou, priorGrouped, priorPaidByYou] = await Promise.all([
+    prisma.transaction.groupBy({ by: ["type"], where, _sum: { amount: true }, _count: { _all: true } }),
+    personalShareOf(where),
+    prisma.transaction.aggregate({ _sum: { amount: true }, where: paidByYouWhere(where) }),
+    // Carry forward: the same view accumulated before this period started, so
+    // balance = what you'd carried in + this period's movement. Uses the same
+    // basis as net — a strip that mixes bases is how the original bug happened.
+    priorWhere ? prisma.transaction.groupBy({ by: ["type"], where: priorWhere, _sum: { amount: true } }) : Promise.resolve([]),
+    priorWhere
+      ? prisma.transaction.aggregate({ _sum: { amount: true }, where: paidByYouWhere(priorWhere) })
+      : Promise.resolve({ _sum: { amount: null } }),
+  ]);
+
   let income = 0;
-  let expense = 0;
+  let grossExpense = 0;
   let count = 0;
   for (const g of grouped) {
     count += g._count._all;
     if (g.type === "INCOME") income = Number(g._sum.amount ?? 0);
-    else if (g.type === "EXPENSE") expense = Number(g._sum.amount ?? 0);
+    else if (g.type === "EXPENSE") grossExpense = Number(g._sum.amount ?? 0);
   }
-  const net = income - expense;
+  const paidByYouExpense = Number(paidByYou._sum.amount ?? 0);
+  const net = income - paidByYouExpense;
 
-  // Carry forward: the same view's net accumulated before this period started,
-  // so balance = what you'd carried in + this period's movement.
-  let carryForward = 0;
-  const start = periodStart(filter);
-  if (start) {
-    const prior = await prisma.transaction.groupBy({
-      by: ["type"],
-      where: { ...where, occurredAt: { lt: start } },
-      _sum: { amount: true },
-    });
-    let pi = 0;
-    let pe = 0;
-    for (const g of prior) {
-      if (g.type === "INCOME") pi = Number(g._sum.amount ?? 0);
-      else if (g.type === "EXPENSE") pe = Number(g._sum.amount ?? 0);
-    }
-    carryForward = pi - pe;
-  }
-  return { income, expense, net, count, carryForward, balance: carryForward + net };
+  const priorIncome = priorGrouped.reduce((s, g) => (g.type === "INCOME" ? s + Number(g._sum.amount ?? 0) : s), 0);
+  const carryForward = priorWhere ? priorIncome - Number(priorPaidByYou._sum.amount ?? 0) : 0;
+
+  return {
+    income,
+    expense,
+    grossExpense,
+    paidByYouExpense,
+    net,
+    count,
+    carryForward,
+    balance: carryForward + net,
+  };
 }
 
 export async function queryTransactions(userId: string, filter: TxListFilter, page: number): Promise<TxPage> {

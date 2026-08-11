@@ -3,6 +3,7 @@ import { ModuleHero } from "@/components/shell/module-hero";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleTabs, BUDGETS_TABS } from "@/components/shell/module-tabs";
 import { BudgetActions } from "./budget-actions";
+import { summarizeBudgets } from "@/lib/budget-summary";
 import { formatPaise } from "@/lib/money";
 import { soft } from "@/lib/tx-display";
 import { listBudgets } from "@/server/services/budgets";
@@ -16,24 +17,32 @@ export default async function BudgetsPage() {
 
   // #191: the screen answers "am I within budget?" — the ＋ New budget button
   // used to be the largest element on it.
-  const over = budgets.filter((b) => b.over).length;
-  const left = budgets.reduce((s, b) => s + Math.max(0, b.limit - b.spent), 0);
-  const spent = budgets.reduce((s, b) => s + b.spent, 0);
-  const limit = budgets.reduce((s, b) => s + b.limit, 0);
+  // Header figures come from one pure helper so "left", "spent" and "budgeted"
+  // can't drift apart again — see src/lib/budget-summary.ts for why they did.
+  const { leftInBudget, spent, budgeted, overAmount, overCount: over } = summarizeBudgets(budgets);
 
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
       <ModuleTabs tabs={BUDGETS_TABS} />
       {budgets.length > 0 && (
         <ModuleHero
-          eyebrow={over > 0 ? "Left to spend" : "Left to spend this month"}
-          value={formatPaise(left)}
+          // "in budgets under limit" rather than a bare "Left to spend":
+          // headroom inside an overspent category isn't spendable, so this is
+          // deliberately not Budgeted − Spent. The "Over" chip below carries
+          // the difference so the three numbers visibly reconcile.
+          eyebrow={over > 0 ? "Left in budgets under limit" : "Left to spend this month"}
+          value={formatPaise(leftInBudget)}
           valueColor={over > 0 ? "var(--red)" : "var(--green)"}
-          sub={over > 0 ? `${over} of ${budgets.length} over limit` : `all ${budgets.length} within limit`}
+          sub={
+            over > 0
+              ? `${over} of ${budgets.length} over limit by ${formatPaise(overAmount)} · ${formatPaise(budgeted)} − ${formatPaise(spent)} + ${formatPaise(overAmount)}`
+              : `all ${budgets.length} within limit`
+          }
           tone={over > 0 ? "bad" : "good"}
           secondary={[
             { label: "Spent", value: formatPaise(spent) },
-            { label: "Budgeted", value: formatPaise(limit) },
+            { label: "Budgeted", value: formatPaise(budgeted) },
+            ...(over > 0 ? [{ label: "Over", value: formatPaise(overAmount) }] : []),
           ]}
         />
       )}

@@ -17,6 +17,8 @@ import { useOffline } from "@/components/shell/offline-context";
 import { ModuleTabs, SPENDING_TABS } from "@/components/shell/module-tabs";
 import { useUI } from "@/components/shell/ui-context";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
+import { BasisToggle } from "@/components/dashboard/basis-toggle";
+import { BASIS_FIGURE_LABEL, EXPENSE_BASIS, type ExpenseBasisPref } from "@/lib/expense-basis";
 import { formatPaise } from "@/lib/money";
 import type { LedgerRow, TxTotals } from "@/server/services/ledger";
 import { txDisplay } from "@/lib/tx-display";
@@ -60,6 +62,7 @@ export function TransactionsList({
   initialCategory,
   initialAccount,
   initialBatch,
+  basisPref,
   period,
   initialOpenTransactionId,
 }: {
@@ -72,6 +75,7 @@ export function TransactionsList({
   initialCategory: CategoryRef | null;
   initialAccount: CategoryRef | null;
   initialBatch: string | null;
+  basisPref: ExpenseBasisPref;
   period: Period;
   initialOpenTransactionId?: string | null;
 }) {
@@ -229,6 +233,15 @@ export function TransactionsList({
     g.items.push({ ...txDisplay(t), id: t.id });
   }
 
+  // Which OUT figure is large. Presentation only — `totals` carries both, so
+  // switching never re-queries and never changes net/carryForward/balance.
+  const cash = { key: "paidByYou" as const, label: BASIS_FIGURE_LABEL.cash, value: totals.paidByYouExpense };
+  const share = { key: "personalShare" as const, label: BASIS_FIGURE_LABEL.personal, value: totals.expense };
+  const headline = basisPref === "personal" ? share : cash;
+  const other = basisPref === "personal" ? cash : share;
+  // Identical whenever nothing in view is split — showing it twice is just noise.
+  const secondary = other.value !== headline.value ? other : null;
+
   return (
     <div className="flex flex-col gap-3.5" style={{ animation: "rise .25s ease" }}>
       <ModuleTabs tabs={SPENDING_TABS} />
@@ -252,9 +265,29 @@ export function TransactionsList({
             <div className="text-[10px] uppercase tracking-wide font-bold text-mut2">In</div>
             <div className="text-[15px] font-extrabold tabular-nums text-green">{formatPaise(totals.income)}</div>
           </div>
+          {/* Cash outflow and your share answer different questions, so both are
+              shown. `basis` only decides which is the large one — see
+              lib/expense-basis.ts. When nothing is split the two are equal and
+              the secondary line is suppressed as noise. */}
           <div className="flex-1 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
-            <div className="text-[10px] uppercase tracking-wide font-bold text-mut2">Out</div>
-            <div className="text-[15px] font-extrabold tabular-nums text-red">−{formatPaise(totals.expense)}</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-[10px] uppercase tracking-wide font-bold text-mut2" title={EXPENSE_BASIS[headline.key].hint}>
+                Out · {headline.label}
+              </div>
+              {/* The always-visible home for the switch on mobile: the dashboard's
+                  cash-flow card is collapsed by default, so a toggle there costs a
+                  tap to even find. This summary is on screen the moment you open
+                  Spending. */}
+              <div className="shrink-0 -mt-0.5">
+                <BasisToggle value={basisPref} />
+              </div>
+            </div>
+            <div className="text-[15px] font-extrabold tabular-nums text-red">−{formatPaise(headline.value)}</div>
+            {secondary && (
+              <div className="text-[10.5px] text-mut2 tabular-nums mt-0.5" title={EXPENSE_BASIS[secondary.key].hint}>
+                {secondary.label.toLowerCase()} {formatPaise(secondary.value)}
+              </div>
+            )}
           </div>
         </div>
         {period.p !== "all" && (
@@ -265,7 +298,12 @@ export function TransactionsList({
                 {totals.carryForward < 0 ? "−" : "+"}{formatPaise(totals.carryForward)}
               </b>
             </span>
-            <span className="text-mut">
+            {/* "Balance" is the right word again now that carry forward and net
+                are cash movement rather than gross: on an unfiltered view this
+                equals the Accounts total exactly. It used to be built from
+                gross expense, which counts money a friend paid and your account
+                never saw — that is what made it disagree. */}
+            <span className="text-mut" title="Carry forward plus this view's cash movement. On an unfiltered view this matches your Accounts total.">
               Balance{" "}
               <b className="tabular-nums" style={{ color: totals.balance < 0 ? "var(--red)" : "var(--green)" }}>
                 {totals.balance < 0 ? "−" : "+"}{formatPaise(totals.balance)}

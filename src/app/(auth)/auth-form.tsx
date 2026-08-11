@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { BrandMark } from "@/components/shell/brand-mark";
 
@@ -16,6 +16,12 @@ export function AuthForm({
   signupOpen?: boolean;
 }) {
   const router = useRouter();
+  // useId keeps label/input associations unique and stable across SSR and
+  // hydration, so they can't collide if a form is ever rendered twice.
+  const nameId = useId();
+  const emailId = useId();
+  const passwordId = useId();
+  const errorId = useId();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -60,29 +66,87 @@ export function AuthForm({
             {mode === "sign-up" ? "Every rupee, visible in one place." : "Sign in to your ledger."}
           </div>
         </div>
-        {justReset && <div className="text-[12.5px] font-semibold text-green bg-greensoft rounded-lg px-3 py-2">Password reset — sign in with your new password.</div>}
+        {/* role="status" so a screen reader hears the outcome of the reset it
+            just completed, instead of landing on a form with no explanation. */}
+        {justReset && (
+          <div role="status" className="text-[12.5px] font-semibold text-green bg-greensoft rounded-lg px-3 py-2">
+            Password reset — sign in with your new password.
+          </div>
+        )}
         {mode === "sign-up" && (
           <div>
-            <div className="label-caps">NAME</div>
-            <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" required autoFocus />
+            {/* Real <label htmlFor>, not a styled div: the previous markup left
+                every field with no accessible name, so a screen reader
+                announced "edit text" twice on the app's first screen. */}
+            <label className="label-caps" htmlFor={nameId}>NAME</label>
+            <input
+              id={nameId}
+              className="field"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              // Lets a password manager fill the field and, more importantly,
+              // recognise this as a registration form so it offers to SAVE the
+              // new credentials rather than autofilling an existing one.
+              autoComplete="name"
+              required
+              autoFocus
+            />
           </div>
         )}
         <div>
-          <div className="label-caps">EMAIL</div>
-          <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus={mode === "sign-in"} />
+          <label className="label-caps" htmlFor={emailId}>EMAIL</label>
+          <input
+            id={emailId}
+            className="field"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            autoComplete={mode === "sign-up" ? "email" : "username"}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            required
+            autoFocus={mode === "sign-in"}
+          />
         </div>
         <div>
           <div className="flex items-center justify-between">
-            <div className="label-caps">PASSWORD</div>
+            <label className="label-caps" htmlFor={passwordId}>PASSWORD</label>
             {mode === "sign-in" && (
               <a href="/forgot-password" className="text-[11.5px] font-semibold text-acc inline-flex items-center min-h-[24px]">
                 Forgot password?
               </a>
             )}
           </div>
-          <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} />
+          <input
+            id={passwordId}
+            className="field"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            // "new-password" tells a manager to generate/save; "current-password"
+            // tells it to fill. Getting this wrong is why Chrome's autofill
+            // fought with typing during the audit and produced a submit that
+            // appeared to do nothing.
+            autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            required
+            // Only a sign-UP rule. On sign-in it blocked anyone whose existing
+            // password predates the rule, behind a native browser tooltip
+            // rather than a real message.
+            minLength={mode === "sign-up" ? 8 : undefined}
+          />
         </div>
-        {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
+        {/* Always mounted so assistive tech is already observing the region when
+            the text arrives — a live region inserted at the same moment as its
+            content is unreliably announced. role="alert" is assertive, which is
+            right here: the user just pressed a button and is waiting. */}
+        <div role="alert" aria-live="assertive" id={errorId} className={error ? "text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2" : "sr-only"}>
+          {error}
+        </div>
         <button
           type="submit"
           disabled={busy || !hydrated}

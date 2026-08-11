@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { BASIS_COOKIE, parseBasisPref } from "@/lib/expense-basis";
 import { prisma } from "@/server/db";
 import { queryTransactions, txTotals } from "@/server/services/ledger";
 import { requireUser } from "@/server/session";
@@ -12,6 +14,9 @@ export default async function TransactionsPage({
 }) {
   const user = await requireUser();
   const params = await searchParams;
+  // Read server-side so the correct figure is the large one on first paint —
+  // same reason the theme lives in a cookie rather than localStorage.
+  const basisPref = parseBasisPref((await cookies()).get(BASIS_COOKIE)?.value);
   const type = (params.tab as "EXPENSE" | "INCOME" | "TRANSFER" | undefined) || undefined;
   const categoryId = params.category || null;
   const accountId = params.account || null;
@@ -39,6 +44,7 @@ export default async function TransactionsPage({
         initialCategory={categoryId ? { id: categoryId, name: category?.name ?? "Category", icon: category?.icon ?? "📦" } : null}
         initialAccount={accountId ? { id: accountId, name: account?.name ?? "Account", icon: account?.icon ?? "🏦" } : null}
         initialBatch={batchId}
+        basisPref={basisPref}
         period={period}
         initialOpenTransactionId={params.tx || null}
       />

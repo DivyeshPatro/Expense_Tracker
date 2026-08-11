@@ -1,11 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { BrandMark } from "@/components/shell/brand-mark";
 
 export function ResetPasswordForm({ token, invalid }: { token?: string; invalid: boolean }) {
+  const passwordId = useId();
+  const errorId = useId();
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,10 +47,25 @@ export function ResetPasswordForm({ token, invalid }: { token?: string; invalid:
               <div className="text-[19px] font-extrabold tracking-tight">Set a new password</div>
             </div>
             <div>
-              <div className="label-caps">NEW PASSWORD</div>
-              <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} autoFocus />
+              <label className="label-caps" htmlFor={passwordId}>NEW PASSWORD</label>
+              <input
+                id={passwordId}
+                className="field"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? errorId : undefined}
+                required
+                minLength={8}
+                autoFocus
+              />
             </div>
-            {error && <div className="text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2">{error}</div>}
+            <div role="alert" aria-live="assertive" id={errorId} className={error ? "text-[12.5px] font-semibold text-red bg-redsoft rounded-lg px-3 py-2" : "sr-only"}>
+              {error}
+            </div>
             <button type="submit" disabled={busy} className="btn-primary py-3 text-[13.5px] font-bold disabled:opacity-60">
               {busy ? "…" : "Reset password"}
             </button>
