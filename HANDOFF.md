@@ -1,25 +1,83 @@
-# CODING AGENTS: READ THIS FIRST
+# Session Handoff — Ledgerly
 
-This is a **handoff bundle** from Claude Design (claude.ai/design).
+## Current Status
 
-A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported this bundle so a coding agent can implement the designs for real.
+**DEVELOPMENT FROZEN — deliberately, by the owner's decision (2026-08-09).**
 
-## What you should do — IMPORTANT
+Seven UX epics shipped and merged to `ledgerly-app`. No further implementation
+until a week of real-world usage produces a friction log. Do not start EPIC 20,
+21 or 23 — their priority is explicitly to be decided by that log, not by the
+original audit.
 
-**Read the chat transcripts first.** There are 1 chat transcript(s) in `chats/`. The transcripts show the full back-and-forth between the user and the design assistant — they tell you **what the user actually wants** and **where they landed** after iterating. Don't skip them. The final HTML files are the output, but the chat is where the intent lives.
+## Shipped
 
-**Read `project/Ledgerly PRD.dc.html` in full.** The user had this file open when they triggered the handoff, so it's almost certainly the primary design they want built. Read it top to bottom — don't skim. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+| Epic | | PR | Headline result |
+|---|---|---|---|
+| 14 Information Hierarchy | #178 | #221 | 13/13 screens lead with information, up from 2/13 |
+| 15 Dashboard Simplification | #179 | #222 | 41 cards → 19, 33 chips → 8, zero duplicated obligations |
+| 17 Navigation & Settings | #181 | #223 | 4 label mismatches → 0; Settings 3.39 → 1.07 screens |
+| 16 Fast Input Flows | #180 | #224 | Amount focused, 9 controls → 1, no iOS zoom |
+| 22 People | #219 | #225 | One balance per person — the app can say ₹15,638.33 |
+| 18 Wallet Experience | #182 | #226 | Accounts total; typical wallet above the fold |
+| 19 Performance Perception | #183 | #227, #228 | Tap acknowledged in 150–272ms throttled; repeat search 0 requests |
 
-**If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
+**No schema changes in any of them** — nothing to migrate against Supabase.
 
-## About the design files
+## Next Exact Action
 
-The design medium is **HTML/CSS/JS** — these are prototypes, not production code. Your job is to **recreate them pixel-perfectly** in whatever technology makes sense for the target codebase (React, Vue, native, whatever fits). Match the visual output; don't copy the prototype's internal structure unless it happens to fit.
+**None. Await the owner's friction log.**
 
-**Don't render these files in a browser or take screenshots unless the user asks you to.** Everything you need — dimensions, colors, layout rules — is spelled out in the source. Read the HTML and CSS directly; a screenshot won't tell you anything they don't.
+After the week, reprioritise EPIC 20 (Onboarding), 21 (Product Identity) and
+23 (Insights & Reporting) against what the log actually shows. All three remain
+open with full Why/Before/After/Success bodies.
 
-## Bundle contents
+Also still open and unprioritised: EPIC 6 #75's remaining children (#76–#82),
+minus the layout/search work folded into #206. #78 categories, #81 usage
+analytics and #82 statement reminders are features, deliberately not built.
 
-- `README.md` — this file
-- `chats/` — conversation transcripts (read these!)
-- `project/` — the `Personal Finance & Shared Expense Tracker` project files (HTML prototypes, assets, components)
+## Friction log — the only artefact this week should produce
+
+One line per hesitation. Nothing else. What you were trying to do, and where
+you stopped.
+
+```
+Mon
+Tue
+Wed
+Thu
+Fri
+Sat
+Sun
+```
+
+Worth watching specifically, since these are unvalidated guesses:
+- Do you still reach for "Khata"? (renamed to Lending in #201)
+- Does the Settings grouping work without thinking? (#204)
+- Is the Home FAB useful, or ignored? (#203)
+- Do you ever open Insights? (decides whether EPIC 23 is Sprint 8 at all)
+- Does "People" replace how you think about Lending and Shared? (#207)
+
+## Local environment state
+
+- **`.env` untouched all session.** Production Supabase was never contacted;
+  every local run pinned `DATABASE_URL`/`DIRECT_URL` to the Docker DB in-process.
+- Local server **stopped**. `.next` currently holds a **production** build —
+  run `npm run dev` to return to dev mode.
+- **Local test data I created** (Docker `ledgerly-pg` only, never production):
+  `heavy@ledgerly.test` with 1,400 transactions across 24 months — genuinely
+  useful for future perf work, kept on purpose; a few `*@ledgerly.test` signups;
+  and on `arjun@ledgerly.app` — 7 credit cards, a ₹3,000 loan to Karan, and two
+  small test expenses.
+- Uncommitted: `.gitignore` (adds this file + `.claude/` runtime state) and this
+  file. Both predate the epics.
+
+## Process notes worth keeping
+
+**Stale build artefacts produced five false signals this session** — a phantom
+build failure on untouched pages, an unstyled-page measurement, a component that
+would not update, a ChunkLoadError, and a lost trace. Kill the server and clear
+`.next` when switching between `next dev` and `next build`; never measure
+without confirming CSS loaded.
+
+**Measure runtime claims; never implement from an audit's word.** Three of EPIC
+19's four premises were wrong. See the `audit-reliability` memory.
