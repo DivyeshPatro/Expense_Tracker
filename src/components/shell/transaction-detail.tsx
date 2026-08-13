@@ -42,6 +42,7 @@ import {
   updateExpenseAction,
 } from "@/app/actions";
 import { formatDiffRow, type TimelineEvent } from "@/lib/activity";
+import { amountToPaise } from "@/lib/expression";
 import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import type { TransactionDetail } from "@/server/services/transactions";
@@ -814,7 +815,9 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
   const selected = sharedParticipants.filter((p) => parts[p.id]);
-  const amtPaise = Math.round((Number(amount) || 0) * 100);
+  // Expression-aware, so the submitted value never depends on whether blur
+  // fired before the tap on Save — see amountToPaise.
+  const amtPaise = amountToPaise(amount);
 
   return (
     <div className="flex flex-col gap-3">

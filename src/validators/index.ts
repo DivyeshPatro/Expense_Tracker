@@ -2,6 +2,7 @@
 // All money enters as rupee strings and is parsed to integer paise here, at the boundary.
 
 import { z } from "zod";
+import { evaluateAmount } from "@/lib/expression";
 import { toPaise } from "@/lib/money";
 import {
   detectNetwork,
@@ -13,20 +14,49 @@ import {
   parseExpiry,
 } from "@/lib/card-identity";
 
+/**
+ * Rupee input → integer paise, accepting a calculator expression as well as a
+ * plain number ("2500+18%" is as valid as "2950").
+ *
+ * Resolved HERE, at the boundary, rather than only in the amount field:
+ *
+ *  • Submission stopped depending on event ordering. The field resolved the
+ *    expression on blur, so any path that submitted without blurring first
+ *    sent the raw string in and got "Enter a valid amount" — while the preview
+ *    directly above it read "= ₹2,950".
+ *  • The offline outbox stores the payload verbatim. An expression queued
+ *    while offline has to still resolve when it replays, possibly days later,
+ *    and that replay never goes near the input.
+ *
+ * Safe to run server-side: evaluateAmount is a hand-written parser with no
+ * eval, a 100-character input cap, and no regex backtracking — its only
+ * possible output is a number or an error (see lib/expression.ts).
+ */
 export const paiseFromRupees = z
   .union([z.string(), z.number()])
   .transform((v, ctx) => {
-    let n: number;
-    try {
-      n = toPaise(v);
-    } catch {
-      n = NaN;
+    // Numbers keep the original, cheaper path — nothing to parse.
+    if (typeof v === "number") {
+      let n: number;
+      try {
+        n = toPaise(v);
+      } catch {
+        n = NaN;
+      }
+      if (!Number.isFinite(n) || n <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid amount" });
+        return z.NEVER;
+      }
+      return n;
     }
-    if (!Number.isFinite(n) || n <= 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid amount" });
+    const result = evaluateAmount(v);
+    if (!result.ok) {
+      // Surface the parser's own message ("Can't divide by zero", "Missing a
+      // closing bracket") — far more useful than a blanket "invalid amount".
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: result.error });
       return z.NEVER;
     }
-    return n;
+    return result.paise;
   });
 
 export const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date");

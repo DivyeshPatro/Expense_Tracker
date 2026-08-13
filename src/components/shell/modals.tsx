@@ -17,6 +17,7 @@ import {
   updateParticipantDetailsAction,
 } from "@/app/actions";
 import { friendlyDay, todayYMD } from "@/lib/dates";
+import { amountToPaise } from "@/lib/expression";
 import { formatPaise } from "@/lib/money";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import type { OpenLoanRow } from "@/server/services/lending";
@@ -124,7 +125,13 @@ export function Modals() {
     <div
       onClick={closeModal}
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-4"
-      style={{ background: "var(--ov)", paddingBottom: inset > 0 ? inset : undefined }}
+      // The OS keyboard shrinks visualViewport, so `inset` covers it. Ledgerly's
+      // own keypad doesn't — it publishes its height instead, and the sheet
+      // reserves that space so Save is never underneath it.
+      style={{
+        background: "var(--ov)",
+        paddingBottom: inset > 0 ? inset : "var(--keypad-h, 0px)",
+      }}
     >
       <div
         ref={panelRef}
@@ -135,7 +142,11 @@ export function Modals() {
         onClick={(e) => e.stopPropagation()}
         onFocus={onFocusIn}
         className="w-full md:w-[min(460px,100%)] max-h-[92dvh] md:max-h-[88vh] bg-card rounded-t-[18px] rounded-b-none md:rounded-2xl box-border flex flex-col outline-none overflow-hidden"
-        style={{ boxShadow: "var(--shLg)", animation: "rise .22s ease", maxHeight: inset > 0 && height ? `${height - 12}px` : undefined }}
+        style={{
+          boxShadow: "var(--shLg)",
+          animation: "rise .22s ease",
+          maxHeight: inset > 0 && height ? `${height - 12}px` : "calc(92dvh - var(--keypad-h, 0px))",
+        }}
       >
         <div className="flex justify-between items-center flex-none px-[22px] pt-[18px] pb-2">
           <div className="text-base font-extrabold tracking-tight">{TITLES[modal.type]}</div>
@@ -210,7 +221,9 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   // money is coming from — the one hidden field a user might actually check
   const accountName = refData.accounts.find((a) => a.id === accountId)?.name;
   const selected = sharedParticipants.filter((p) => parts[p.id]);
-  const amtPaise = Math.round((Number(amount) || 0) * 100);
+  // Expression-aware, so the submitted value never depends on whether blur
+  // fired before the tap on Save — see amountToPaise.
+  const amtPaise = amountToPaise(amount);
 
   function selectGroup(id: string) {
     setGroupId(id);

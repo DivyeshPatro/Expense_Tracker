@@ -129,13 +129,25 @@ export function TransactionsList({
       textQuery: filter.textQuery,
       importBatchId: filter.batch ?? undefined,
     };
-    const [result, tot] = await Promise.all([queryTransactionsAction(query, 0), txTotalsAction(query)]);
-    resultCache.current.set(filterKey(filter), { rows: result.rows, hasMore: result.hasMore, totals: tot });
-    setRows(result.rows);
-    setHasMore(result.hasMore);
-    setTotals(tot);
-    setPage(0);
-    setLoading(false);
+    // A server action is a network call, and this screen is explicitly
+    // offline-first. Unguarded, a rejected action (offline, a dropped
+    // connection, a dev-server recompile mid-request) became an unhandled
+    // "TypeError: Failed to fetch" AND left setLoading(false) unreached — so
+    // the list sat on a spinner forever with no way back.
+    try {
+      const [result, tot] = await Promise.all([queryTransactionsAction(query, 0), txTotalsAction(query)]);
+      resultCache.current.set(filterKey(filter), { rows: result.rows, hasMore: result.hasMore, totals: tot });
+      setRows(result.rows);
+      setHasMore(result.hasMore);
+      setTotals(tot);
+      setPage(0);
+    } catch {
+      // Keep whatever rows are already on screen rather than blanking the
+      // list: stale results beat an empty screen, and the next keystroke or
+      // reconnect retries anyway.
+    } finally {
+      setLoading(false);
+    }
   }
 
   // palette navigation ("Ask Ledgerly"), an Analytics category drill-down, the
@@ -208,14 +220,21 @@ export function TransactionsList({
   async function loadMore() {
     setLoading(true);
     const next = page + 1;
-    const result = await queryTransactionsAction(
-      { type: tab ?? undefined, monthKey: month ?? undefined, categoryId: category?.id, accountId: account?.id, period, textQuery: q, importBatchId: batch ?? undefined },
-      next
-    );
-    setRows((r) => [...r, ...result.rows]);
-    setHasMore(result.hasMore);
-    setPage(next);
-    setLoading(false);
+    // Same reasoning as refetch: a failed page fetch must not throw or strand
+    // the spinner. `hasMore` is left alone so the button stays available to retry.
+    try {
+      const result = await queryTransactionsAction(
+        { type: tab ?? undefined, monthKey: month ?? undefined, categoryId: category?.id, accountId: account?.id, period, textQuery: q, importBatchId: batch ?? undefined },
+        next
+      );
+      setRows((r) => [...r, ...result.rows]);
+      setHasMore(result.hasMore);
+      setPage(next);
+    } catch {
+      // keep the rows already loaded; the button remains for another try
+    } finally {
+      setLoading(false);
+    }
   }
 
   // a synced row can still have a queued edit/delete against it (spec §7):

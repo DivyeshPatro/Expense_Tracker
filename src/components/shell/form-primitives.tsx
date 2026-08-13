@@ -5,7 +5,8 @@
 // reuse never grows into coupling.
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, useId } from "react";
+import { useEffect, useRef, useState, useId } from "react";
+import { AmountKeypad, useCoarsePointer } from "./amount-keypad";
 import type { ActionResult } from "@/app/actions";
 import { evaluateAmount, looksLikeExpression } from "@/lib/expression";
 import { formatPaise } from "@/lib/money";
@@ -121,6 +122,25 @@ export function AmountInput({
   // Only evaluated for the preview; the stored value is normalised on blur.
   const result = isExpr ? evaluateAmount(trimmed) : null;
 
+  const inputRef = useRef<HTMLInputElement>(null);
+  const coarse = useCoarsePointer();
+  const [focused, setFocused] = useState(false);
+
+  // The modal auto-focuses this field on open, inside a rAF, which can land
+  // before React attaches the onFocus handler — so `focused` stayed false while
+  // the field WAS the active element. With inputMode="none" already suppressing
+  // the OS keyboard, that left a focused amount field with no keyboard and no
+  // keypad: nothing to type with at all, on the app's most common action.
+  // Checking activeElement on mount closes that gap; onFocus still handles
+  // every later focus.
+  useEffect(() => {
+    if (inputRef.current && document.activeElement === inputRef.current) setFocused(true);
+  }, []);
+  // Keypad only on touch, and only while the field is being used. On desktop a
+  // physical keyboard is faster than any grid, and the input stays typable on
+  // every device so assistive tech is never routed through a custom widget.
+  const showKeypad = coarse && focused && !disabled;
+
   // Resolve the expression to its result when the field loses focus, so every
   // existing caller keeps receiving a plain numeric string and nothing
   // downstream (toPaise, validation, the offline outbox) has to learn about
@@ -130,6 +150,79 @@ export function AmountInput({
     if (result?.ok) onChange(String(result.paise / 100));
   };
 
+  // Keypad edits are applied against these refs, not against the `value` prop
+  // and the live DOM caret.
+  //
+  // Why: `value` only updates when the parent re-renders, and the DOM caret is
+  // only repositioned on the next frame. Two taps landing before either
+  // catches up both read the same stale state, and the second overwrites the
+  // first — measured as eight taps producing "2500+1%", silently losing the 8.
+  // Dropped input is worse than lag, and a fast one-handed user is exactly who
+  // this feature is for. Refs update synchronously inside the handler, so a
+  // burst of taps composes correctly no matter how React schedules the renders.
+  const pendingRef = useRef(value);
+  const caretRef = useRef<number | null>(null);
+
+  // Resync whenever the value changes from outside the keypad — typing,
+  // merchant recall, a prefill, or `settle()` collapsing an expression.
+  useEffect(() => {
+    if (pendingRef.current !== value) {
+      pendingRef.current = value;
+      caretRef.current = null;
+    }
+  }, [value]);
+
+  /** Current caret, preferring our own tracked position over the lagging DOM. */
+  const readCaret = (): { start: number; end: number } => {
+    const el = inputRef.current;
+    const len = pendingRef.current.length;
+    if (caretRef.current !== null) return { start: caretRef.current, end: caretRef.current };
+    if (!el) return { start: len, end: len };
+    return { start: el.selectionStart ?? len, end: el.selectionEnd ?? len };
+  };
+
+  const commit = (next: string, caret: number) => {
+    pendingRef.current = next;
+    caretRef.current = caret;
+    onChange(next);
+    // Best-effort caret restore once React has committed the new value.
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(caret, caret));
+  };
+
+  /**
+   * Insert at the caret rather than appending, so tapping into the middle of
+   * "250+80" and adding a digit does what it looks like it does.
+   */
+  const insertAtCaret = (text: string) => {
+    const { start, end } = readCaret();
+    const cur = pendingRef.current;
+    commit(cur.slice(0, start) + text + cur.slice(end), start + text.length);
+  };
+
+  const backspaceAtCaret = () => {
+    const { start, end } = readCaret();
+    const cur = pendingRef.current;
+    // A selection deletes the selection; a caret deletes the character before it.
+    const from = start === end ? Math.max(0, start - 1) : start;
+    commit(cur.slice(0, from) + cur.slice(end), from);
+  };
+
+  const clearAll = () => commit("", 0);
+
+  // Suppressing the OS keyboard removes the only way to paste, and amounts get
+  // pasted out of UPI and bank SMS constantly — hence an explicit control.
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      // Keep only what the expression parser can read, so pasting a whole SMS
+      // yields the number in it rather than an error.
+      const cleaned = text.replace(/[^0-9+\-*/%().×÷\s]/g, "").trim();
+      if (cleaned) insertAtCaret(cleaned);
+    } catch {
+      // Denied permission or no clipboard API — the field is still typable.
+    }
+  };
+
   return (
     <>
       <input
@@ -137,12 +230,30 @@ export function AmountInput({
         // "(" and "%" so the expression could never be typed. It also drops
         // the spinner arrows (meaningless for currency) and the scroll-wheel
         // capture that could change an amount while scrolling past it.
+        ref={inputRef}
         type="text"
-        inputMode="decimal"
+        // "none" suppresses the OS keyboard so only Ledgerly's keypad shows —
+        // but only on touch. Desktop and any device without a coarse pointer
+        // keep "decimal" and behave exactly as before.
+        inputMode={coarse ? "none" : "decimal"}
+        onFocus={() => setFocused(true)}
         autoComplete="off"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={settle}
+        onChange={(e) => {
+          // Typed input moves the caret itself; drop our tracked position so
+          // the next keypad press reads the real one.
+          caretRef.current = null;
+          pendingRef.current = e.target.value;
+          onChange(e.target.value);
+        }}
+        onBlur={(e) => {
+          settle();
+          // A keypad key preventDefaults mousedown so focus never leaves — but
+          // taps elsewhere should close it. relatedTarget is the element being
+          // focused next; null (or outside the group) means we're really gone.
+          const next = e.relatedTarget as HTMLElement | null;
+          if (!next?.closest?.('[aria-label="Amount keypad"]')) setFocused(false);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") settle();
         }}
@@ -168,6 +279,14 @@ export function AmountInput({
         >
           {result.ok ? `= ${formatPaise(result.paise)}` : result.error}
         </div>
+      )}
+      {showKeypad && (
+        <AmountKeypad
+          onInsert={insertAtCaret}
+          onBackspace={backspaceAtCaret}
+          onClear={clearAll}
+          onPaste={pasteFromClipboard}
+        />
       )}
     </>
   );

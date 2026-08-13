@@ -206,6 +206,22 @@ function evaluate(n: Node): number {
   }
 }
 
+/**
+ * The paise a form should submit for whatever is currently in an amount field,
+ * expression or not. 0 when it isn't a usable amount, matching the
+ * `Number(x) || 0` idiom the forms used before.
+ *
+ * Exists because resolving the expression only on blur made submission depend
+ * on event ordering: any path that submits without blurring first sent the raw
+ * "2500+18%" into validation, which then reported "Enter a valid amount" while
+ * the preview directly above it read "= ₹2,950". Reading through this instead
+ * makes the submitted value independent of focus entirely.
+ */
+export function amountToPaise(raw: string): Paise {
+  const r = evaluateAmount(raw);
+  return r.ok ? r.paise : 0;
+}
+
 /** Does this input use any arithmetic, or is it just a number? Drives whether the preview shows. */
 export function looksLikeExpression(raw: string): boolean {
   return /[+\-*/%()×÷xX]/.test(raw.replace(/^\s*-/, ""));
