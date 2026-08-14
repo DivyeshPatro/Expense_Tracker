@@ -69,6 +69,8 @@ export function BottomSheet({
   z?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Did this gesture start on the backdrop? See the overlay's onClick.
+  const backdropDown = useRef(false);
   const vv = useVisualViewport();
   useFocusTrap(ref, true);
   useEffect(() => {
@@ -88,7 +90,18 @@ export function BottomSheet({
 
   return createPortal(
     <div
-      onClick={onClose}
+      // Same guard as the transaction modal: dismiss only when the gesture both
+      // started AND ended on the backdrop. A bare onClick also fires when a
+      // press begins inside the sheet and finishes outside it — because the
+      // layout shifted, or because a text selection was dragged out — closing
+      // the sheet and discarding whatever was being entered.
+      onPointerDown={(e) => {
+        backdropDown.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropDown.current) onClose();
+        backdropDown.current = false;
+      }}
       className="fixed left-0 right-0 flex items-end md:items-center md:justify-center"
       style={{
         background: "var(--ov)",

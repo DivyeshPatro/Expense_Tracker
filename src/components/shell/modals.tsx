@@ -86,6 +86,8 @@ export function Modals() {
   const { modal, closeModal } = useUI();
   const panelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // Did this gesture start on the backdrop? See the overlay's onClick.
+  const backdropDown = useRef(false);
   const { inset, height } = useKeyboardInset();
   useFocusTrap(panelRef, !!modal);
   // #196: this used to be `panelRef.current?.focus()`, which ran after mount
@@ -123,7 +125,23 @@ export function Modals() {
   };
   return (
     <div
-      onClick={closeModal}
+      // Close only when the gesture BEGAN on the backdrop as well as ending
+      // there. A bare onClick closes on any click that happens to land on the
+      // backdrop — including one that started on a control inside the sheet and
+      // ended on the backdrop because the layout moved underneath the finger.
+      //
+      // That was not hypothetical: tapping Merchant blurred the amount field,
+      // which unmounted the keypad, which removed --keypad-h, which dropped the
+      // sheet ~293px mid-gesture. The tap landed on backdrop and closed the
+      // whole form, stranding the merchant datalist on screen. The same class
+      // of bug bites text selection dragged from inside a dialog to outside it.
+      onPointerDown={(e) => {
+        backdropDown.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropDown.current) closeModal();
+        backdropDown.current = false;
+      }}
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-4"
       // The OS keyboard shrinks visualViewport, so `inset` covers it. Ledgerly's
       // own keypad doesn't — it publishes its height instead, and the sheet

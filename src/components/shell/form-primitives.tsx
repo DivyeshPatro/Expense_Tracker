@@ -252,7 +252,13 @@ export function AmountInput({
           // taps elsewhere should close it. relatedTarget is the element being
           // focused next; null (or outside the group) means we're really gone.
           const next = e.relatedTarget as HTMLElement | null;
-          if (!next?.closest?.('[aria-label="Amount keypad"]')) setFocused(false);
+          if (next?.closest?.('[aria-label="Amount keypad"]')) return;
+          // Deferred, not immediate: unmounting the keypad removes ~293px of
+          // reserved space and the sheet drops that far. Doing it synchronously
+          // on blur moves the layout BETWEEN pointerdown and click, so the tap
+          // that was aimed at Merchant landed on backdrop instead. Waiting for
+          // the current gesture to finish keeps the target under the finger.
+          setTimeout(() => setFocused(false), 0);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") settle();
