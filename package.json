@@ -35,6 +35,8 @@
     "e2e:collab": "tsx scripts/e2e-collab-foundation.ts && tsx scripts/e2e-collab-ui.ts && tsx scripts/e2e-collab-offline.ts",
     "e2e:audit-phaseA": "tsx scripts/e2e-toctou-race.ts && tsx scripts/e2e-phaseA-ui.ts",
     "e2e:group-expenses": "tsx scripts/e2e-group-expenses.ts",
+    "e2e:group-rehome": "tsx scripts/e2e-group-rehome.ts",
+    "e2e:participant-merge": "tsx scripts/e2e-participant-merge.ts",
     "e2e:datepicker": "node scripts/e2e-datepicker.mjs",
     "e2e:lending": "tsx scripts/e2e-lending.ts",
     "e2e:lending-settlement": "tsx scripts/e2e-lending-settlement.ts",

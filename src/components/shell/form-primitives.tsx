@@ -303,11 +303,16 @@ export function SubmitButton({
   color,
   children,
   onClick,
+  disabled,
 }: {
   busy: boolean;
   color?: string;
   children: React.ReactNode;
   onClick: () => void;
+  /** Blocks submission for a reason the form has already explained on screen
+   *  (e.g. an unanswered group question). Kept separate from `busy` so the
+   *  label still reads normally instead of showing the spinner ellipsis. */
+  disabled?: boolean;
 }) {
   // Sticky footer flush to the bottom of the modal's scroll body: `-mb`
   // cancels the body's bottom padding so it sits at the true edge, a matching
@@ -318,8 +323,8 @@ export function SubmitButton({
     <div className="sticky bottom-0 -mx-[22px] -mb-[22px] mt-1 px-[22px] pt-2.5 bg-card border-t border-line z-10" style={{ paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}>
       <button
         onClick={onClick}
-        disabled={busy}
-        className="w-full min-h-[48px] p-3.5 rounded-[12px] text-white text-[14px] font-bold text-center cursor-pointer border-none hover:brightness-108 disabled:opacity-60"
+        disabled={busy || disabled}
+        className="w-full min-h-[48px] p-3.5 rounded-[12px] text-white text-[14px] font-bold text-center cursor-pointer border-none hover:brightness-108 disabled:opacity-60 disabled:cursor-not-allowed"
         style={{ background: color ?? "var(--acc)" }}
       >
         {busy ? "…" : children}

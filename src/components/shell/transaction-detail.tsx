@@ -39,11 +39,13 @@ import {
   entityHistoryAction,
   getTransactionDetailAction,
   undoDeleteAction,
+  rehomeExpenseAction,
   updateExpenseAction,
 } from "@/app/actions";
 import { formatDiffRow, type TimelineEvent } from "@/lib/activity";
 import { amountToPaise } from "@/lib/expression";
 import { friendlyDay } from "@/lib/dates";
+import { inferGroupForMembers } from "@/lib/group-inference";
 import { formatPaise } from "@/lib/money";
 import type { TransactionDetail } from "@/server/services/transactions";
 import { DateField } from "./date-field";
@@ -206,6 +208,14 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
           </span>
           {detail.viewerRole && <span className="font-semibold text-acc">{detail.viewerRole}</span>}
         </div>
+      )}
+
+      {/* v2.1 repair affordance: a split expense sitting outside any group is
+          the exact shape of the production bug — the group dashboard cannot
+          see it. Offered here, in read mode, so fixing it is one tap and does
+          not require opening the editor (which would rewrite the split rows). */}
+      {!detail.groupId && detail.type === "EXPENSE" && detail.splits.length > 0 && detail.isOwner && (
+        <RehomePrompt detail={detail} />
       )}
 
       {queued && (
@@ -779,12 +789,89 @@ function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail
   );
 }
 
+/** v2.1: "this split isn't in a group — should it be?"
+ *
+ *  Moving from here calls rehomeExpenseAction, which issues a single-column
+ *  UPDATE on Transaction.groupId. No amount, payer, participant or split row is
+ *  rewritten, so every balance is arithmetically identical afterwards — only
+ *  which dashboard can see the expense changes. That guarantee is stated on
+ *  screen because the user is being asked to trust it. */
+function RehomePrompt({ detail }: { detail: TransactionDetail }) {
+  const { refData } = useUI();
+  const { run, busy, error } = useSubmit();
+  const [open, setOpen] = useState(false);
+
+  const memberIds = detail.splits.map((s) => s.participantId).filter((id): id is string => !!id);
+  const inference = inferGroupForMembers(memberIds, refData.groups);
+  if (refData.groups.length === 0) return null;
+
+  const suggested = inference.kind === "one" ? inference : null;
+
+  return (
+    <div className="rounded-[9px] px-3 py-2.5 flex flex-col gap-2" style={{ background: "var(--accSoft)" }}>
+      <div className="text-[12px] font-semibold" style={{ color: "var(--acc)" }}>
+        {suggested
+          ? `Everyone in this split is in ${suggested.groupName}, but this expense isn't — so it's missing from that group's totals.`
+          : "This split isn't part of any group, so it won't appear on a group's dashboard."}
+      </div>
+      {!open ? (
+        <div className="flex gap-1.5 flex-wrap">
+          {suggested && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => run(() => rehomeExpenseAction({ id: detail.id, groupId: suggested.groupId }), `Moved to ${suggested.groupName}`)}
+              className="px-3 py-1.5 rounded-full text-[12px] font-bold cursor-pointer border-none text-white disabled:opacity-60"
+              style={{ background: "var(--acc)" }}
+            >
+              Move to {suggested.groupName}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="px-3 py-1.5 rounded-full text-[12px] font-semibold cursor-pointer border bg-card"
+            style={{ borderColor: "var(--acc)", color: "var(--acc)" }}
+          >
+            {suggested ? "Choose another group" : "Move to a group"}
+          </button>
+        </div>
+      ) : (
+        <select
+          className="field"
+          aria-label="Move to group"
+          defaultValue=""
+          disabled={busy}
+          onChange={(e) => {
+            const gid = e.target.value;
+            if (!gid) return;
+            const name = refData.groups.find((g) => g.id === gid)?.name ?? "the group";
+            run(() => rehomeExpenseAction({ id: detail.id, groupId: gid }), `Moved to ${name}`);
+          }}
+        >
+          <option value="">Pick a group…</option>
+          {refData.groups.map((g) => (
+            <option key={g.id} value={g.id}>🏠 {g.name}</option>
+          ))}
+        </select>
+      )}
+      <div className="text-[11px] text-mut2">
+        Only the group changes — the amount, who paid and every person&apos;s share stay exactly the same.
+      </div>
+      <ErrorNote error={error} />
+    </div>
+  );
+}
+
 // ─────────── Edit: Expense ───────────
 
 function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDetail; prefill?: Record<string, unknown>; onCancel: () => void }) {
   const { refData } = useUI();
-  // #69: split among Shared friends only (Lending-only contacts excluded).
-  const sharedParticipants = refData.participants.filter((p) => !p.lendingOnly);
+  // v2.1: Lending contacts are no longer excluded here — see the matching note
+  // in modals.tsx. Hiding them is what forced a duplicate person into being,
+  // and the edit form must offer the same roster as the create form or a split
+  // could not be edited back to the contact it should have used.
+  const sharedParticipants = refData.participants;
   const { enqueueMutation } = useOffline();
   const { run, busy, error } = useSubmit();
   const pre = prefill as { amount?: string; accountId?: string | null; categoryId?: string | null; merchant?: string; date?: string; notes?: string } | undefined;
@@ -794,6 +881,11 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
   const [merchant, setMerchant] = useState(pre?.merchant ?? detail.merchant);
   const [date, setDate] = useState(pre?.date ?? detail.ymd);
   const [notes, setNotes] = useState(pre?.notes ?? detail.notes ?? "");
+  // v2.1 repair path: an expense's group is now editable. Unlike the create
+  // form this never auto-applies an inferred group — quietly re-homing a row
+  // the user only opened to fix a typo would be its own nasty surprise. It
+  // suggests, and the user decides.
+  const [groupId, setGroupId] = useState(detail.groupId ?? "");
 
   const hadSplit = detail.splits.length > 0;
   // PERCENT/RATIO store only the resulting paise amount, not the original
@@ -815,9 +907,23 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
   const selected = sharedParticipants.filter((p) => parts[p.id]);
+  const selectedIds = selected.map((p) => p.id);
   // Expression-aware, so the submitted value never depends on whether blur
   // fired before the tap on Save — see amountToPaise.
   const amtPaise = amountToPaise(amount);
+
+  // The repair affordance for an expense split among a group's members but
+  // saved as personal: offered as a one-tap suggestion, never applied for you.
+  const inference = inferGroupForMembers(selectedIds, refData.groups);
+  const suggestedGroup = !groupId && split && inference.kind === "one" ? inference : null;
+
+  function changeGroup(id: string) {
+    setGroupId(id);
+    // Categories are namespaced per group (group-expenses-sprint §10) and the
+    // server rejects a category from the wrong one, so the pick is reset and
+    // the picker below switches namespace with it.
+    setCategoryId("");
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -836,9 +942,11 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
           {/* group-expenses-sprint: a group-tagged expense is labeled from the
               group's own category namespace, not the owner's personal list —
               "group expenses should not use personal categories" applies
-              regardless of who's editing, owner included */}
-          {detail.groupId ? (
-            <GroupCategorySelect groupId={detail.groupId} value={categoryId} onChange={setCategoryId} />
+              regardless of who's editing, owner included.
+              v2.1: follows the live `groupId`, not `detail.groupId`, so
+              re-homing swaps the namespace in the same edit. */}
+          {groupId ? (
+            <GroupCategorySelect groupId={groupId} value={categoryId} onChange={setCategoryId} />
           ) : (
             <select className="field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
               {refData.expenseCategories.map((c) => (
@@ -862,6 +970,36 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
 
       <SplitEditor state={splitState} amtPaise={amtPaise} participants={sharedParticipants} />
 
+      {/* v2.1: the group is editable here — this is the repair path for an
+          expense that was split with a group's members but saved as personal.
+          Shown whenever the row already has a group or is a split, since those
+          are the only cases where the answer matters. */}
+      {refData.groups.length > 0 && (split || !!detail.groupId) && (
+        <Field label="GROUP">
+          <select className="field" aria-label="Group" value={groupId} onChange={(e) => changeGroup(e.target.value)}>
+            <option value="">Personal (not in a group)</option>
+            {refData.groups.map((g) => (
+              <option key={g.id} value={g.id}>🏠 {g.name}</option>
+            ))}
+          </select>
+          {suggestedGroup && (
+            <button
+              type="button"
+              onClick={() => changeGroup(suggestedGroup.groupId)}
+              className="text-[11.5px] font-semibold mt-1.5 rounded-lg px-2.5 py-2 w-full text-left cursor-pointer border-none"
+              style={{ color: "var(--acc)", background: "var(--accSoft)" }}
+            >
+              Everyone in this split is in <strong>{suggestedGroup.groupName}</strong> — move it there?
+            </button>
+          )}
+          {groupId !== (detail.groupId ?? "") && (
+            <div className="text-[11.5px] font-semibold text-mut mt-1.5">
+              Only the group changes. Amount, who paid and every person&apos;s share stay exactly as they are.
+            </div>
+          )}
+        </Field>
+      )}
+
       <ErrorNote error={error} />
       <div className="flex gap-2.5">
         <button onClick={onCancel} className="flex-1 p-3 rounded-[10px] text-[13.5px] font-bold text-center cursor-pointer border border-line2 bg-card hover:bg-accsoft">
@@ -879,7 +1017,11 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
                   merchant,
                   date,
                   notes: notes || undefined,
-                  split: buildSplitPayload(splitState, selected.map((p) => p.id)),
+                  split: buildSplitPayload(splitState, selectedIds),
+                  // v2.1: sent explicitly so re-homing works. Unchanged in the
+                  // common case, and the server keeps the existing value when
+                  // this equals it — an ordinary edit never moves the row.
+                  groupId: groupId || null,
                 };
                 // a split touches other participants' balances — needs the
                 // server's validation, same restriction as creating one (Phase 1/2)

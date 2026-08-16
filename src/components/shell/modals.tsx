@@ -18,6 +18,8 @@ import {
 } from "@/app/actions";
 import { friendlyDay, todayYMD } from "@/lib/dates";
 import { amountToPaise } from "@/lib/expression";
+import { findDuplicateContacts } from "@/lib/duplicate-contact";
+import { inferGroupForMembers, needsExplicitGroupChoice, type GroupInference } from "@/lib/group-inference";
 import { formatPaise } from "@/lib/money";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import type { OpenLoanRow } from "@/server/services/lending";
@@ -194,13 +196,71 @@ export function Modals() {
   );
 }
 
+// ─────────── Group field (shared by Add and Edit expense) ───────────
+
+/** The GROUP selector as it appears for a shared expense: always visible, never
+ *  silently defaulted, and explicit about which of the three states it is in —
+ *  auto-filled from the people picked, awaiting an answer because the people
+ *  imply more than one group, or plainly personal. */
+function GroupField({
+  groupId,
+  groups,
+  onSelect,
+  inference,
+  mustChoose,
+  autoApplied,
+}: {
+  groupId: string;
+  groups: { id: string; name: string }[];
+  onSelect: (id: string) => void;
+  inference: GroupInference;
+  mustChoose: boolean;
+  autoApplied: boolean;
+}) {
+  const chosen = groups.find((g) => g.id === groupId);
+  return (
+    <Field label="GROUP">
+      <select
+        className="field"
+        aria-label="Group"
+        aria-invalid={mustChoose || undefined}
+        value={groupId}
+        onChange={(e) => onSelect(e.target.value)}
+        style={mustChoose ? { borderColor: "var(--amber)" } : undefined}
+      >
+        <option value="">Personal (not in a group)</option>
+        {groups.map((g) => (
+          <option key={g.id} value={g.id}>🏠 {g.name}</option>
+        ))}
+      </select>
+      {mustChoose && (
+        <div className="text-[11.5px] font-semibold mt-1.5 rounded-lg px-2.5 py-2" style={{ color: "var(--amber)", background: "var(--amberSoft, var(--accSoft))" }}>
+          These people are in{" "}
+          {inference.kind === "ambiguous" ? inference.candidates.map((c) => c.name).join(" and ") : "more than one group"} — pick which
+          one this expense belongs to, or choose Personal.
+        </div>
+      )}
+      {!mustChoose && autoApplied && chosen && (
+        <div className="text-[11.5px] font-semibold text-mut mt-1.5">
+          Added to <span className="text-acc">{chosen.name}</span> because everyone you picked is in it. Change it above if that&apos;s wrong.
+        </div>
+      )}
+    </Field>
+  );
+}
+
 // ─────────── Expense (with split) ───────────
 
 function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
-  // #69: split with Shared friends only — Lending-only contacts (imported
-  // khatas) don't belong in the split picker.
-  const sharedParticipants = refData.participants.filter((p) => !p.lendingOnly);
+  // #69 used to hide Lending-only contacts (imported khatas) from this picker.
+  // v2.1 reverses that: it was the direct cause of a duplicate person. An
+  // imported contact was unreachable here, so the owner created a second
+  // record under the same name and the one human accumulated two separate
+  // balances. A Lending contact is a real person you can genuinely split with;
+  // they are now listed, marked with a "Lending" badge (same treatment the
+  // group member picker already gave them) rather than withheld.
+  const sharedParticipants = refData.participants;
   const { createViaOutbox } = useOffline();
   const { run, busy, error } = useSubmit();
   const [amount, setAmount] = useState(prefill?.dupAmountRupees ?? "");
@@ -218,11 +278,29 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   const [date, setDate] = useState(todayYMD());
   const [notes, setNotes] = useState(prefill?.dupNotes ?? "");
   const [groupId, setGroupId] = useState(prefill?.dupGroupId ?? ""); // "" = personal — collaboration-architecture-rfc §2/§4 (migration step 4)
+  // v2.1: has the user answered the group question themselves? Set by picking
+  // anything in the GROUP select (including "Personal"), and pre-set when the
+  // caller already decided — the group-first Add Expense button, or duplicating
+  // a row that had a group. Until then, inference is free to fill it in; after,
+  // a deliberate choice is never overridden by a guess.
+  const groupTouched = useRef(!!prefill?.dupGroupId);
   const [split, setSplit] = useState(!!prefill?.split);
   const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">("EQUAL");
-  const [parts, setParts] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(sharedParticipants.slice(0, 2).map((p) => [p.id, !!prefill?.split]))
-  );
+  const [parts, setParts] = useState<Record<string, boolean>>(() => {
+    // #66 group-first, completed in v2.1. Picking a group IN the form calls
+    // selectGroup(), which pre-selects that group's members — but arriving with
+    // the group already chosen (the group page's "Add expense" button, or
+    // duplicating a group expense) skipped that entirely and fell through to
+    // "the first two contacts alphabetically". A group expense would then split
+    // with whoever happened to sort first unless the user noticed and fixed it
+    // by hand. Same roster either way now.
+    const g = prefill?.dupGroupId ? refData.groups.find((gr) => gr.id === prefill.dupGroupId) : undefined;
+    if (g) {
+      const memberIds = g.memberIds.filter((mid) => sharedParticipants.some((p) => p.id === mid));
+      if (memberIds.length) return Object.fromEntries(memberIds.map((mid) => [mid, true]));
+    }
+    return Object.fromEntries(sharedParticipants.slice(0, 2).map((p) => [p.id, !!prefill?.split]));
+  });
   const [exact, setExact] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   // group-expenses-sprint: who actually paid — null = "Me". The expense's
@@ -243,7 +321,33 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   // fired before the tap on Save — see amountToPaise.
   const amtPaise = amountToPaise(amount);
 
+  // v2.1 members -> group. A guess, so it only lands when exactly one group
+  // contains everyone picked, and it never overrides a deliberate choice.
+  // When the people no longer imply the inferred group we clear it rather than
+  // leaving a stale tag on the row — but only if the user never chose it.
+  const selectedIds = selected.map((p) => p.id);
+  const inference = inferGroupForMembers(selectedIds, refData.groups);
+  // Collapses the inference to a primitive so the effect runs on a real change
+  // of outcome, not on every render's freshly-allocated object.
+  const inferenceKey = `${split}|${inference.kind}|${inference.kind === "one" ? inference.groupId : ""}`;
+  useEffect(() => {
+    if (groupTouched.current || !split) return;
+    const next = inference.kind === "one" ? inference.groupId : "";
+    if (next === groupId) return;
+    setGroupId(next);
+    setCategoryId(""); // group and personal categories are separate namespaces
+    // groupId is deliberately not a dependency: this reacts to the inference
+    // changing, never to the value it just wrote.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inferenceKey]);
+
+  // Several groups contain everyone picked and the user hasn't said which —
+  // requirement 6: do not guess, ask. Saving is blocked until they answer,
+  // because the alternative (quietly saving as Personal) is the original bug.
+  const mustChooseGroup = needsExplicitGroupChoice(inference, groupTouched.current);
+
   function selectGroup(id: string) {
+    groupTouched.current = true;
     setGroupId(id);
     // group-expenses-sprint: a category id from the wrong namespace (personal,
     // or a different group) must never silently ride along across a group switch
@@ -314,6 +418,23 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
         )}
       </Field>
 
+      {/* v2.1 requirement 3: once this is a shared expense, GROUP is a primary
+          decision and must be visible. It used to live collapsed inside
+          Advanced defaulting to Personal, which is how four expenses split
+          among a group's members were saved as personal and vanished from the
+          group dashboard. When Split is off this stays in Advanced, so a plain
+          personal expense is exactly as uncluttered as before. */}
+      {split && refData.groups.length > 0 && (
+        <GroupField
+          groupId={groupId}
+          groups={refData.groups}
+          onSelect={selectGroup}
+          inference={inference}
+          mustChoose={mustChooseGroup}
+          autoApplied={!groupTouched.current && !!groupId}
+        />
+      )}
+
       <AdvancedFields
         hint={accountName}
         // opened when the caller pre-filled something in here (duplicate, or a
@@ -341,7 +462,9 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
         <Field label="NOTES">
           <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
         </Field>
-        {refData.groups.length > 0 && (
+        {/* Only when Split is off — otherwise it is rendered above, outside
+            Advanced, and showing it twice would let the two disagree. */}
+        {!split && refData.groups.length > 0 && (
           <Field label="GROUP">
             <select className="field" value={groupId} onChange={(e) => selectGroup(e.target.value)}>
               <option value="">Personal (not in a group)</option>
@@ -363,6 +486,10 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
+        // Requirement 6: an ambiguous group is asked, never guessed — and
+        // requirement 4: it must not quietly fall through to Personal either,
+        // so saving waits for the answer.
+        disabled={mustChooseGroup}
         onClick={() =>
           run(
             () => {
@@ -373,7 +500,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
                 merchant,
                 date,
                 notes: notes || undefined,
-                split: buildSplitPayload(splitState, selected.map((p) => p.id)),
+                split: buildSplitPayload(splitState, selectedIds),
                 groupId: groupId || null,
               };
               // Phase 1 queues solo creates only (spec §17); a split touches
@@ -729,6 +856,7 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
   if (participantId === NEW_CONTACT) {
     return (
       <NewContactInline
+        existingContacts={allParticipants}
         onCreated={(p) => {
           setJustCreated((list) => [...list, p]);
           setParticipantId(p.id);
@@ -852,7 +980,60 @@ function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
  * followed by updateParticipantDetailsAction only if an optional field was
  * actually filled in, so a bare-name contact doesn't trigger a pointless
  * second write. */
-function NewContactInline({ onCreated, onCancel }: { onCreated: (p: { id: string; name: string }) => void; onCancel: () => void }) {
+/** v2.1: the duplicate guard for every "create a person" field.
+ *
+ *  Warns that the typed name already exists and offers those contacts by ID,
+ *  so picking one reuses the real record instead of minting a second identity
+ *  for the same human. Creating anyway stays available — two people really can
+ *  share a name — but it becomes a deliberate act rather than the default.
+ *  Nothing is merged, renamed or blocked here. */
+function DuplicateContactWarning({
+  name,
+  contacts,
+  onUseExisting,
+}: {
+  name: string;
+  contacts: { id: string; name: string }[];
+  onUseExisting?: (p: { id: string; name: string }) => void;
+}) {
+  const matches = findDuplicateContacts(name, contacts);
+  if (matches.length === 0) return null;
+  const exact = matches.some((m) => m.kind === "exact");
+  return (
+    <div className="rounded-lg px-3 py-2.5 flex flex-col gap-2" style={{ background: "var(--accSoft)" }}>
+      <div className="text-[12px] font-semibold" style={{ color: "var(--acc)" }}>
+        {exact ? `You already have a contact called "${matches[0].name}".` : "You already have someone with a very similar name."}{" "}
+        {onUseExisting ? "Use them instead of creating a second record?" : "Check before adding a second one."}
+      </div>
+      {onUseExisting && (
+        <div className="flex gap-1.5 flex-wrap">
+          {matches.slice(0, 4).map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onUseExisting({ id: m.id, name: m.name })}
+              className="px-2.5 py-1.5 rounded-full text-[12px] font-semibold cursor-pointer border bg-card"
+              style={{ borderColor: "var(--acc)", color: "var(--acc)" }}
+            >
+              Use {m.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewContactInline({
+  onCreated,
+  onCancel,
+  existingContacts = [],
+}: {
+  onCreated: (p: { id: string; name: string }) => void;
+  onCancel: () => void;
+  /** Every contact the user already has, for the duplicate check. */
+  existingContacts?: { id: string; name: string }[];
+}) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [photo, setPhoto] = useState("");
@@ -897,6 +1078,9 @@ function NewContactInline({ onCreated, onCancel }: { onCreated: (p: { id: string
       <Field label="NAME">
         <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rohan" autoFocus />
       </Field>
+      {/* Selecting an existing contact hands back that contact's real ID, so
+          the caller links the person it already has instead of duplicating. */}
+      <DuplicateContactWarning name={name} contacts={existingContacts} onUseExisting={onCreated} />
       <Field label="PHONE (OPTIONAL)">
         <input className="field" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" />
       </Field>
@@ -908,7 +1092,7 @@ function NewContactInline({ onCreated, onCancel }: { onCreated: (p: { id: string
       </Field>
       <ErrorNote error={error} />
       <SubmitButton busy={busy} onClick={create}>
-        Create & continue
+        {findDuplicateContacts(name, existingContacts).length > 0 ? "Create a separate contact anyway" : "Create & continue"}
       </SubmitButton>
     </div>
   );
@@ -1220,8 +1404,10 @@ function BillForm() {
 // ─────────── Friend ───────────
 
 function FriendForm() {
+  const { refData } = useUI();
   const { run, busy, error } = useSubmit();
   const [name, setName] = useState("");
+  const duplicates = findDuplicateContacts(name, refData.participants);
   return (
     <div className="flex flex-col gap-3">
       <div className="text-[12.5px] text-mut">
@@ -1230,9 +1416,13 @@ function FriendForm() {
       <Field label="NAME">
         <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rohan" autoFocus />
       </Field>
+      {/* No "use this one" action here: this form's only job is creating a
+          contact, and there is no caller waiting on an id. The warning alone
+          is what stops a second Blake. */}
+      <DuplicateContactWarning name={name} contacts={refData.participants} />
       <ErrorNote error={error} />
       <SubmitButton busy={busy} onClick={() => run(() => addParticipantAction({ displayName: name }), "Friend added")}>
-        Add friend
+        {duplicates.length > 0 ? "Add as a separate person" : "Add friend"}
       </SubmitButton>
     </div>
   );
@@ -1268,6 +1458,7 @@ function GroupForm() {
   if (addingMember) {
     return (
       <NewContactInline
+        existingContacts={members}
         onCreated={(p) => {
           setJustCreated((list) => [...list, p]);
           setParts((s) => ({ ...s, [p.id]: true }));

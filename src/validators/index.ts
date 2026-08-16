@@ -79,9 +79,12 @@ export const expenseSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   paymentMethod: z.string().trim().max(40).optional(),
   split: splitSchema.optional(),
-  // collaboration-architecture-rfc §2/§4 (migration step 4): create-time
-  // only — tags the row as collaborative, gated server-side by
-  // assertCanCreateInGroup. Never reassigned by an edit (rfc §4).
+  // collaboration-architecture-rfc §2/§4 (migration step 4): tags the row as
+  // collaborative, gated server-side by assertCanCreateInGroup.
+  // v2.1: an edit MAY now reassign this (resolveGroupReassignment), which is
+  // what makes an expense split with a group's members but saved as personal
+  // repairable from the UI. Omitting the key still means "leave it alone" —
+  // only an explicitly sent value can move a row between groups.
   groupId: z.string().min(1).nullable().optional(),
 });
 
@@ -121,6 +124,14 @@ export const transferSchema = z.object({
 
 export const incomeWithIntentSchema = incomeSchema.extend({ intent: intentMetaSchema.optional() });
 export const transferWithIntentSchema = transferSchema.extend({ intent: intentMetaSchema.optional() });
+
+/** v2.1 re-home: the minimal payload for moving an expense between a group and
+ *  Personal. `null` means Personal. Deliberately carries nothing else, so this
+ *  endpoint physically cannot alter an amount, payer or split. */
+export const rehomeExpenseSchema = z.object({
+  id: z.string().min(1),
+  groupId: z.string().min(1).nullable(),
+});
 
 export const updateExpenseSchema = z.object({ id: z.string().min(1) }).merge(expenseSchema);
 export const updateIncomeSchema = z.object({ id: z.string().min(1) }).merge(incomeSchema);

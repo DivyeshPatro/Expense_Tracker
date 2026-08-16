@@ -181,6 +181,136 @@ export async function settlementHistory(userId: string): Promise<{ id: string; p
   }));
 }
 
+/** Thrown when a merge is asked to do something it cannot do safely. */
+export class MergeConflictError extends Error {}
+
+export interface MergeResult {
+  repointedSplits: string[];
+  repointedLoanEntries: string[];
+  repointedSettlements: string[];
+  /** Memberships moved to the canonical record. */
+  movedMemberships: string[];
+  /** Memberships dropped because the canonical record was already a member. */
+  redundantMemberships: string[];
+  duplicateDeleted: boolean;
+}
+
+/**
+ * v2.1 — fold a duplicate Participant into a canonical one.
+ *
+ * Two records for one human is not hypothetical: an imported lending contact
+ * was hidden from the split picker, a second record was created under the same
+ * name, and one person ended up carrying two separate balances instead of one.
+ * This is the repair, made first-class so it is testable and repeatable rather
+ * than a one-off script.
+ *
+ * ORDER IS LOAD-BEARING. `ExpenseSplit.participantId` is nullable with
+ * ON DELETE SET NULL, and every balance reader treats a null participant as
+ * *the owner's own share*. Deleting the duplicate before repointing would
+ * therefore not error — it would silently convert that person's debt into the
+ * owner's own and quietly shrink what everyone owes. Every reference is
+ * repointed and asserted to zero BEFORE the delete is even attempted.
+ *
+ * No amount is ever written. Only which participant a row points at changes,
+ * so every balance is the arithmetic sum of the two originals.
+ */
+export async function mergeParticipants(userId: string, canonicalId: string, duplicateId: string): Promise<MergeResult> {
+  if (canonicalId === duplicateId) throw new MergeConflictError("Cannot merge a contact into itself.");
+
+  return prisma.$transaction(async (db) => {
+    const [canonical, duplicate] = await Promise.all([
+      db.participant.findFirst({ where: { id: canonicalId, ownerId: userId } }),
+      db.participant.findFirst({ where: { id: duplicateId, ownerId: userId } }),
+    ]);
+    if (!canonical) throw new MergeConflictError("Canonical contact not found.");
+    if (!duplicate) throw new MergeConflictError("Duplicate contact not found.");
+
+    // Both linked to real — and different — users means these are provably two
+    // different people, whatever the display names say. Never merge those.
+    if (canonical.linkedUserId && duplicate.linkedUserId && canonical.linkedUserId !== duplicate.linkedUserId) {
+      throw new MergeConflictError("These contacts are linked to two different user accounts — they are not the same person.");
+    }
+
+    // A single expense holding both records would collapse into two split rows
+    // for one person. That is a real conflict, not something to guess at.
+    const shared = await db.expenseSplit.findMany({ where: { participantId: canonicalId }, select: { txId: true } });
+    const dupSplits = await db.expenseSplit.findMany({ where: { participantId: duplicateId }, select: { id: true, txId: true } });
+    const canonicalTxIds = new Set(shared.map((s) => s.txId));
+    const collision = dupSplits.find((s) => canonicalTxIds.has(s.txId));
+    if (collision) {
+      throw new MergeConflictError(
+        "Both contacts appear on the same expense, so they are not the same person — resolve that expense first."
+      );
+    }
+
+    // ── repoint everything BEFORE any delete ──────────────────────────────
+    await db.expenseSplit.updateMany({ where: { participantId: duplicateId }, data: { participantId: canonicalId } });
+    const loans = await db.loanEntry.findMany({ where: { participantId: duplicateId }, select: { id: true } });
+    await db.loanEntry.updateMany({ where: { participantId: duplicateId }, data: { participantId: canonicalId } });
+    const setts = await db.settlement.findMany({ where: { participantId: duplicateId }, select: { id: true } });
+    await db.settlement.updateMany({ where: { participantId: duplicateId }, data: { participantId: canonicalId } });
+    await db.transaction.updateMany({ where: { paidByParticipantId: duplicateId }, data: { paidByParticipantId: canonicalId } });
+
+    // Group membership is a composite primary key, so a straight update would
+    // collide wherever the canonical record is already a member. Move the ones
+    // it isn't in; drop the redundant ones. The canonical membership always wins
+    // and is never removed.
+    const dupMemberships = await db.groupMember.findMany({ where: { participantId: duplicateId } });
+    const canonMemberships = new Set(
+      (await db.groupMember.findMany({ where: { participantId: canonicalId }, select: { groupId: true } })).map((m) => m.groupId)
+    );
+    const moved: string[] = [];
+    const redundant: string[] = [];
+    for (const m of dupMemberships) {
+      if (canonMemberships.has(m.groupId)) {
+        redundant.push(m.groupId);
+        await db.groupMember.delete({ where: { groupId_participantId: { groupId: m.groupId, participantId: duplicateId } } });
+      } else {
+        moved.push(m.groupId);
+        await db.groupMember.create({ data: { groupId: m.groupId, participantId: canonicalId, role: m.role } });
+        await db.groupMember.delete({ where: { groupId_participantId: { groupId: m.groupId, participantId: duplicateId } } });
+      }
+    }
+
+    // ── prove nothing points at the duplicate before removing it ──────────
+    const [remainingSplits, remainingLoans, remainingSetts, remainingGm, remainingPaid] = await Promise.all([
+      db.expenseSplit.count({ where: { participantId: duplicateId } }),
+      db.loanEntry.count({ where: { participantId: duplicateId } }),
+      db.settlement.count({ where: { participantId: duplicateId } }),
+      db.groupMember.count({ where: { participantId: duplicateId } }),
+      db.transaction.count({ where: { paidByParticipantId: duplicateId } }),
+    ]);
+    const stragglers = remainingSplits + remainingLoans + remainingSetts + remainingGm + remainingPaid;
+    if (stragglers > 0) {
+      // Aborts the whole transaction — never delete while anything still refers
+      // to it, or SET NULL turns a real debt into the owner's own share.
+      throw new MergeConflictError(`${stragglers} references to the duplicate remain — refusing to delete it.`);
+    }
+
+    await audit(db, userId, "merge", "Participant", canonicalId, {
+      canonical: { id: canonicalId, displayName: canonical.displayName },
+      duplicate: { id: duplicateId, displayName: duplicate.displayName },
+    }, {
+      canonical: { id: canonicalId, displayName: canonical.displayName },
+      duplicateDeleted: duplicateId,
+      repointedExpenseSplitIds: dupSplits.map((s) => s.id),
+      movedMemberships: moved,
+      redundantMemberships: redundant,
+    });
+
+    await db.participant.delete({ where: { id: duplicateId } });
+
+    return {
+      repointedSplits: dupSplits.map((s) => s.id),
+      repointedLoanEntries: loans.map((l) => l.id),
+      repointedSettlements: setts.map((s) => s.id),
+      movedMemberships: moved,
+      redundantMemberships: redundant,
+      duplicateDeleted: true,
+    };
+  });
+}
+
 /** First group (e.g. "Flat 402") with member names, for the Shared screen header. */
 export async function firstGroup(userId: string) {
   const group = await prisma.group.findFirst({

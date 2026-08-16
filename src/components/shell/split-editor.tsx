@@ -7,6 +7,8 @@
 // form and the Edit Expense form drive identical split behavior from one
 // place.
 
+import { useState } from "react";
+import { normalizeName } from "@/lib/duplicate-contact";
 import { formatPaise } from "@/lib/money";
 import { Toggle } from "./toggle";
 
@@ -66,11 +68,25 @@ export function SplitEditor({
 }: {
   state: SplitEditorState;
   amtPaise: number;
-  participants: { id: string; name: string; initial: string; color: string }[];
+  /** v2.1: every contact, Lending ones included. `isLending` only drives a
+   *  badge — it never filters. Hiding those contacts here is what produced two
+   *  "Blake" records for one person. */
+  participants: { id: string; name: string; initial: string; color: string; isLending?: boolean }[];
 }) {
   const { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId } = state;
   const selected = participants.filter((p) => parts[p.id]);
   const selectedIds = selected.map((p) => p.id);
+  // v2.1: now that Lending contacts are listed too, a long-standing user can
+  // have a hundred of them and an unfiltered checklist is unusable — which
+  // would recreate the original problem by a different route (can't find
+  // Blake → make another Blake). Search appears only when the list is long
+  // enough to need it; anyone already selected always stays visible so they
+  // can't be silently filtered out of view while still in the split.
+  const [query, setQuery] = useState("");
+  const needle = normalizeName(query);
+  const visible = needle
+    ? participants.filter((p) => parts[p.id] || normalizeName(p.name).includes(needle))
+    : participants;
   const weighted = mode === "PERCENT" || mode === "RATIO";
   const splitInfo = computeSplitInfo(amtPaise, mode, selected, exact, weights);
   const payer = effectivePayer(payerId, selectedIds);
@@ -108,6 +124,16 @@ export function SplitEditor({
 
           <div>
             <div className="label-caps mb-1.5">Split between</div>
+            {participants.length > 8 && (
+              <input
+                className="field mb-2"
+                type="search"
+                aria-label="Search contacts"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Search ${participants.length} contacts…`}
+              />
+            )}
             <div className="flex flex-col gap-0.5">
               <div className="flex items-center gap-2.5 py-1.5">
                 <span className="w-[18px] h-[18px] rounded-[5px] grid place-items-center flex-none" style={{ background: "var(--acc)" }} aria-hidden="true">
@@ -117,7 +143,7 @@ export function SplitEditor({
                 <span className="text-[13px] font-semibold text-ink flex-1">Me</span>
                 {payer === null && <span className="text-[11px] font-bold text-acc">· paid</span>}
               </div>
-              {participants.map((p) => {
+              {visible.map((p) => {
                 const on = !!parts[p.id];
                 const isPayer = on && payer === p.id;
                 const isOnlyOne = on && selected.length === 1;
@@ -140,6 +166,14 @@ export function SplitEditor({
                         {p.initial}
                       </span>
                       <span className={`text-[13px] font-semibold truncate ${on ? "text-ink" : "text-mut"}`}>{p.name}</span>
+                      {p.isLending && (
+                        <span
+                          className="text-[8.5px] font-bold uppercase tracking-wide rounded px-1 py-0.5 flex-none"
+                          style={{ color: "var(--acc)", background: "var(--accSoft)" }}
+                        >
+                          Lending
+                        </span>
+                      )}
                       {isPayer && <span className="text-[11px] font-bold text-acc flex-none">· paid</span>}
                     </button>
                     {on && (

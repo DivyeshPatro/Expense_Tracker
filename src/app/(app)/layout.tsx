@@ -56,8 +56,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       initial: p.displayName.charAt(0).toUpperCase(),
       color: p.color ?? "#6d5ae6",
       phone: p.phone ?? null,
-      // #69: a contact with loan entries but no shared activity is Lending-only
-      // — hidden from Shared's split picker, still shown in the Lending flow.
+      // #69: a contact with loan entries but no shared activity is Lending-only.
+      // v2.1: this NO LONGER hides anyone from the split picker. Doing so made
+      // an imported contact unreachable there, so a second record was created
+      // for the same human and each ended up holding part of one real debt.
+      // Kept as a descriptive flag; `isLending` is what the UI renders now.
       lendingOnly: p._count.loanEntries > 0 && p._count.splits === 0 && p._count.groupMembers === 0 && p._count.settlements === 0,
       // Has a lending relationship — drives the "Lending contact" badge in the
       // group member picker (v2.0), independent of whether they're also Shared.

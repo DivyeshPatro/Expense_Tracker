@@ -6,7 +6,7 @@ import { splitByWeights, splitEqual, splitExact, type SplitShare } from "@/lib/m
 import { istNoon, toYMD } from "@/lib/dates";
 import { Prisma, type GroupRole, type TxType } from "@prisma/client";
 import { prisma } from "../db";
-import { assertCanCreateInGroup, assertCanRead, assertCanWrite, resolveGroupRole, roleAtLeast } from "./authorization";
+import { assertCanCreateInGroup, assertCanRead, assertCanWrite, NotAuthorizedError, resolveGroupRole, roleAtLeast } from "./authorization";
 import { audit } from "./audit";
 import { checkBudgetThresholds } from "./budgets";
 
@@ -536,6 +536,118 @@ export async function getTransactionDetail(actingUserId: string, id: string): Pr
   };
 }
 
+/** Thrown when a re-home would leave the row pointing at a category from the
+ * wrong namespace (a personal category on a group row, or one group's category
+ * on another group's row). Never silently repaired: the category is the user's
+ * own classification, so the UI asks them to pick one from the target
+ * namespace rather than guessing or nulling it behind their back. */
+export class CategoryNamespaceError extends Error {
+  constructor() {
+    super("Pick a category that belongs to the group you're moving this expense into.");
+  }
+}
+
+/**
+ * v2.1: resolves the groupId an update should persist, with authorization.
+ *
+ * `incoming === undefined` means the caller said nothing about the group — the
+ * existing value is kept, so every pre-existing edit path behaves exactly as
+ * before and no edit can silently re-home a row.
+ *
+ * A real change is authorized on BOTH sides:
+ *   - moving INTO a group needs MEMBER+ there (assertCanCreateInGroup), so an
+ *     expense can never be attached to a group the caller isn't in;
+ *   - moving OUT of (or between) groups removes the row from the old group's
+ *     shared ledger, which is the same authority as deleting it from there —
+ *     ADMIN+, unless the caller owns the row outright.
+ *
+ * Only Transaction.groupId moves. Amount, payer, split shares and participants
+ * are untouched by this function.
+ */
+async function resolveGroupReassignment(
+  db: Db,
+  actingUserId: string,
+  old: { userId: string; groupId: string | null },
+  incoming: string | null | undefined,
+  categoryId: string | null
+): Promise<string | null> {
+  if (incoming === undefined) return old.groupId;
+  const next = incoming || null;
+  if (next === old.groupId) return old.groupId;
+
+  if (next) await assertCanCreateInGroup(db, actingUserId, next);
+  if (old.groupId && old.userId !== actingUserId) {
+    const role = await resolveGroupRole(db, old.groupId, actingUserId);
+    if (!roleAtLeast(role, "ADMIN")) {
+      throw new NotAuthorizedError("Only a group admin can move this expense out of the group.");
+    }
+  }
+
+  // group-expenses-sprint §10: categories are namespaced (Category.userId for
+  // personal, Category.groupId for a group). Crossing the boundary with a
+  // category from the old namespace would leave a dangling classification, so
+  // the write is rejected and the UI re-picks instead.
+  if (categoryId) {
+    const cat = await db.category.findUnique({ where: { id: categoryId }, select: { groupId: true } });
+    if ((cat?.groupId ?? null) !== next) throw new CategoryNamespaceError();
+  }
+  return next;
+}
+
+/**
+ * v2.1 — the minimal repair: move one expense into (or out of) a group and
+ * change NOTHING else.
+ *
+ * updateExpense() can also persist groupId, but it re-creates the split rows
+ * as part of a full edit (same participantIds and owedAmounts, new row ids).
+ * Correcting an attribution mistake should not rewrite financial rows at all,
+ * so this exists as a single-column UPDATE:
+ *
+ *     UPDATE "Transaction" SET "groupId" = $1, version = version + 1 WHERE id = $2
+ *
+ * No amount, payer, participant, split row or account balance is touched, so
+ * every derived balance is arithmetically identical before and after — only
+ * which dashboard can see the expense changes.
+ */
+export async function rehomeExpense(actingUserId: string, id: string, groupId: string | null) {
+  return prisma.$transaction(async (db) => {
+    const old = await db.transaction.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, userId: true, groupId: true, type: true, categoryId: true, amount: true, merchant: true, version: true },
+    });
+    if (!old) throw new MutationTargetGoneError();
+    if (old.type !== "EXPENSE") throw new Error("Not an expense");
+    await assertCanWrite(db, actingUserId, old, "write");
+
+    // categoryId is deliberately passed as null — i.e. the namespace check is
+    // skipped. A full edit must not leave a category pointing at the wrong
+    // namespace because the user is actively choosing one; a pure re-home is
+    // the opposite, an attribution correction that must not rewrite any other
+    // column. The row keeps whatever category it already had; a group's
+    // dashboard still renders it by name, and the owner can re-categorise it
+    // afterwards as a separate, visible edit if they want to.
+    const next = await resolveGroupReassignment(db, actingUserId, old, groupId, null);
+    if (next === old.groupId) return { entityId: id, moved: false };
+
+    const updated = await db.transaction.update({
+      where: { id },
+      data: { groupId: next, version: { increment: 1 } },
+      select: { id: true, groupId: true, version: true },
+    });
+    await audit(
+      db,
+      old.userId,
+      "rehome",
+      "Transaction",
+      id,
+      { groupId: old.groupId, amount: Number(old.amount), merchant: old.merchant },
+      { groupId: updated.groupId, amount: Number(old.amount), merchant: old.merchant },
+      actingUserId
+    );
+    return { entityId: id, moved: true };
+  });
+}
+
 /**
  * Update path for all three types mirrors create: reverse the transaction's
  * old balance effect, apply the edited fields, re-apply the new balance
@@ -559,6 +671,7 @@ export async function updateExpense(actingUserId: string, id: string, input: Exp
     // the stricter check (a resubmitted, unchanged value is not a "write")
     await assertCanWrite(db, actingUserId, old, newAccountId !== old.accountId ? "write-account" : "write");
     const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, old, intent?.baseVersion);
+    const nextGroupId = await resolveGroupReassignment(db, actingUserId, old, input.groupId, input.categoryId);
 
     await applyBalances(db, old, -1);
     if (old.splits.length) await db.expenseSplit.deleteMany({ where: { txId: id } });
@@ -573,6 +686,13 @@ export async function updateExpense(actingUserId: string, id: string, input: Exp
         occurredAt: istNoon(input.date),
         notes: input.notes || null,
         paidByParticipantId,
+        // v2.1 group-attribution repair: previously omitted, which made
+        // groupId write-once at creation and left an expense split with a
+        // group's members permanently invisible to that group's dashboard.
+        // Authorized + namespace-checked by resolveGroupReassignment above;
+        // when the caller sends no groupId this resolves to the existing
+        // value, so an ordinary edit still cannot move a row between groups.
+        groupId: nextGroupId,
         version: { increment: 1 }, // offline-sync conflict check (spec §4.2)
         splits: shares
           ? { create: shares.map((s) => ({ participantId: s.participantId, owedAmount: s.owedAmount, method: input.split!.mode })) }

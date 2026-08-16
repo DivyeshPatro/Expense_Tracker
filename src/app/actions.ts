@@ -76,6 +76,7 @@ import {
   restoreTransaction,
   softDeleteTransaction,
   updateExpense,
+  rehomeExpense,
   updateIncome,
   updateTransfer,
   ConflictError,
@@ -104,6 +105,7 @@ import {
   settlementSchema,
   transferWithIntentSchema,
   updateExpenseWithIntentSchema,
+  rehomeExpenseSchema,
   updateIncomeWithIntentSchema,
   updateTransferWithIntentSchema,
   loanEntryWithIntentSchema,
@@ -229,6 +231,21 @@ export async function updateExpenseAction(input: unknown): Promise<MutateActionR
     const outcome = await updateExpense(user.id, id, data, intent);
     refresh();
     return { ok: true, overridden: outcome.overridden, overriddenByDevice: outcome.overriddenByDevice };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** v2.1: move one expense between a group and Personal, changing nothing else.
+ *  Separate from updateExpenseAction because a full edit re-creates the split
+ *  rows — an attribution fix must not rewrite financial rows at all. */
+export async function rehomeExpenseAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const { id, groupId } = rehomeExpenseSchema.parse(input);
+    await rehomeExpense(user.id, id, groupId);
+    refresh();
+    return { ok: true };
   } catch (e) {
     return fail(e);
   }
