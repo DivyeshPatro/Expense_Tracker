@@ -10,9 +10,11 @@ import { formatPaise } from "@/lib/money";
 import { parsePeriod } from "@/lib/period";
 import { groupDashboard, type GroupMemberView } from "@/server/services/group-dashboard";
 import { requireUser } from "@/server/session";
+import { GroupManage } from "@/components/shared/groups-panel";
+import { GroupBalances } from "./group-balances";
+import { GroupExpenses } from "./group-expenses";
 import { GroupQuickActions, type SettleTarget } from "./group-actions";
 import { SettlementHistory } from "./settlement-history";
-import { SettlementSuggestions } from "./settlement-suggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +58,24 @@ export default async function GroupDashboardPage({
             {g.memberCount + 1} member{g.memberCount === 0 ? "" : "s"} · created {friendlyDay(g.createdAt.slice(0, 10))}
           </div>
         </div>
+        {/* Rename / add / remove member / delete — moved here from the Shared
+            home, where one chip per group duplicated the group list. */}
+        <div className="flex-none">
+          <GroupManage
+            group={{
+              id: g.id,
+              name: g.name,
+              role: g.role,
+              members: others.map((m) => ({
+                participantId: m.participantId!,
+                name: m.name,
+                initial: m.initial,
+                color: m.color,
+                role: m.role,
+              })),
+            }}
+          />
+        </div>
       </div>
 
       {/* Overview */}
@@ -85,9 +105,49 @@ export default async function GroupDashboardPage({
       </div>
 
       {/* Quick actions */}
-      <GroupQuickActions groupId={g.id} memberIds={memberIds} settleTargets={settleTargets} />
+      <GroupQuickActions groupId={g.id} memberIds={memberIds} settleTargets={settleTargets} canRecordSettlements={g.canRecordSettlements} />
 
-      {/* Spending (follows the global period) */}
+      {/* v2.1: the expenses that produce the total above, directly beneath it.
+          Previously the page went straight from "Total expenses ₹X" to charts
+          and balances, so the transactions behind the number were unreachable
+          from the context the user found them in. Tapping one opens the shared
+          transaction sheet — the same one Spending uses — for view/edit/delete. */}
+      <GroupExpenses expenses={g.expenses} groupId={g.id} />
+
+      {/* Members / who owes whom */}
+      <section className="card p-[var(--pad)] flex flex-col gap-1">
+        <h2 className="text-[13.5px] font-bold m-0 mb-1.5">Members · contribution</h2>
+        <MemberRow m={you} />
+        {others.map((m) => (
+          <MemberRow key={m.participantId} m={m} />
+        ))}
+        {g.memberCount === 0 && (
+          <EmptyState
+            icon="👥"
+            title="This group is just you"
+            detail="Add members to start splitting expenses and tracking who owes what."
+            compact
+          />
+        )}
+      </section>
+
+      {/* Group Settlement: the group-wide payment plan first ("who pays
+          whom"), with the detailed obligations and your personal standing
+          behind it ("why"). Every list comes from the existing engine —
+          per-member nets, computeGrossObligations and minimizeSettlements. */}
+      <GroupBalances
+        members={g.members}
+        gross={g.gross}
+        suggestions={g.suggestions}
+        groupId={g.id}
+        groupName={g.name}
+        ownerName={g.ownerName}
+        canRecordSettlements={g.canRecordSettlements}
+        isViewerOwner={g.isViewerOwner}
+      />
+
+      {/* Insights — charts follow the global period. Below the concrete rows
+          now: they explain the spend, they aren't the thing being looked for. */}
       <section className="card p-[var(--pad)] flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-[13.5px] font-bold m-0">Spending · {period.label}</h2>
@@ -132,28 +192,8 @@ export default async function GroupDashboardPage({
         </div>
       </section>
 
-      {/* Members */}
-      <section className="card p-[var(--pad)] flex flex-col gap-1">
-        <h2 className="text-[13.5px] font-bold m-0 mb-1.5">Members · contribution</h2>
-        <MemberRow m={you} />
-        {others.map((m) => (
-          <MemberRow key={m.participantId} m={m} />
-        ))}
-        {g.memberCount === 0 && (
-          <EmptyState
-            icon="👥"
-            title="This group is just you"
-            detail="Add members to start splitting expenses and tracking who owes what."
-            compact
-          />
-        )}
-      </section>
-
-      {/* Smart settlement suggestions (optimal plan) */}
-      <SettlementSuggestions suggestions={g.suggestions} groupId={g.id} />
-
       {/* Settlement history — month-grouped, with delete */}
-      <SettlementHistory settlements={g.settlements} />
+      <SettlementHistory settlements={g.settlements} ownerName={g.ownerName} canManage={g.canRecordSettlements} />
 
       {/* Activity — scoped to this group's transactions + settlements */}
       <ModuleActivity entityIds={g.activityEntityIds} />

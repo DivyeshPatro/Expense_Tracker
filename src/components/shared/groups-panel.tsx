@@ -33,12 +33,28 @@ export function GroupsPanel({ groups }: { groups: GroupView[] }) {
   );
 }
 
+/** v2.1: the same rename / add-member / remove-member / delete controls, for a
+ *  SINGLE group, shown on that group's own page.
+ *
+ *  The Shared home used to render one chip per group. Now that the home lists
+ *  groups as cards, that chip row was the same list twice on one screen — so
+ *  management moved to where you'd look for it, inside the group. Identical
+ *  component and identical actions; only the placement changed. */
+export function GroupManage({ group }: { group: GroupView }) {
+  const { refData } = useUI();
+  return <GroupChip group={group} allParticipants={refData.participants} compact />;
+}
+
 function GroupChip({
   group,
   allParticipants,
+  compact,
 }: {
   group: GroupView;
   allParticipants: { id: string; name: string; initial: string; color: string }[];
+  /** On a group's own page the name is already in the header, so the trigger is
+   *  a plain 44px "Manage" and the panel hangs off the right edge. */
+  compact?: boolean;
 }) {
   const { showToast } = useUI();
   const router = useRouter();
@@ -61,13 +77,18 @@ function GroupChip({
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="px-[11px] py-[5px] rounded-full bg-accsoft text-acc text-[12.5px] font-semibold cursor-pointer border-none"
+        aria-expanded={open}
+        className={
+          compact
+            ? "min-h-[44px] px-3 rounded-[10px] bg-card border border-line2 text-mut text-[12.5px] font-semibold cursor-pointer hover:bg-accsoft"
+            : "px-[11px] py-[5px] rounded-full bg-accsoft text-acc text-[12.5px] font-semibold cursor-pointer border-none"
+        }
       >
-        🏠 {group.name}
+        {compact ? "Manage" : `🏠 ${group.name}`}
       </button>
       {open && (
         <div
-          className="absolute left-0 top-[36px] w-[260px] bg-card border border-line rounded-[12px] p-3 flex flex-col gap-2.5 z-[75]"
+          className={`absolute ${compact ? "right-0" : "left-0"} top-[46px] w-[260px] max-w-[calc(100vw-32px)] bg-card border border-line rounded-[12px] p-3 flex flex-col gap-2.5 z-[75]`}
           style={{ boxShadow: "var(--shLg)" }}
         >
           <Link

@@ -280,7 +280,10 @@ export function TransactionsList({
           <div className="text-[11px] text-mut2 font-semibold tabular-nums">{totals.count} txn{totals.count === 1 ? "" : "s"}</div>
         </div>
         <div className="flex gap-2.5 mt-3">
-          <div className="flex-1 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
+          {/* min-w-0 so flex-1 can actually shrink below its content: at 360px
+              the Out tile's label + basis toggle otherwise forced the row 8px
+              wider than the viewport. */}
+          <div className="flex-1 min-w-0 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
             <div className="text-[10px] uppercase tracking-wide font-bold text-mut2">In</div>
             <div className="text-[15px] font-extrabold tabular-nums text-green">{formatPaise(totals.income)}</div>
           </div>
@@ -288,9 +291,9 @@ export function TransactionsList({
               shown. `basis` only decides which is the large one — see
               lib/expense-basis.ts. When nothing is split the two are equal and
               the secondary line is suppressed as noise. */}
-          <div className="flex-1 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
+          <div className="flex-1 min-w-0 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
             <div className="flex items-start justify-between gap-2">
-              <div className="text-[10px] uppercase tracking-wide font-bold text-mut2" title={EXPENSE_BASIS[headline.key].hint}>
+              <div className="text-[10px] uppercase tracking-wide font-bold text-mut2 min-w-0 truncate" title={EXPENSE_BASIS[headline.key].hint}>
                 Out · {headline.label}
               </div>
               {/* The always-visible home for the switch on mobile: the dashboard's
@@ -332,13 +335,17 @@ export function TransactionsList({
         )}
       </section>
 
+      {/* v2.1 hierarchy: the type switch stays visible — Expenses/Income is
+          navigation, not a filter — but search and the rest drop into a
+          disclosure below. They used to sit in one long row above the list,
+          competing with the transactions for the same attention. */}
       <div className="flex gap-2.5 flex-wrap items-center">
         <div className="flex gap-1 bg-card border border-line rounded-[9px] p-[3px]">
           {TABS.map((t) => (
             <button
               key={t.label}
               onClick={() => setTab(t.value)}
-              className="px-3 py-1.5 rounded-[7px] text-xs font-semibold cursor-pointer border-none"
+              className="px-3 min-h-[36px] rounded-[7px] text-xs font-semibold cursor-pointer border-none"
               style={{
                 background: tab === t.value ? "var(--acc)" : "transparent",
                 color: tab === t.value ? "#fff" : "var(--mut)",
@@ -348,12 +355,16 @@ export function TransactionsList({
             </button>
           ))}
         </div>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search merchant, category, notes, amount…"
-          className="flex-1 min-w-[200px] box-border px-[13px] py-[9px] rounded-[9px] border border-line2 bg-card text-ink text-[13px] outline-none focus:border-acc"
-        />
+        {/* The page's primary action, on the page rather than only in the FAB
+            and a desktop-only header button. */}
+        <button onClick={() => openModal(tab === "INCOME" ? "inc" : "exp")} className="btn-primary min-h-[44px] px-4 ml-auto">
+          ＋ Add {tab === "INCOME" ? "income" : "expense"}
+        </button>
+      </div>
+
+      {/* Active filters stay visible even though the controls are collapsed —
+          a filter you cannot see is a filter you cannot undo. */}
+      <div className="flex gap-2.5 flex-wrap items-center empty:hidden">
         {month && (
           <div className="flex items-center gap-[7px] px-[13px] py-[7px] rounded-full bg-accsoft text-acc text-xs font-bold">
             {MONTH_NAMES[Number(month.slice(5)) - 1]} {month.slice(0, 4)}
@@ -379,6 +390,22 @@ export function TransactionsList({
           </div>
         )}
       </div>
+
+      <details className="group border-t border-line pt-1" open={!!q}>
+        <summary className="list-none cursor-pointer select-none min-h-[44px] flex items-center gap-1.5 text-[12.5px] font-semibold text-mut hover:text-ink">
+          <span aria-hidden className="transition-transform group-open:rotate-90 text-[14px] leading-none">›</span>
+          Search
+          {q && <span className="text-acc font-bold truncate max-w-[160px]">· “{q}”</span>}
+        </summary>
+        <div className="pt-2">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search merchant, category, notes, amount…"
+            className="w-full box-border px-[13px] py-[11px] rounded-[9px] border border-line2 bg-card text-ink text-[13px] outline-none focus:border-acc"
+          />
+        </div>
+      </details>
 
       <PendingRows />
 

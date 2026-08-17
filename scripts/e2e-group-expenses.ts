@@ -24,6 +24,18 @@ function modal(page: Page) {
   return page.locator(".fixed.inset-0.z-\\[60\\]").first();
 }
 
+/** The Split toggle sits inside the collapsed "More details" section, so that
+ *  has to be opened first — it was moved there by the Fast Input Flows work and
+ *  this script was never re-run against it. */
+async function openSplit(page: Page) {
+  const summary = modal(page).locator("summary", { hasText: "More details" }).first();
+  if (await summary.count()) {
+    const isOpen = await modal(page).locator("details").first().evaluate((d) => (d as HTMLDetailsElement).open);
+    if (!isOpen) await summary.click();
+  }
+  await modal(page).getByText("👥 Split with friends").first().click();
+}
+
 async function toggleParticipant(page: Page, name: string) {
   await modal(page).getByRole("button", { name, exact: false }).first().click();
 }
@@ -32,7 +44,16 @@ async function removeParticipant(page: Page, name: string) {
   await modal(page).getByRole("button", { name: `Remove ${name} from the split` }).click();
 }
 
+async function openAdvanced(page: Page) {
+  const summary = modal(page).locator("summary", { hasText: "More details" }).first();
+  if (await summary.count()) {
+    const isOpen = await modal(page).locator("details").first().evaluate((d) => (d as HTMLDetailsElement).open);
+    if (!isOpen) await summary.click();
+  }
+}
+
 async function selectByOptionText(page: Page, optionText: string): Promise<boolean> {
+  await openAdvanced(page);
   const selects = modal(page).locator("select");
   const count = await selects.count();
   for (let i = 0; i < count; i++) {
@@ -99,6 +120,12 @@ async function main() {
     await page.goto(`${BASE}/sign-in`, { waitUntil: "load" });
     await page.fill('input[type="email"]', "arjun@ledgerly.app");
     await page.fill('input[type="password"]', "ledgerly-demo");
+    // The submit button stays disabled until React hydrates (auth-form.tsx
+    // gates it on "busy || !hydrated"), which a cold dev compile makes slow.
+    await page.waitForFunction(() => {
+      const b = document.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+      return !!b && !b.disabled;
+    }, undefined, { timeout: 60000 });
     await page.click('button[type="submit"]');
     await page.waitForURL("**/dashboard", { timeout: 20000 });
 
@@ -108,7 +135,7 @@ async function main() {
     await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
     await page.fill('input[placeholder="0"]', "300");
     await page.fill('input[placeholder="e.g. Swiggy"]', `GEDefault-${suffix}`);
-    await page.click("text=👥 Split with friends");
+    await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await page.getByRole("button", { name: "Add expense", exact: true }).click();
@@ -126,7 +153,7 @@ async function main() {
     await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
     await page.fill('input[placeholder="0"]', "2000");
     await page.fill('input[placeholder="e.g. Swiggy"]', `GEPaidByRohan-${suffix}`);
-    await page.click("text=👥 Split with friends");
+    await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await page.waitForSelector('[aria-label="Paid by"]');
@@ -157,7 +184,7 @@ async function main() {
     await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
     await page.fill('input[placeholder="0"]', "900");
     await page.fill('input[placeholder="e.g. Swiggy"]', `GEEqualTwo-${suffix}`);
-    await page.click("text=👥 Split with friends");
+    await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await page.getByRole("button", { name: "Add expense", exact: true }).click();
@@ -172,7 +199,7 @@ async function main() {
     await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
     await page.fill('input[placeholder="0"]', "900");
     await page.fill('input[placeholder="e.g. Swiggy"]', `GEEqualMulti-${suffix}`);
-    await page.click("text=👥 Split with friends");
+    await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await toggleParticipant(page, "Karan");
@@ -192,7 +219,7 @@ async function main() {
     await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
     await page.fill('input[placeholder="0"]', "1000");
     await page.fill('input[placeholder="e.g. Swiggy"]', `GEExact-${suffix}`);
-    await page.click("text=👥 Split with friends");
+    await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await toggleParticipant(page, "Karan");
@@ -218,7 +245,7 @@ async function main() {
     await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
     await page.fill('input[placeholder="0"]', "600");
     await page.fill('input[placeholder="e.g. Swiggy"]', `GERemove-${suffix}`);
-    await page.click("text=👥 Split with friends");
+    await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await toggleParticipant(page, "Karan");
@@ -252,7 +279,9 @@ async function main() {
     txIds.push(txPersonal.id);
     ok("a personal (no group) expense still gets a categoryId from the personal list", !!txPersonal.categoryId);
     ok("a personal expense never gets a groupId", txPersonal.groupId === null);
-    ok("a personal expense's form has exactly the pre-existing select count (account+category+group — no group-category machinery engaged)", personalCatSelectCount === 3, String(personalCatSelectCount));
+    // ACCOUNT + GROUP. CATEGORY is a CategoryPicker, not a <select>, since the
+    // Fast Input Flows work — this assertion still expected the old 3.
+    ok("a personal expense's form engages no group-category machinery (account+group selects only)", personalCatSelectCount === 2, String(personalCatSelectCount));
 
     // ═══════════════════════ 6. Group categories: isolation + persistence + "+ Create New Category" ═══════════════════════
     const groupName = `GEFlat-${suffix}`;
@@ -328,6 +357,7 @@ async function main() {
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
     await page.click('button:has-text("＋ Add expense")');
     await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
+    await openAdvanced(page); // DATE lives inside "More details" as well
     const dateTrigger = modal(page).getByRole("button", { name: /\d{4}$/ }); // "17 Jul 2026"-shaped trigger
     await dateTrigger.click();
     await page.waitForSelector('[role="dialog"][aria-label="Choose date"]');
@@ -354,6 +384,7 @@ async function main() {
     await page.click('button[aria-label="Quick add (desktop)"]');
     await page.getByRole("button", { name: "💰 Income" }).click();
     await page.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
+    await openAdvanced(page);
     const incomeDateTrigger = modal(page).getByRole("button", { name: /\d{4}$/ });
     ok(
       "Add Income uses the same themed DateField, not a native picker",

@@ -59,9 +59,15 @@ describe("computeMemberBalances", () => {
 
   it("You lead the list and carry the overall net", () => {
     expect(members[0].participantId).toBeNull();
+    // Unchanged by the symmetric-balance correction: the owner's total was
+    // always right, because Σ(paid − share) is zero however the credit is
+    // attributed. Only the split between Karan and Priya moved.
     expect(youNet).toBe(30000);
-    expect(youAreOwed).toBe(30000);
-    expect(youOwe).toBe(0);
+    // These two DID move. Karan fronted ₹600 and consumed ₹500, so you owe him
+    // ₹100 — the old engine reported him as owing YOU ₹100 instead.
+    expect(youAreOwed).toBe(40000);
+    expect(youOwe).toBe(10000);
+    expect(youAreOwed - youOwe).toBe(youNet);
     expect(totalSpend).toBe(150000);
   });
 
@@ -71,11 +77,19 @@ describe("computeMemberBalances", () => {
     expect(by("priya")).toMatchObject({ paid: 0, owes: 50000, contributionPct: 0 });
   });
 
-  it("owner-centric net nets out payments AND settlements", () => {
-    // Karan: owed you 30000, then paid 20000 of your share back → +10000
-    expect(by("karan").net).toBe(10000);
-    // Priya: owed you 30000, settled 10000 → +20000
-    expect(by("priya").net).toBe(20000);
+  it("nets each person's spend against their share, then settlements", () => {
+    // Every balance is paid − share, from that person's own side.
+    //   You    paid 90000, share 50000 → +40000, less Priya's 10000 settlement
+    //   Karan  paid 60000, share 50000 → he is up 10000, i.e. YOU OWE HIM
+    //   Priya  paid     0, share 50000 → owes 50000, less 10000 settled
+    //
+    // The old rule credited Karan only for YOUR ₹200 share of the bill he
+    // fronted, never the ₹200 Priya owed him, and reported him as owing you
+    // ₹100 when the money ran the other way.
+    expect(by("karan").net).toBe(-10000);
+    expect(by("priya").net).toBe(40000);
+    // and the group still sums to zero
+    expect(by("karan").net + by("priya").net).toBe(youNet);
   });
 
   it("a member who has left but still owes is kept", () => {

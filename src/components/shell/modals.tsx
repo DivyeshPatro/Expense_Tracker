@@ -19,6 +19,7 @@ import {
 import { friendlyDay, todayYMD } from "@/lib/dates";
 import { amountToPaise } from "@/lib/expression";
 import { findDuplicateContacts } from "@/lib/duplicate-contact";
+import { MemberPicker, type PickableContact } from "@/components/shared/member-picker";
 import { inferGroupForMembers, needsExplicitGroupChoice, type GroupInference } from "@/lib/group-inference";
 import { formatPaise } from "@/lib/money";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
@@ -1431,86 +1432,65 @@ function FriendForm() {
 // ─────────── Group ───────────
 
 function GroupForm() {
-  const { refData } = useUI();
   const { run, busy, error } = useSubmit();
   const [name, setName] = useState("");
-  const [parts, setParts] = useState<Record<string, boolean>>({});
-  // #68: create a new member without leaving the group flow. As in the lending
-  // form, refData isn't refreshed by a server action mid-session, so a contact
-  // created here is tracked locally and merged into the member chips (and
-  // auto-selected) — the group create just needs the participant id.
-  const [justCreated, setJustCreated] = useState<{ id: string; name: string }[]>([]);
-  const [addingMember, setAddingMember] = useState(false);
-
-  // Offer every contact — Shared and Lending alike — since a Lending contact is
-  // a real person you can intentionally add to a group (v2.0). A "Lending" badge
-  // marks them; anyone created inline is merged in. If a revalidate has folded
-  // the new contact into refData, drop the local copy so it isn't listed twice.
-  const shared = refData.participants;
-  const members = [
-    ...shared,
-    ...justCreated
-      .filter((p) => !shared.some((s) => s.id === p.id))
-      .map((p) => ({ id: p.id, name: p.name, initial: p.name.charAt(0).toUpperCase(), color: "var(--acc)", lendingOnly: false, isLending: false })),
-  ];
-  const selected = members.filter((p) => parts[p.id]);
-
-  if (addingMember) {
-    return (
-      <NewContactInline
-        existingContacts={members}
-        onCreated={(p) => {
-          setJustCreated((list) => [...list, p]);
-          setParts((s) => ({ ...s, [p.id]: true }));
-          setAddingMember(false);
-        }}
-        onCancel={() => setAddingMember(false)}
-      />
-    );
-  }
+  // Contacts chosen for the new group. Existing contacts keep their own
+  // Participant id; a New member is created up front (one Participant) and
+  // joins this same list, so createGroup only ever receives real ids.
+  const [selected, setSelected] = useState<PickableContact[]>([]);
+  // Created during this session — refData isn't revalidated mid-modal, so the
+  // picker is told about them explicitly rather than losing them.
+  const [justCreated, setJustCreated] = useState<PickableContact[]>([]);
 
   return (
     <div className="flex flex-col gap-3">
       <Field label="GROUP NAME">
         <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Flat 402" autoFocus />
       </Field>
-      <Field label="MEMBERS">
-        <div className="flex gap-2 flex-wrap mt-1.5">
-          {members.map((p) => {
-            const on = !!parts[p.id];
-            return (
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="label-caps">Members</span>
+          {selected.length > 0 && <span className="text-[11.5px] font-semibold text-mut2">{selected.length} selected</span>}
+        </div>
+        {/* Selected members stay visible above the picker so the list you are
+            building is never scrolled out of sight while you search. */}
+        {selected.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap">
+            {selected.map((p) => (
               <button
                 key={p.id}
-                onClick={() => setParts((s) => ({ ...s, [p.id]: !s[p.id] }))}
-                className="flex items-center gap-[7px] px-3 py-[7px] rounded-full text-[12.5px] font-semibold cursor-pointer"
-                style={{
-                  border: `1px solid ${on ? "var(--acc)" : "var(--line2)"}`,
-                  background: on ? "var(--accSoft)" : "transparent",
-                  color: on ? "var(--acc)" : "var(--mut)",
-                }}
+                type="button"
+                onClick={() => setSelected((cur) => cur.filter((c) => c.id !== p.id))}
+                aria-label={`Remove ${p.name}`}
+                className="flex items-center gap-[7px] px-2.5 py-1.5 rounded-full text-[12px] font-semibold cursor-pointer border"
+                style={{ borderColor: "var(--acc)", background: "var(--accSoft)", color: "var(--acc)" }}
               >
                 <span className="w-[18px] h-[18px] rounded-full grid place-items-center text-[9.5px] font-bold text-white" style={{ background: p.color }}>
                   {p.initial}
                 </span>
                 {p.name}
-                {p.isLending && (
-                  <span className="text-[8.5px] font-bold uppercase tracking-wide rounded px-1 py-0.5" style={{ color: "var(--acc)", background: "var(--accSoft)" }}>
-                    Lending
-                  </span>
-                )}
+                <span aria-hidden className="text-[13px] leading-none">×</span>
               </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setAddingMember(true)}
-            className="flex items-center gap-[6px] px-3 py-[7px] rounded-full text-[12.5px] font-semibold cursor-pointer border border-dashed"
-            style={{ borderColor: "var(--line2)", color: "var(--mut)", background: "transparent" }}
-          >
-            <span className="text-[14px] leading-none">＋</span> New member
-          </button>
-        </div>
-      </Field>
+            ))}
+          </div>
+        )}
+        {/* The same control the group page's Add member uses. */}
+        <MemberPicker
+          mode={{
+            kind: "select",
+            selectedIds: selected.map((p) => p.id),
+            extraContacts: justCreated,
+            onToggle: (c) =>
+              setSelected((cur) => (cur.some((x) => x.id === c.id) ? cur.filter((x) => x.id !== c.id) : [...cur, c])),
+            onCreated: (c) => {
+              setJustCreated((cur) => [...cur, c]);
+              setSelected((cur) => (cur.some((x) => x.id === c.id) ? cur : [...cur, c]));
+            },
+          }}
+        />
+      </div>
+
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}

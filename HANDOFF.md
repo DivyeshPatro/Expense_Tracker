@@ -192,3 +192,17 @@ initially committed with real contact names, production row ids and real
 balances in fixtures and in this file. It was caught at the push gate and the
 commits were rewritten before anything reached the remote. Scan the outgoing
 diff for personal data as a matter of course, not just for secrets.
+
+<!-- claude-code-stop-failure incident=88d3e7720a001d6e -->
+
+Automatic note: Claude Code stopped with a non-retryable "invalid_request" error at 2026-08-17 14:44:46 IST.
+Raw hook input was saved to `.claude/stop-failure-events.jsonl`.
+Automatic recovery is disabled for this failure type.
+This hook cannot schedule a same-session resume by itself.
+
+<!-- claude-code-stop-failure incident=d5fb21f4ad917cce -->
+
+Automatic note: Claude Code stopped with a rate limit at 2026-08-17 18:06:09 IST.
+Raw hook input was saved to `.claude/stop-failure-events.jsonl`.
+Automatic recovery is enabled for this failure type.
+This hook cannot schedule a same-session resume by itself.

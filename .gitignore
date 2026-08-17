@@ -29,6 +29,11 @@ Monito_*.csv
 # Ledgerly's own exports, which contain the same thing
 ledgerly-backup*.json
 ledgerly-export*.csv
+# Splitwise exports and per-group workbooks used to reconcile the balance
+# engine — same problem: real names and real amounts. The reconciliation test
+# keeps the arithmetic; the source files stay local.
+[Ss]plitwise*.csv
+ledgerly-group-*.xlsx
 
 # Local scratch / one-off scripts that shouldn't ship
 _vfab*.mjs

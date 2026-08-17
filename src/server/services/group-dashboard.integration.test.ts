@@ -79,11 +79,17 @@ describe("groupDashboard", () => {
   it("computes settlement-aware member balances", async () => {
     const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
     const by = (name: string) => g.members.find((m) => m.name === name)!;
+    // Each balance is that person's own paid − share:
+    //   You    paid 90000, share 50000 → +40000, less Priya's 10000 settlement
+    //   Karan  paid 60000, share 50000 → +10000, i.e. YOU OWE HIM ₹100
+    //   Priya  paid     0, share 50000 → owes 50000, less the 10000 she settled
+    // youNet is unchanged: the old rule mis-attributed credit between Karan and
+    // Priya but Σ(paid − share) is zero either way.
     expect(g.youNet).toBe(30000);
-    expect(g.youAreOwed).toBe(30000);
-    expect(g.youOwe).toBe(0);
-    expect(by("Karan").net).toBe(10000);
-    expect(by("Priya").net).toBe(20000);
+    expect(g.youAreOwed).toBe(40000);
+    expect(g.youOwe).toBe(10000);
+    expect(by("Karan").net).toBe(-10000);
+    expect(by("Priya").net).toBe(40000);
     expect(by("You").contributionPct).toBe(60);
   });
 
@@ -146,11 +152,20 @@ describe("groupDashboard", () => {
 
   it("surfaces the optimal settlement suggestions with You-side settle prefills", async () => {
     const g = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
-    // You +₹300, Karan +₹100, Priya +₹200 → both members pay You.
+    // Priya is the only debtor (₹400); You are owed ₹300 and Karan ₹100, so her
+    // debt is split between the two of you. Under the old rule Karan was a
+    // debtor too and both members paid You.
     expect(g.suggestions).toHaveLength(2);
-    expect(g.suggestions.every((s) => s.involvesYou && s.toName === "You")).toBe(true);
-    const karan = g.suggestions.find((s) => s.fromName === "Karan")!;
-    expect(karan.settle).toMatchObject({ direction: "TO_OWNER", amountRupees: "100", netPaise: 10000 });
+    expect(g.suggestions.every((s) => s.fromName === "Priya")).toBe(true);
+    const toYou = g.suggestions.find((s) => s.toName === "You")!;
+    expect(toYou.involvesYou).toBe(true);
+    // The prefill amount is this hop (₹300); netPaise is her full corrected
+    // balance (₹400), so the live preview shows what would still be outstanding.
+    expect(toYou.settle).toMatchObject({ direction: "TO_OWNER", amountRupees: "300", netPaise: 40000 });
+    // Priya → Karan is a member-to-member hop: real, but not recordable by you.
+    const toKaran = g.suggestions.find((s) => s.toName === "Karan")!;
+    expect(toKaran.amount).toBe(10000);
+    expect(toKaran.involvesYou).toBe(false);
   });
 
   it("flags a member with settlement history as partially settled", async () => {
@@ -178,8 +193,8 @@ describe("groupDashboard", () => {
     await deleteSettlement(userId, settlementId);
 
     const after = (await groupDashboard(userId, groupId, parsePeriod({ p: "all" })))!;
-    // Priya's ₹100 settlement gone → her net returns to the full ₹300 owed.
-    expect(after.members.find((m) => m.name === "Priya")!.net).toBe(30000);
+    // Priya's ₹100 settlement gone → her net returns to the full ₹500 she consumed.
+    expect(after.members.find((m) => m.name === "Priya")!.net).toBe(50000);
     expect(after.settlements).toHaveLength(0);
 
     const auditRow = await prisma.auditLog.findFirst({ where: { userId, entity: "Settlement", action: "delete", entityId: settlementId } });

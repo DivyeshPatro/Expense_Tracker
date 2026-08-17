@@ -25,7 +25,18 @@ export interface SettlementRow {
 
 const PAGE = 8;
 
-export function SettlementHistory({ settlements }: { settlements: SettlementRow[] }) {
+export function SettlementHistory({
+  settlements,
+  ownerName,
+  canManage,
+}: {
+  settlements: SettlementRow[];
+  /** Who the settlements are filed under, for readers who aren't them. */
+  ownerName: string;
+  /** deleteSettlement() scopes by userId, so only the owner can remove one —
+   *  everyone else reads the history without a delete control. */
+  canManage: boolean;
+}) {
   const [visible, setVisible] = useState(PAGE);
   if (settlements.length === 0) {
     return (
@@ -53,7 +64,7 @@ export function SettlementHistory({ settlements }: { settlements: SettlementRow[
         <div key={m.key} className="flex flex-col gap-1.5">
           <div className="text-[11px] font-bold text-mut2 uppercase tracking-wide mt-1">{m.label}</div>
           {m.rows.map((s) => (
-            <SettlementCard key={s.id} s={s} />
+            <SettlementCard key={s.id} s={s} ownerName={ownerName} canManage={canManage} />
           ))}
         </div>
       ))}
@@ -69,12 +80,17 @@ export function SettlementHistory({ settlements }: { settlements: SettlementRow[
   );
 }
 
-function SettlementCard({ s }: { s: SettlementRow }) {
+function SettlementCard({ s, ownerName, canManage }: { s: SettlementRow; ownerName: string; canManage: boolean }) {
   const router = useRouter();
   const { showToast } = useUI();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const toOwner = s.direction === "TO_OWNER";
+  // "Cara paid you" is only true for the owner. To another member it is
+  // "Cara paid Olivia Owner" — the same money, correctly attributed.
+  const line = toOwner
+    ? `${s.participantName} paid ${canManage ? "you" : ownerName}`
+    : `${canManage ? "You" : ownerName} paid ${s.participantName}`;
 
   async function del() {
     setBusy(true);
@@ -98,9 +114,7 @@ function SettlementCard({ s }: { s: SettlementRow }) {
         {toOwner ? "↘" : "↗"}
       </span>
       <div className="flex-1 min-w-0">
-        <div className="text-[12.5px] font-semibold truncate">
-          {toOwner ? `${s.participantName} paid you` : `You paid ${s.participantName}`}
-        </div>
+        <div className="text-[12.5px] font-semibold truncate">{line}</div>
         <div className="text-[11px] text-mut2 truncate">
           {friendlyDay(s.settledAt.slice(0, 10))} · {s.method}
           {s.note ? ` · ${s.note}` : ""}
@@ -109,7 +123,7 @@ function SettlementCard({ s }: { s: SettlementRow }) {
       <span className="text-[13px] font-bold tabular-nums flex-none" style={{ color: toOwner ? "var(--green)" : "var(--red)" }}>
         {formatPaise(s.amount)}
       </span>
-      {confirming ? (
+      {!canManage ? null : confirming ? (
         <span className="flex items-center gap-1 flex-none">
           <button
             onClick={del}
@@ -125,7 +139,7 @@ function SettlementCard({ s }: { s: SettlementRow }) {
       ) : (
         <button
           onClick={() => setConfirming(true)}
-          aria-label={`Delete settlement: ${toOwner ? `${s.participantName} paid you` : `you paid ${s.participantName}`} ${formatPaise(s.amount)}`}
+          aria-label={`Delete settlement: ${line} ${formatPaise(s.amount)}`}
           className="w-9 h-9 rounded-md grid place-items-center text-mut2 bg-transparent border-none cursor-pointer hover:text-red hover:bg-redsoft flex-none"
         >
           ✕

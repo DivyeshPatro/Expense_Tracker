@@ -31,7 +31,10 @@ async function signIn(page: Page) {
     return !!b && !b.disabled;
   }, undefined, { timeout: 60000 });
   await page.click('button[type="submit"]');
-  await page.waitForURL("**/dashboard", { timeout: 60000 });
+  // Poll rather than waitForURL: on a production build the post-sign-in redirect
+  // is client-side and never emits a `load`, so waitForURL just times out.
+  for (let i = 0; i < 80 && !page.url().includes("/dashboard"); i++) await page.waitForTimeout(500);
+  if (!page.url().includes("/dashboard")) throw new Error("sign-in failed: " + (await page.locator("body").innerText()).slice(0, 120));
 }
 
 async function main() {
@@ -67,6 +70,10 @@ async function main() {
 
     // ── BEFORE: the duplicate shows as a second identity ──────────────────
     await page.goto(`${BASE}/shared/groups/${group.id}?p=all`, { waitUntil: "load" });
+    // The server component is still streaming when 'load' fires, so anchor on a
+    // known element before reading text — otherwise innerText sees a partial
+    // document and the assertions below fail for no real reason.
+    await page.waitForSelector("text=Members · contribution", { timeout: 30000 });
     const beforeText = await page.locator("body").innerText();
     ok("before merge: the group shows a '(left group)' row for the non-member duplicate", beforeText.includes("(left group)"));
     ok("before merge: two separate balances exist (₹100 and ₹200)", beforeText.includes("100") && beforeText.includes("200"));
@@ -77,18 +84,22 @@ async function main() {
 
     // ── AFTER ─────────────────────────────────────────────────────────────
     await page.goto(`${BASE}/shared/groups/${group.id}?p=all`, { waitUntil: "load" });
+    // The server component is still streaming when 'load' fires, so anchor on a
+    // known element before reading text — otherwise innerText sees a partial
+    // document and the assertions below fail for no real reason.
+    await page.waitForSelector("text=Members · contribution", { timeout: 30000 });
     const afterText = await page.locator("body").innerText();
     // Scoped to the members card. The name legitimately appears a second time in
-    // "Settle up smartly" as a payment suggestion — that is one person being
+    // the Balances list as a payment row — that is one person being
     // named twice on the page, not two identities, so counting whole-page text
     // would be the wrong assertion.
-    const splitAt = afterText.indexOf("Settle up smartly");
+    const splitAt = afterText.indexOf("Group Settlement");
     const membersSection = splitAt > 0 ? afterText.slice(0, splitAt) : afterText;
     const suggestionSection = splitAt > 0 ? afterText.slice(splitAt) : "";
     const memberOccurrences = (membersSection.match(new RegExp(NAME, "g")) ?? []).length;
     const suggestionOccurrences = (suggestionSection.match(new RegExp(NAME, "g")) ?? []).length;
     ok("after merge: the contact appears exactly once in the members list", memberOccurrences === 1, `${memberOccurrences}× in members section`);
-    ok("after merge: it is named once more only as a settle-up suggestion", suggestionOccurrences === 1, `${suggestionOccurrences}× in suggestions`);
+    ok("after merge: it is named once more only as a payment row in the settlement plan", suggestionOccurrences === 1, `${suggestionOccurrences}× in the plan`);
     ok("after merge: no '(left group)' row remains", !afterText.includes("(left group)"));
     ok("after merge: the combined balance ₹300.00 is shown", afterText.includes("300"));
     ok("after merge: group total unchanged at ₹900.00", afterText.includes("900"));
@@ -113,6 +124,9 @@ async function main() {
 
     // ── the expenses still display correctly ──────────────────────────────
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
+    // Text-presence, not visibility: the desktop "Add expense" button is
+    // `hidden md:block`, so waiting for a *visible* match never resolves at 390px.
+    await page.waitForFunction(() => document.body.innerText.includes("Add expense"), undefined, { timeout: 30000 });
     const list = await page.locator("body").innerText();
     ok("both original expenses still listed", list.includes(`ZMergeA-${S}`) && list.includes(`ZMergeB-${S}`));
   } finally {
