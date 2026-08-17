@@ -6,7 +6,8 @@
 import { cache } from "react";
 import { currentMonthKey, monthName, shiftMonthKey, toYMD } from "@/lib/dates";
 import {
-  computeGrossObligations,
+  computeDetailedObligations,
+  OWNER_SENTINEL,
   computeMemberBalances,
   computeOverview,
   computeSuggestions,
@@ -15,7 +16,7 @@ import {
   sumSpent,
   type CategorySlice,
   type GroupExpenseRow,
-  type GrossObligation,
+  type DetailedObligation,
   type GroupSettlementRow,
   type MemberBalance,
   type SettlementSuggestion,
@@ -74,10 +75,12 @@ export interface GroupDashboardData {
     trend: { key: string; label: string; total: number }[];
   };
   settlements: { id: string; participantName: string; direction: "TO_OWNER" | "FROM_OWNER"; amount: number; method: string; note: string | null; settledAt: string }[];
-  /** v2.1: each member's obligations kept un-netted, so "All payments" can
-   *  show that someone both paid for something AND owes for something else.
-   *  owesYou − youOwe === that member's net, by construction. */
-  gross: (GrossObligation & { name: string })[];
+  /** The individual obligations the expenses created — everyone who shared a
+   *  bill owes the person who PAID it, including when that person is another
+   *  member. Group-wide and viewer-independent, exactly like `suggestions`;
+   *  the difference is that these are un-minimised. Names resolved here so the
+   *  client never joins ids back to people. */
+  detailed: (DetailedObligation & { fromName: string; toName: string })[];
   /** v2.1: the actual expenses behind `overview.totalExpenseSum`. The service
    *  already loaded these rows to compute the balances and then discarded
    *  them, so the page could show a total with no way to see what produced it.
@@ -328,7 +331,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
   const memberIds = group.members.map((m) => m.participantId);
   const { members: balances, youNet, youAreOwed, youOwe } = computeMemberBalances(expenses, settleRows, memberIds);
   const settledPids = new Set(settleRows.map((s) => s.participantId));
-  const grossRows = computeGrossObligations(expenses, settleRows, memberIds);
+  const detailedRows = computeDetailedObligations(expenses, settleRows, memberIds);
 
   // attach display meta; the owner ("You") card leads
   const meta = new Map(
@@ -398,6 +401,13 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
   // already in memory — a member who has since left still renders, using the
   // same "(left group)" wording the balances use, so an expense never shows a
   // blank payer.
+  // An obligation side is either OWNER_SENTINEL or a participant id. The owner
+  // is named by their REAL name here, exactly as the settlement plan names
+  // them — both lists are shareable, and "You" means nothing in a group chat.
+  // The viewer's own side is marked with a chip in the UI instead.
+  const nameOfObligationSide = (id: string) =>
+    id === OWNER_SENTINEL ? ownerName : (group.members.find((m) => m.participantId === id)?.participant.displayName ?? "(left group)");
+
   const nameOf = (pid: string | null) =>
     // Same owner-identity rule as the balances: a null payer is the group's
     // creator, so it only reads "You paid" when the reader is that person.
@@ -460,7 +470,11 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
       note: s.note,
       settledAt: s.settledAt.toISOString(),
     })),
-    gross: grossRows.map((gr) => ({ ...gr, name: nameOf(gr.participantId) })),
+    detailed: detailedRows.map((d) => ({
+      ...d,
+      fromName: nameOfObligationSide(d.fromId),
+      toName: nameOfObligationSide(d.toId),
+    })),
     expenses: expenseList,
     // group id itself so membership events (audited with entityId = groupId)
     // join the feed alongside this group's transactions + settlements.

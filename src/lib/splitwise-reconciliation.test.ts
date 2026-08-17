@@ -12,7 +12,7 @@
 // means Ledgerly and Splitwise would disagree about who owes whom.
 
 import { describe, expect, it } from "vitest";
-import { computeGrossObligations, computeMemberBalances, type GroupExpenseRow, type GroupSettlementRow } from "./group-dashboard";
+import { computeDetailedObligations, computeMemberBalances, OWNER_SENTINEL, type GroupExpenseRow, type GroupSettlementRow } from "./group-dashboard";
 
 // The owner + four others, as exported.
 const ANA = "p-ana"; // the member who paid the ₹1,240
@@ -135,16 +135,25 @@ describe("full group reconciliation against the Splitwise export", () => {
     expect(r.youNet).toBe(rupees(4320 + 252 + 312 + 3200 + 1024 + 2108));
   });
 
-  it("gross obligations reconcile with the corrected net", () => {
+  it("detailed obligations reconcile with the corrected net", () => {
     const r = balances();
-    const gross = computeGrossObligations(EXPENSES, [], OTHERS);
-    for (const p of OTHERS) {
-      const g = gross.find((x) => x.participantId === p)!;
-      expect(g.owesYou - g.youOwe).toBe(netOf(p, r));
-    }
-    // and the payer's credit shows as the ₹992 they fronted
-    expect(gross.find((g) => g.participantId === ANA)!.youOwe).toBe(rupees(992));
-    expect(gross.find((g) => g.participantId === ANA)!.owesYou).toBe(rupees(3119));
+    const rows = computeDetailedObligations(EXPENSES, [], OTHERS);
+    const position = (who: string) =>
+      rows.reduce((t, x) => t + (x.fromId === who ? x.amount : 0) - (x.toId === who ? x.amount : 0), 0);
+    for (const p of OTHERS) expect(position(p)).toBe(netOf(p, r));
+    expect(position(OWNER_SENTINEL)).toBe(-r.youNet);
+  });
+
+  it("the ₹1,240 bill is owed to the member who paid it, four ways", () => {
+    // The point of the whole exercise: ₹992 is not one debt the owner carries,
+    // it is four people owing ₹248 each to the person who fronted the bill.
+    const rows = computeDetailedObligations([EXPENSES.find((e) => e.id === "cab-petrol")!], [], OTHERS);
+    expect(rows).toHaveLength(4);
+    expect(rows.every((x) => x.toId === ANA && x.amount === rupees(248))).toBe(true);
+    expect(rows.map((x) => x.fromId).sort()).toEqual([BEN, CARA, DEV, OWNER_SENTINEL].sort());
+    // never one aggregated ₹992 row
+    expect(rows.some((x) => x.amount === rupees(992))).toBe(false);
+    expect(rows.reduce((t, x) => t + x.amount, 0)).toBe(rupees(992));
   });
 });
 
@@ -173,15 +182,19 @@ describe("payment shapes", () => {
   });
 
   it("one person both pays and owes", () => {
-    // Srikant fronts one bill and owes on another.
+    // Ana fronts one bill and owes on another.
     const r = computeMemberBalances([equal5("a", 500, null), equal5("b", 1000, ANA)], [], OTHERS);
     // share 100 + 200 = 300; paid 1000 → net −700
     expect(netOf(ANA, r)).toBe(rupees(-700));
-    const gross = computeGrossObligations([equal5("a", 500, null), equal5("b", 1000, ANA)], [], OTHERS);
-    const g = gross.find((x) => x.participantId === ANA)!;
-    expect(g.owesYou).toBe(rupees(100)); // his share of the bill you paid
-    expect(g.youOwe).toBe(rupees(800)); // what he fronted for the other four
-    expect(g.owesYou - g.youOwe).toBe(rupees(-700));
+    const rows = computeDetailedObligations([equal5("a", 500, null), equal5("b", 1000, ANA)], [], OTHERS);
+    // owes the owner their ₹100 share of the owner-paid bill …
+    expect(rows.find((x) => x.fromId === ANA && x.toId === OWNER_SENTINEL)!.amount).toBe(rupees(100));
+    // … and is owed ₹200 by each of the other four for the bill they fronted
+    const owedToThem = rows.filter((x) => x.toId === ANA);
+    expect(owedToThem).toHaveLength(4);
+    expect(owedToThem.every((x) => x.amount === rupees(200))).toBe(true);
+    const position = rows.reduce((t, x) => t + (x.fromId === ANA ? x.amount : 0) - (x.toId === ANA ? x.amount : 0), 0);
+    expect(position).toBe(rupees(-700));
   });
 
   it("settlements already exist", () => {

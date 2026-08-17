@@ -154,11 +154,25 @@ describe("Group Settlement is identical for every member", () => {
   });
 
   it("detailed obligations match across viewers too", async () => {
-    const gross = async (uid: string) =>
-      (await viewFor(uid)).gross.map((x) => `${x.name}:${x.owesYou}:${x.youOwe}`).sort();
-    const owner = await gross(ownerId);
-    expect(await gross(anaUserId)).toEqual(owner);
-    expect(await gross(benUserId)).toEqual(owner);
+    // Compared by participant id, not by display name: the owner's side is
+    // rendered "You" to themselves and "Olivia" to everyone else, which is the
+    // one thing that is allowed to differ.
+    const detailed = async (uid: string) =>
+      (await viewFor(uid)).detailed.map((x) => `${x.fromId}→${x.toId}:${x.amount}`).sort();
+    const owner = await detailed(ownerId);
+    expect(await detailed(anaUserId)).toEqual(owner);
+    expect(await detailed(benUserId)).toEqual(owner);
+  });
+
+  it("an obligation to a member who paid is addressed to THEM, for every viewer", async () => {
+    // Ana fronted the ₹1,200 petrol bill; the other three each owe her ₹300.
+    for (const uid of [ownerId, anaUserId, benUserId]) {
+      const rows = (await viewFor(uid)).detailed.filter((x) => x.toId === anaPid);
+      expect(rows).toHaveLength(3);
+      expect(rows.every((x) => x.amount === rup(300))).toBe(true);
+      // never one aggregated ₹900 row pointed at the owner
+      expect((await viewFor(uid)).detailed.some((x) => x.amount === rup(900))).toBe(false);
+    }
   });
 
   it("member-to-member payments survive and are the same for everyone", async () => {

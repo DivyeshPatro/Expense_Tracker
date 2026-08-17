@@ -9,11 +9,11 @@
 //     GROUP-WIDE: it works purely from (id, net) pairs, so a payment between
 //     two other members stays between them and is never re-routed through
 //     whoever happens to be logged in.
-//   • Detailed obligations → computeGrossObligations(): what each person owes
-//     you and what you owe them, kept SEPARATE, so someone who fronted a bill
-//     and also owes for other expenses shows both facts instead of one netted
-//     row that hides that they paid at all. This view is owner-centric by
-//     construction — it is the "why", not the plan.
+//   • Detailed obligations → computeDetailedObligations(): the obligations the
+//     expenses actually created — everyone who shared a bill owes the person
+//     who PAID it. Also group-wide: when a member fronts a bill, the others owe
+//     THEM, and it is never re-addressed to the owner. Un-minimised on purpose;
+//     this is the "why", and minimizeSettlements is what collapses it.
 //   • What I'll receive    → each member's `net`, positives only. Personal
 //     accounting; deliberately not shareable.
 //
@@ -38,7 +38,7 @@ interface Row extends PlanRow {
 
 export function GroupBalances({
   members,
-  gross,
+  obligations,
   suggestions,
   groupId,
   groupName,
@@ -47,7 +47,9 @@ export function GroupBalances({
   isViewerOwner,
 }: {
   members: GroupMemberView[];
-  gross: { participantId: string; name: string; owesYou: number; youOwe: number }[];
+  /** The individual obligations behind the plan, already named and group-wide:
+   *  any person can owe any other, not just the owner. */
+  obligations: { fromId: string; fromName: string; toId: string; toName: string; amount: number }[];
   suggestions: GroupSuggestion[];
   groupId: string;
   groupName: string;
@@ -71,45 +73,31 @@ export function GroupBalances({
   const plan: Row[] = namedPlan(suggestions, ownerName).map((r, i) => ({ ...r, settle: suggestions[i].settle }));
   const headline = settlementHeadline(plan.length);
 
-  // DETAILED — the un-netted obligations behind the plan.
+  // DETAILED — the obligations the expenses actually created, straight from the
+  // server. Rows can run between any two people; an obligation to a member who
+  // fronted a bill stays addressed to THEM.
   const netOf = new Map(others.map((m) => [m.participantId!, m.net]));
-  const detailed: Row[] = gross
-    .flatMap((g) => {
-      const net = netOf.get(g.participantId) ?? 0;
-      const settlePrefill = {
-        participantId: g.participantId,
-        participantName: g.name,
-        direction: (net > 0 ? "TO_OWNER" : "FROM_OWNER") as "TO_OWNER" | "FROM_OWNER",
-        amountRupees: String(Math.round(Math.abs(net) / 100)),
-        netPaise: net,
-      };
-      const settle = canRecordSettlements && Math.abs(net) > SETTLED_THRESHOLD ? settlePrefill : undefined;
-      const rows: Row[] = [];
-      if (g.owesYou > SETTLED_THRESHOLD) {
-        rows.push({
-          key: `owes-${g.participantId}`,
-          fromId: g.participantId,
-          fromName: g.name,
-          toId: OWNER_ID,
-          toName: ownerName,
-          amount: g.owesYou,
-          settle,
-        });
-      }
-      if (g.youOwe > SETTLED_THRESHOLD) {
-        rows.push({
-          key: `owe-${g.participantId}`,
-          fromId: OWNER_ID,
-          fromName: ownerName,
-          toId: g.participantId,
-          toName: g.name,
-          amount: g.youOwe,
-          settle,
-        });
-      }
-      return rows;
-    })
-    .sort((a, b) => b.amount - a.amount);
+  const detailed: Row[] = obligations
+    .filter((o) => o.amount > SETTLED_THRESHOLD)
+    .map((o, i) => {
+      // Settleable only where the owner is one side — that is the only shape
+      // the settlement ledger records. The prefill still uses the member's
+      // overall net, so the modal's live preview stays meaningful.
+      const otherId = o.fromId === OWNER_ID ? o.toId : o.fromId;
+      const involvesOwner = o.fromId === OWNER_ID || o.toId === OWNER_ID;
+      const net = netOf.get(otherId) ?? 0;
+      const settle =
+        canRecordSettlements && involvesOwner && Math.abs(net) > SETTLED_THRESHOLD
+          ? {
+              participantId: otherId,
+              participantName: o.fromId === OWNER_ID ? o.toName : o.fromName,
+              direction: (net > 0 ? "TO_OWNER" : "FROM_OWNER") as "TO_OWNER" | "FROM_OWNER",
+              amountRupees: String(Math.round(Math.abs(net) / 100)),
+              netPaise: net,
+            }
+          : undefined;
+      return { key: `d-${o.fromId}-${o.toId}-${i}`, ...o, settle };
+    });
 
   // Personal standing, positives only — what you would actually collect.
   const receive: Row[] = others
@@ -255,7 +243,10 @@ export function GroupBalances({
 
               <div className="flex items-center justify-between gap-2 pt-2 mt-1 border-t border-line">
                 <span className="text-[12.5px] font-semibold text-mut">
-                  {view === "receive" ? "Total you'll receive" : "Total to settle"}
+                  {/* "to settle" belongs to the plan: it is the money that
+                      actually has to move. The detailed list is the gross of
+                      every obligation, which is a different quantity. */}
+                  {view === "receive" ? "Total you'll receive" : view === "detailed" ? "Total obligations" : "Total to settle"}
                 </span>
                 <span className="text-[14px] font-extrabold tabular-nums" style={{ color: "var(--green)" }}>
                   {formatPaise(total)}

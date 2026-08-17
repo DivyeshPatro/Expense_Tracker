@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  computeGrossObligations,
+  computeDetailedObligations,
   computeMemberBalances,
   computeSuggestions,
   type GroupExpenseRow,
@@ -316,10 +316,7 @@ describe("share text", () => {
 
 /** How many rows the Detailed obligations view would show for the same data. */
 function countDetailed(expenses: GroupExpenseRow[], memberIds: string[]): number {
-  return computeGrossObligations(expenses, [], memberIds).reduce(
-    (n, g) => n + (g.owesYou > 100 ? 1 : 0) + (g.youOwe > 100 ? 1 : 0),
-    0
-  );
+  return computeDetailedObligations(expenses, [], memberIds).filter((o) => o.amount > 100).length;
 }
 
 /** Executing the plan must leave every participant at zero. */

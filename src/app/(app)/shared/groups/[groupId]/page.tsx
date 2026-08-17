@@ -137,7 +137,7 @@ export default async function GroupDashboardPage({
           per-member nets, computeGrossObligations and minimizeSettlements. */}
       <GroupBalances
         members={g.members}
-        gross={g.gross}
+        obligations={g.detailed}
         suggestions={g.suggestions}
         groupId={g.id}
         groupName={g.name}

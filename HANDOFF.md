@@ -78,6 +78,80 @@ every reference first and asserts zero remaining references before it will
 delete anything. There is a regression test that deliberately performs the naive
 delete-first order and proves money disappears.
 
+### ✅ GROUP SETTLEMENT — DETAILED OBLIGATIONS MADE GROUP-WIDE (2026-08-17)
+
+The last owner-centric assumption in the settlement screen, found by the owner
+reading the Detailed view against the underlying splits.
+
+**Root cause.** `computeGrossObligations()` returned
+`{ participantId, owesYou, youOwe }` — two buckets per member, **both keyed to
+the owner**. That shape structurally cannot express "member A owes member B", so
+whenever a *member* fronted a bill the obligations were misfiled in both
+directions at once: the other sharers' shares were booked as owed to the owner,
+and the whole amount the payer had fronted was booked as owed *by* the owner,
+aggregating several people's debts onto one person. On a bill split five ways
+this read as one row for the full fronted amount instead of four separate
+per-share obligations.
+
+It stayed invisible because the aggregate was still right: `owesYou − youOwe`
+equalled that member's `net`. **Only the attribution was wrong.** The balance
+engine and the payment plan were never affected — which is why Fewest Payments
+always showed the correct answer and Detailed did not.
+
+**The model now.** `computeDetailedObligations()` returns
+`{ fromId, toId, amount }[]` keyed by **pair**, with `OWNER_SENTINEL` standing in
+for the owner (who has no participant row). For each expense, everyone who
+shared it owes **the person who paid** their own share; the payer's own share is
+not an obligation to anybody. Settlements reduce the specific pair they were
+paid against, flipping direction rather than going negative if over-settled.
+
+**Detailed vs Fewest Payments** — two different answers to two questions, from
+one set of numbers:
+
+| | Detailed | Fewest payments |
+|---|---|---|
+| Question | why does this person owe? | who pays whom? |
+| Source | `computeDetailedObligations()` | `minimizeSettlements()` |
+| Shape | every obligation, un-minimised | the shortest clearing plan |
+| Both | group-wide, viewer-independent, any pair of people | |
+
+They are mathematically consistent without being the same list: executing either
+leaves every participant at exactly zero.
+
+**Conservation invariant** (asserted in tests): for every participant,
+`Σ owed out − Σ owed in` equals their `paid − share` net from
+`computeMemberBalances()` exactly, the owner included.
+
+**⚠️ Stricter than what it replaced.** The new function reads **splits only**,
+where the old one used `expense.amount` for the payer's outlay. `splitEqual`,
+`splitByWeights` and `splitExact` all guarantee shares sum to the total, so real
+data cannot diverge — but a malformed row would now surface as a reconciliation
+gap instead of being silently absorbed. One old fixture whose splits did not sum
+to its amount was corrected, not loosened.
+
+**Untouched by this change:** `computeMemberBalances()`, `minimizeSettlements()`,
+`computeSuggestions()`, the `balance = paid − share` rule, settlement storage,
+settlement permissions, and the schema.
+
+**Still true:** only the group's owner can record a settlement, so
+member-to-member rows show "between them" with no action. Recording those would
+need the settlement schema to model participant↔participant.
+
+**Verification.** TypeScript, ESLint, 635 unit, 214 integration, `next build`,
+and six E2E suites (collab 22, settlement-share 17, members-balances 32,
+shared-ia 37, group-rehome 26, participant-merge 10). Detailed rendered without
+overflow at 360/390/430/1440. New `src/lib/detailed-obligations.test.ts` (21
+tests) covers owner-pays, member-pays-for-everyone, several payers, unequal
+splits, partial/over/full settlement, member-to-member, identical output across
+three different account holders, Detailed-vs-plan consistency, and paise
+conservation on a split that does not divide evenly.
+
+**Production was not touched** — local Docker only, no migration, no deploy.
+
+**Deliberately deferred:** [#238](https://github.com/DivyeshPatro/Expense_Tracker/issues/238)
+— the NET hero and per-expense "your share" are still computed with the owner as
+"self", so a member reads the owner's position under a first-person label.
+
 ## Shipped
 
 | Epic | | PR | Headline result |
@@ -205,4 +279,11 @@ This hook cannot schedule a same-session resume by itself.
 Automatic note: Claude Code stopped with a rate limit at 2026-08-17 18:06:09 IST.
 Raw hook input was saved to `.claude/stop-failure-events.jsonl`.
 Automatic recovery is enabled for this failure type.
+This hook cannot schedule a same-session resume by itself.
+
+<!-- claude-code-stop-failure incident=4dd660adee16ae57 -->
+
+Automatic note: Claude Code stopped with a temporary server error at 2026-08-17 22:51:28 IST.
+Raw hook input was saved to `.claude/stop-failure-events.jsonl`.
+Automatic recovery is disabled for this failure type.
 This hook cannot schedule a same-session resume by itself.

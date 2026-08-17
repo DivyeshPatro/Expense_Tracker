@@ -7,7 +7,7 @@
 // simplified plan must never invent or lose money.
 
 import { describe, expect, it } from "vitest";
-import { computeGrossObligations, computeMemberBalances, computeSuggestions, SETTLED_THRESHOLD, type GroupExpenseRow } from "./group-dashboard";
+import { computeDetailedObligations, computeMemberBalances, computeSuggestions, OWNER_SENTINEL, SETTLED_THRESHOLD, type GroupExpenseRow } from "./group-dashboard";
 
 const ALEX = "p-alex";
 const BLAKE = "p-blake";
@@ -152,67 +152,89 @@ describe("what I'll receive", () => {
   });
 });
 
-describe("gross obligations (Simplify OFF) — the un-netted list", () => {
+describe("detailed obligations (Simplify OFF) — the un-minimised list", () => {
+  /** Sum of what `who` owes minus what is owed to them. */
+  const position = (rows: { fromId: string; toId: string; amount: number }[], who: string) =>
+    rows.reduce((t, r) => t + (r.fromId === who ? r.amount : 0) - (r.toId === who ? r.amount : 0), 0);
+
+  it("addresses obligations to the member who PAID, not to the owner", () => {
+    // Blake fronts ₹744 split three ways. The other two each owe Blake ₹248 —
+    // the owner is on the hook for their OWN ₹248 only, not the whole ₹496.
+    const rows = computeDetailedObligations(
+      [expense("t2", 74_400, BLAKE, [[null, 24_800], [ALEX, 24_800], [BLAKE, 24_800]])],
+      [],
+      [ALEX, BLAKE]
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.toId === BLAKE)).toBe(true);
+    expect(rows.every((r) => r.amount === 24_800)).toBe(true);
+    expect(rows.map((r) => r.fromId).sort()).toEqual([ALEX, OWNER_SENTINEL].sort());
+    // the payer's own share is not an obligation to anybody
+    expect(rows.some((r) => r.fromId === BLAKE)).toBe(false);
+  });
+
   it("shows BOTH directions for someone who paid AND owes", () => {
-    // The reported case: you paid ₹4,000 split 5 ways (Priya owes ₹800);
-    // Priya paid ₹1,240 split 5 ways (you owe her ₹248).
     const expenses = [
       expense("t1", 240_000, null, [[null, 80_000], [ALEX, 80_000], [BLAKE, 80_000]]),
       expense("t2", 74_400, BLAKE, [[null, 24_800], [ALEX, 24_800], [BLAKE, 24_800]]),
     ];
-    const gross = computeGrossObligations(expenses, [], [ALEX, BLAKE]);
-    const blake = gross.find((g) => g.participantId === BLAKE)!;
-    expect(blake.owesYou).toBe(80_000); // their share of the bill you paid
-    // What they FRONTED for the others — ₹744 minus their own ₹248 share.
-    expect(blake.youOwe).toBe(74_400 - 24_800);
+    const rows = computeDetailedObligations(expenses, [], [ALEX, BLAKE]);
+    expect(rows.find((r) => r.fromId === BLAKE && r.toId === OWNER_SENTINEL)!.amount).toBe(80_000);
+    expect(rows.find((r) => r.fromId === OWNER_SENTINEL && r.toId === BLAKE)!.amount).toBe(24_800);
+    // and Alex owes Blake directly — a row the owner-centric shape could not express
+    expect(rows.find((r) => r.fromId === ALEX && r.toId === BLAKE)!.amount).toBe(24_800);
   });
 
-  it("reconciles exactly with the engine: owesYou − youOwe === net", () => {
+  it("reconciles exactly with the engine: each person's position === their net", () => {
     const expenses = [
-      expense("t1", 400_000, null, [[null, 80_000], [ALEX, 80_000], [BLAKE, 80_000], [CASEY, 80_000]]),
-      expense("t2", 124_000, BLAKE, [[null, 24_800], [ALEX, 24_800], [BLAKE, 24_800], [CASEY, 24_800]]),
+      // Amounts equal the sum of their splits, as splitEqual/splitByWeights/
+      // splitExact all guarantee. computeDetailedObligations reads the splits
+      // alone, so a fixture where the two disagree cannot reconcile — and
+      // real data never can.
+      expense("t1", 320_000, null, [[null, 80_000], [ALEX, 80_000], [BLAKE, 80_000], [CASEY, 80_000]]),
+      expense("t2", 99_200, BLAKE, [[null, 24_800], [ALEX, 24_800], [BLAKE, 24_800], [CASEY, 24_800]]),
       expense("t3", 128_000, null, [[null, 32_000], [ALEX, 32_000], [BLAKE, 32_000], [CASEY, 32_000]]),
     ];
     const ids = [ALEX, BLAKE, CASEY];
-    const { members } = computeMemberBalances(expenses, [], ids);
-    const gross = computeGrossObligations(expenses, [], ids);
+    const { members, youNet } = computeMemberBalances(expenses, [], ids);
+    const rows = computeDetailedObligations(expenses, [], ids);
     for (const id of ids) {
-      const net = members.find((m) => m.participantId === id)!.net;
-      const g = gross.find((x) => x.participantId === id)!;
-      expect(g.owesYou - g.youOwe).toBe(net);
+      expect(position(rows, id)).toBe(members.find((m) => m.participantId === id)!.net);
     }
+    // the owner too, with their sign flipped (their net is reported owner-side)
+    expect(position(rows, OWNER_SENTINEL)).toBe(-youNet);
   });
 
   it("keeps reconciling after a settlement", () => {
     const expenses = [expense("t1", 30_000, null, [[null, 10_000], [ALEX, 10_000], [BLAKE, 10_000]])];
     const settlements = [{ id: "s1", participantId: ALEX, direction: "TO_OWNER" as const, amount: 4_000, settledAt: "2026-08-06T00:00:00Z" }];
     const { members } = computeMemberBalances(expenses, settlements, [ALEX, BLAKE]);
-    const gross = computeGrossObligations(expenses, settlements, [ALEX, BLAKE]);
+    const rows = computeDetailedObligations(expenses, settlements, [ALEX, BLAKE]);
     for (const id of [ALEX, BLAKE]) {
-      const net = members.find((m) => m.participantId === id)!.net;
-      const g = gross.find((x) => x.participantId === id)!;
-      expect(g.owesYou - g.youOwe).toBe(net);
+      expect(position(rows, id)).toBe(members.find((m) => m.participantId === id)!.net);
     }
-    expect(gross.find((g) => g.participantId === ALEX)!.owesYou).toBe(6_000); // 10,000 − 4,000 settled
+    expect(rows.find((r) => r.fromId === ALEX)!.amount).toBe(6_000); // 10,000 − 4,000 settled
   });
 
   it("never reports a negative amount, even when over-settled", () => {
     const expenses = [expense("t1", 30_000, null, [[null, 10_000], [ALEX, 10_000], [BLAKE, 10_000]])];
     const settlements = [{ id: "s1", participantId: ALEX, direction: "TO_OWNER" as const, amount: 25_000, settledAt: "2026-08-06T00:00:00Z" }];
-    const gross = computeGrossObligations(expenses, settlements, [ALEX, BLAKE]);
-    const alex = gross.find((g) => g.participantId === ALEX)!;
-    expect(alex.owesYou).toBe(0);
-    expect(alex.youOwe).toBe(15_000); // they overpaid — now you owe them
+    const rows = computeDetailedObligations(expenses, settlements, [ALEX, BLAKE]);
+    expect(rows.every((r) => r.amount > 0)).toBe(true);
+    // Alex overpaid by ₹150, so the debt now runs the other way.
+    expect(rows.find((r) => r.fromId === OWNER_SENTINEL && r.toId === ALEX)!.amount).toBe(15_000);
+    expect(rows.some((r) => r.fromId === ALEX)).toBe(false);
     const { members } = computeMemberBalances(expenses, settlements, [ALEX, BLAKE]);
-    expect(alex.owesYou - alex.youOwe).toBe(members.find((m) => m.participantId === ALEX)!.net);
+    expect(position(rows, ALEX)).toBe(members.find((m) => m.participantId === ALEX)!.net);
   });
 
-  it("gives one row, not two, when a person only ever owed", () => {
-    const gross = computeGrossObligations(
+  it("gives one row per person when everyone only ever owed the owner", () => {
+    const rows = computeDetailedObligations(
       [expense("t1", 30_000, null, [[null, 10_000], [ALEX, 10_000], [BLAKE, 10_000]])],
       [],
       [ALEX, BLAKE]
     );
-    expect(gross.every((g) => g.youOwe === 0)).toBe(true);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.toId === OWNER_SENTINEL)).toBe(true);
   });
 });
