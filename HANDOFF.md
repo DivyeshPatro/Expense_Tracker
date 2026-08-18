@@ -148,6 +148,39 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ SPLIT PICKER SCOPED TO THE GROUP (2026-08-18)
+
+Reported while editing a group expense: the "Split with friends" picker listed
+the owner's entire contact list (~94 people) instead of the group's members.
+
+**Cause.** Both split forms did `const sharedParticipants = refData.participants`
+and passed that straight to `SplitEditor` — `modals.tsx` (Add Expense) and
+`transaction-detail.tsx` (Edit). `RefData.groups` already carried `memberIds`;
+nothing consulted them.
+
+**Why it mattered beyond noise.** A split can only be settled between members:
+the group dashboard reads its own roster, so an outsider's share sits on the
+expense but never appears in any balance or settlement plan. The picker made
+that easy to do by accident.
+
+**Fix.** One exported helper, `participantsForGroup()` in `split-editor.tsx`,
+used by both forms:
+- no group → everyone (unchanged)
+- group chosen → that group's members only
+- anyone ALREADY on the split stays listed even if they have since left, so
+  editing never hides someone who is still being charged
+- unknown group id → fall back to everyone rather than an unescapable empty list
+
+Only what is DISPLAYED is narrowed. `sharedParticipants` stays the full list for
+group *inference* ("these people imply exactly one group") — narrowing that
+would make choosing people shrink the list the choice is made from.
+
+**Verification.** 9 unit tests (`participants-for-group.test.ts`), plus a browser
+check: a group of three with an outsider present now offers exactly the three.
+653 unit, 214 integration, tsc, eslint, next build, six E2E suites.
+`e2e-group-expenses` stays 24/25 on its pre-existing date-picker timeout.
+Production untouched.
+
 ### ✅ SETTLE-UP MATCHES SPLITWISE TO THE PAISA (2026-08-18)
 
 Asked for after comparing a Splitwise export against the same group in Ledgerly.

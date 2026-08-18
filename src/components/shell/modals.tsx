@@ -35,7 +35,7 @@ import { LendingContactSheet } from "./lending-detail";
 import { LoanDetailModal } from "@/components/lending/loan-detail";
 import { useOffline } from "./offline-context";
 import { PendingDetailSheet } from "./pending-detail";
-import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
+import { buildSplitPayload, participantsForGroup, SplitEditor, type SplitEditorState } from "./split-editor";
 import { TransactionDetailSheet } from "./transaction-detail";
 import { useUI, type ModalPrefill } from "./ui-context";
 import { useFocusTrap } from "./use-focus-trap";
@@ -314,6 +314,11 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   let scheduleError: string | null = null;
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
+  // A group expense can only be split among that group's members, so the picker
+  // is narrowed once a group is chosen. `sharedParticipants` stays the full list
+  // above: group INFERENCE has to see everyone, or choosing people would narrow
+  // the very list the choice is made from.
+  const pickerParticipants = participantsForGroup(sharedParticipants, groupId, refData.groups, parts);
   // shown on the Advanced summary so the collapsed state still says where the
   // money is coming from — the one hidden field a user might actually check
   const accountName = refData.accounts.find((a) => a.id === accountId)?.name;
@@ -476,7 +481,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
           </Field>
         )}
 
-        <SplitEditor state={splitState} amtPaise={amtPaise} participants={sharedParticipants} />
+        <SplitEditor state={splitState} amtPaise={amtPaise} participants={pickerParticipants} />
 
         {/* A rule's template carries neither splits nor a group, so repeating is
             offered only for a plain personal expense rather than silently

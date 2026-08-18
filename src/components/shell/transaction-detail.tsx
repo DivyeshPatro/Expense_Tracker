@@ -54,7 +54,7 @@ import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-p
 import { GroupCategorySelect } from "./group-category-select";
 import { intentLabel, useOffline, type MutationKind } from "./offline-context";
 import { FAILURE_COPY } from "./pending-detail";
-import { buildSplitPayload, SplitEditor, type SplitEditorState } from "./split-editor";
+import { buildSplitPayload, participantsForGroup, SplitEditor, type SplitEditorState } from "./split-editor";
 import { useUI } from "./ui-context";
 import { ensureDeviceId, getDeviceName, type OutboxIntent } from "@/lib/offline/db";
 
@@ -906,6 +906,10 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
   const [payerId, setPayerId] = useState<string | null>(detail.paidByParticipantId);
 
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
+  // Same rule as the add-expense form: once this row belongs to a group, only
+  // that group's members are offered. Anyone already on the split stays listed
+  // even if they have since left, so editing never drops them silently.
+  const pickerParticipants = participantsForGroup(sharedParticipants, groupId, refData.groups, parts);
   const selected = sharedParticipants.filter((p) => parts[p.id]);
   const selectedIds = selected.map((p) => p.id);
   // Expression-aware, so the submitted value never depends on whether blur
@@ -968,7 +972,7 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
       </Field>
 
-      <SplitEditor state={splitState} amtPaise={amtPaise} participants={sharedParticipants} />
+      <SplitEditor state={splitState} amtPaise={amtPaise} participants={pickerParticipants} />
 
       {/* v2.1: the group is editable here — this is the repair path for an
           expense that was split with a group's members but saved as personal.

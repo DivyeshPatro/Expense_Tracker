@@ -61,6 +61,33 @@ function effectivePayer(payerId: string | null, selectedIds: string[]): string |
   return payerId && selectedIds.includes(payerId) ? payerId : null;
 }
 
+/**
+ * The people the split picker should offer.
+ *
+ * A group expense can only be split between that group's members, so offering
+ * the whole contact list there is both noise and a trap: with ~100 contacts the
+ * real members are buried, and picking an outsider silently produces a split
+ * the group can never settle. Narrowing to the group is the rule the data model
+ * already implies.
+ *
+ * Anyone ALREADY on the split stays listed even if they are not (or are no
+ * longer) a member. Hiding them would leave them charged but invisible, which
+ * is worse than showing an outsider — this way the row is visible and can be
+ * deselected deliberately.
+ */
+export function participantsForGroup<T extends { id: string }>(
+  all: T[],
+  groupId: string,
+  groups: { id: string; memberIds: string[] }[],
+  parts: Record<string, boolean>
+): T[] {
+  if (!groupId) return all;
+  const group = groups.find((g) => g.id === groupId);
+  if (!group) return all; // unknown group — better to offer everyone than nobody
+  const allowed = new Set(group.memberIds);
+  return all.filter((p) => allowed.has(p.id) || parts[p.id]);
+}
+
 export function SplitEditor({
   state,
   amtPaise,
