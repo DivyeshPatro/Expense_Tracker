@@ -29,7 +29,7 @@ import { formatPaise } from "@/lib/money";
 import { namedPlan, planTotal, settlementHeadline, shareSettlementText, OWNER_ID, type PlanRow } from "@/lib/settlement-plan";
 import type { GroupMemberView, GroupSuggestion } from "@/server/services/group-dashboard";
 
-type View = "plan" | "detailed" | "receive";
+type View = "settlement" | "receive";
 
 interface Row extends PlanRow {
   /** Present when you are one side, so it can be recorded. */
@@ -64,7 +64,12 @@ export function GroupBalances({
   isViewerOwner: boolean;
 }) {
   const { openModal, showToast } = useUI();
-  const [view, setView] = useState<View>("plan");
+  const [view, setView] = useState<View>("settlement");
+  // One settlement list, two readings of it. Simplify ON is the minimised plan
+  // (what Splitwise calls "simplify debts"); OFF is the raw obligations the
+  // expenses created. They were separate tabs, which made two views of the same
+  // question look like two different questions.
+  const [simplify, setSimplify] = useState(true);
 
   const others = members.filter((m) => m.participantId !== null);
 
@@ -121,7 +126,7 @@ export function GroupBalances({
         : undefined,
     }));
 
-  const shown = view === "receive" ? receive : view === "detailed" ? detailed : plan;
+  const shown = view === "receive" ? receive : simplify ? plan : detailed;
   const total = planTotal(shown);
   const fewer = detailed.length - plan.length;
   const settled = plan.length === 0;
@@ -142,7 +147,7 @@ export function GroupBalances({
     // Built from `shown`, so the message is literally the rows on screen.
     const text = shareSettlementText({
       groupName,
-      headline: view === "detailed" ? `${shown.length} outstanding ${shown.length === 1 ? "obligation" : "obligations"}` : headline,
+      headline: view === "settlement" && !simplify ? `${shown.length} outstanding ${shown.length === 1 ? "obligation" : "obligations"}` : headline,
       rows: shown,
       total,
     });
@@ -177,8 +182,7 @@ export function GroupBalances({
         <>
           <div className="flex gap-1.5 p-1 bg-accsoft rounded-[12px]" role="tablist" aria-label="Settlement view">
             {([
-              ["plan", "Fewest payments"],
-              ["detailed", "Detailed"],
+              ["settlement", "Settlement"],
               ["receive", "I'll receive"],
             ] as const).map(([v, label]) => (
               <button
@@ -195,14 +199,32 @@ export function GroupBalances({
             ))}
           </div>
 
+          {view === "settlement" && (
+            <button
+              onClick={() => setSimplify((v) => !v)}
+              role="switch"
+              aria-checked={simplify}
+              className="flex items-center justify-between gap-2 min-h-[44px] w-full bg-transparent border-none cursor-pointer p-0 text-left"
+            >
+              <span className="text-[12.5px] font-semibold text-ink">Simplify payments</span>
+              <span
+                aria-hidden
+                className="w-[38px] h-[22px] rounded-full relative flex-none transition-colors"
+                style={{ background: simplify ? "var(--acc)" : "var(--line2)" }}
+              >
+                <span className="absolute top-[3px] w-4 h-4 rounded-full bg-white transition-all" style={{ left: simplify ? "19px" : "3px" }} />
+              </span>
+            </button>
+          )}
+
           <p className="text-[11.5px] text-mut2 m-0 -mt-1">
-            {view === "plan"
-              ? fewer > 0
-                ? `The shortest way to settle the whole group — ${fewer} fewer ${fewer === 1 ? "payment" : "payments"} than paying each obligation separately.`
-                : "These are already the fewest payments."
-              : view === "detailed"
-                ? "Every obligation separately, including what you owe people who paid. This is the why behind the plan."
-                : "Your own standing with each person — what you would collect."}
+            {view === "receive"
+              ? "Your own standing with each person — what you would collect."
+              : simplify
+                ? fewer > 0
+                  ? `The shortest way to settle the whole group — ${fewer} fewer ${fewer === 1 ? "payment" : "payments"} than paying each obligation separately.`
+                  : "These are already the fewest payments."
+                : "Every obligation separately, including what you owe people who paid. This is the why behind the plan."}
           </p>
 
           {shown.length === 0 ? (
@@ -246,7 +268,7 @@ export function GroupBalances({
                   {/* "to settle" belongs to the plan: it is the money that
                       actually has to move. The detailed list is the gross of
                       every obligation, which is a different quantity. */}
-                  {view === "receive" ? "Total you'll receive" : view === "detailed" ? "Total obligations" : "Total to settle"}
+                  {view === "receive" ? "Total you'll receive" : simplify ? "Total to settle" : "Total obligations"}
                 </span>
                 <span className="text-[14px] font-extrabold tabular-nums" style={{ color: "var(--green)" }}>
                   {formatPaise(total)}

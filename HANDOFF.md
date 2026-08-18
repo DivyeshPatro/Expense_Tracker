@@ -148,6 +148,53 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ SETTLE-UP MATCHES SPLITWISE TO THE PAISA (2026-08-18)
+
+Asked for after comparing a Splitwise export against the same group in Ledgerly.
+
+**The algorithm was never the difference.** `minimizeSettlements()` is greedy
+largest-debtor → largest-creditor, which is Splitwise's published "simplify
+debts" heuristic. Run over the same expenses, the two produce byte-identical
+plans — verified against a real export: same four payments, same amounts, same
+total.
+
+**The tolerance was.** `computeSuggestions()` passed `SETTLED_THRESHOLD` (₹1) as
+the engine's epsilon. minimizeSettlements drops any debtor, creditor **or
+transfer** at or below its epsilon *while still decrementing the balances*, so a
+group carrying sub-rupee amounts got a plan that silently failed to clear
+everyone — e.g. ₹0.75 stranded on one member with no row to pay it. Splitwise
+settles to the cent; the plan now settles to the paisa (`epsilon = 0`).
+
+`SETTLED_THRESHOLD` is unchanged and still governs **display** — the "Settled"
+badge, the receive list, the detailed rows keep their ₹1 tolerance. This also
+made the group page consistent with the Shared page, which already passed no
+epsilon.
+
+**A test was passing for the wrong reason.** "no suggestions when everyone is
+within the settled threshold" used owner `+50` / member `−50`; under the sign
+flip both become *creditors* summing to `+100`, so it produced no transfers at
+any epsilon and never tested the threshold at all. Replaced with well-formed
+cases.
+
+**UI, same round.** The three-way tab set (Fewest payments / Detailed / I'll
+receive) collapsed to one **Settlement** tab with a **Simplify payments**
+toggle under it — ON is the minimised plan, OFF the raw obligations — plus the
+unchanged "I'll receive" tab. Two views of one question had been presented as
+two questions.
+
+**Verification.** TypeScript, ESLint, 644 unit (+9), 214 integration,
+`next build`, six E2E suites, no overflow at 360/390/430/1440. New
+`src/lib/settlement-splitwise-parity.test.ts` (7 tests) pins the properties
+Splitwise's settle-up guarantees: clears every participant exactly across 500
+randomised groups, nobody pays more than they owe or receives more than they are
+owed, nobody both pays and receives, at most n−1 payments, largest-debtor ↔
+largest-creditor pairing, and a guard proving the ₹1 epsilon *would* strand
+money. **Production untouched.**
+
+**Not fixed by this:** the owner's live group still differs from the Splitwise
+export by ~₹1,074 — a data divergence (different expenses/splits), not an
+algorithm one.
+
 **Deliberately deferred:** [#238](https://github.com/DivyeshPatro/Expense_Tracker/issues/238)
 — the NET hero and per-expense "your share" are still computed with the owner as
 "self", so a member reads the owner's position under a first-person label.

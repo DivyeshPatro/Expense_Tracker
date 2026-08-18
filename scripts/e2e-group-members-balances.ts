@@ -165,7 +165,7 @@ async function main() {
     await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
     const body = await page.locator("body").innerText();
     ok("2. the primary section is the group settlement plan, with all three views",
-      body.includes("Group Settlement") && body.includes("Fewest payments") && body.includes("Detailed") && body.includes("I'll receive"));
+      body.includes("Group Settlement") && body.includes("Settlement") && body.includes("Simplify payments") && body.includes("I'll receive"));
     ok("2a. it states how many payments settle the whole group",
       /\d+ payments? to settle everything|All settled up/.test(body));
     // The plan must be group-wide: the owner appears by NAME, never as the
@@ -177,7 +177,7 @@ async function main() {
     ok("2a-iii. a Share settlement button is offered", (await page.getByRole("button", { name: "Share settlement" }).count()) > 0);
 
     const planRows = await page.locator("text=/→/").count();
-    await page.getByRole("tab", { name: "Detailed" }).click();
+    await page.getByText("Simplify payments").first().click(); // toggle OFF → raw obligations
     await page.waitForTimeout(600);
     const detailedText = await page.locator("body").innerText();
     ok("2b. the detailed view explains that it is the 'why'", /Every obligation separately/i.test(detailedText));
@@ -187,7 +187,7 @@ async function main() {
       /→/.test(detailedText.slice(detailedText.indexOf("Group Settlement"))));
     const detailedRows = await page.locator("text=/→/").count();
     ok("2c. the plan is never longer than the detailed list", planRows <= detailedRows, `${detailedRows} detailed → ${planRows} plan`);
-    await page.getByRole("tab", { name: "Fewest payments" }).click();
+    await page.getByText("Simplify payments").first().click(); // toggle back ON → minimised plan
     await page.waitForTimeout(600);
     ok("2d. the plan view explains why it is shorter (or that it already is shortest)",
       /fewest payments|shortest way to settle/i.test(await page.locator("body").innerText()));

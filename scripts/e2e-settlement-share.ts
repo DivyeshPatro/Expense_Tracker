@@ -137,7 +137,7 @@ async function main() {
     await page.screenshot({ path: path.join(SHOT, "settle-390-plan.png"), fullPage: true });
 
     // ── DETAILED still available ─────────────────────────────────────────
-    await page.getByRole("tab", { name: "Detailed" }).click();
+    await page.getByText("Simplify payments").first().click(); // toggle OFF → raw obligations
     await page.waitForTimeout(600);
     const det = await card.innerText();
     ok("12. the detailed obligations remain available as the 'why'", /Every obligation separately/i.test(det));

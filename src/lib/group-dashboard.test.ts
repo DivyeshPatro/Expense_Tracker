@@ -186,12 +186,42 @@ describe("computeSuggestions (reuses the settlement engine)", () => {
     expect(s.reduce((t, x) => t + x.amount, 0)).toBe(340000); // clears Rohan exactly
   });
 
-  it("no suggestions when everyone is within the settled threshold", () => {
+  it("no suggestions when nobody owes anybody", () => {
     expect(
       computeSuggestions([
-        { participantId: null, net: 50, name: "You" },
-        { participantId: "karan", net: -50, name: "Karan" },
+        { participantId: null, net: 0, name: "You" },
+        { participantId: "karan", net: 0, name: "Karan" },
       ])
     ).toEqual([]);
+  });
+
+  it("settles sub-rupee amounts instead of stranding them", () => {
+    // Splitwise parity: it settles to the cent, so a 50-paise debt gets a row.
+    // The plan used to run with a ₹1 epsilon, which dropped this payment while
+    // still consuming the balances — leaving both people permanently unsquared.
+    const s = computeSuggestions([
+      { participantId: null, net: 50, name: "You" },
+      { participantId: "karan", net: 50, name: "Karan" },
+    ]);
+    expect(s).toEqual([{ fromId: "karan", fromName: "Karan", toId: "me", toName: "You", amount: 50, involvesYou: true }]);
+  });
+
+  it("the plan always clears every participant exactly", () => {
+    // The property that matters, over shapes that used to strand dust.
+    const cases: { participantId: string | null; net: number; name: string }[][] = [
+      [{ participantId: null, net: 500_075, name: "You" }, { participantId: "a", net: 300_000, name: "A" }, { participantId: "b", net: 200_000, name: "B" }, { participantId: "c", net: 75, name: "C" }],
+      [{ participantId: null, net: 667, name: "You" }, { participantId: "a", net: 334, name: "A" }, { participantId: "b", net: 333, name: "B" }],
+      [{ participantId: null, net: -1, name: "You" }, { participantId: "a", net: -1, name: "A" }],
+    ];
+    for (const members of cases) {
+      const plan = computeSuggestions(members);
+      const ledger = new Map<string, number>();
+      for (const m of members) ledger.set(m.participantId ?? "me", m.participantId === null ? m.net : -m.net);
+      for (const t of plan) {
+        ledger.set(t.fromId, (ledger.get(t.fromId) ?? 0) + t.amount);
+        ledger.set(t.toId, (ledger.get(t.toId) ?? 0) - t.amount);
+      }
+      for (const [, v] of ledger) expect(v).toBe(0);
+    }
   });
 });
