@@ -386,7 +386,11 @@ export async function listLoanEntries(userId: string, opts: { participantId?: st
   const rows = await prisma.loanEntry.findMany({
     where: { userId, deletedAt: null, participantId: opts.participantId },
     include: { participant: { select: { displayName: true } }, account: { select: { name: true } } },
-    orderBy: { occurredAt: "desc" },
+    // createdAt breaks the tie, exactly as the transaction list does. Entries
+    // are stamped istNoon(date) — one instant per day — so ordering on
+    // occurredAt alone left same-day rows in whatever order Postgres returned
+    // them, which reads as unsorted to anyone who just added one.
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
     take: opts.limit ?? (opts.participantId ? undefined : 100),
   });
   return rows.map((e) => ({
@@ -600,7 +604,11 @@ export async function getLoanDetail(userId: string, loanEntryId: string): Promis
   const contactEntries = await prisma.loanEntry.findMany({
     where: { userId, participantId: entry.participantId, deletedAt: null },
     select: { id: true, kind: true, amount: true },
-    orderBy: { occurredAt: "asc" },
+    // Same tiebreak as the statement query below. Without it two loans made on
+    // the same day have no defined order, so which one a repayment is applied
+    // to could differ between runs — oldest entered first is both stable and
+    // what FIFO means.
+    orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
   });
   let running = 0;
   let balanceBeforePaise = 0;

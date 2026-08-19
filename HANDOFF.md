@@ -148,6 +148,35 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ LENDING ENTRIES SORT NEWEST-ENTERED FIRST (2026-08-20)
+
+Same complaint as the settlement ordering, in the Lending module.
+
+**Cause.** Lending already writes `istNoon(input.date)` correctly — one instant
+per day — but the display query ordered on `occurredAt` **alone**, with no
+tiebreak. Same-day rows therefore came back in whatever order Postgres returned,
+which reads as unsorted to anyone who has just added one. Fixed to
+`[{ occurredAt: "desc" }, { createdAt: "desc" }]`, matching the transaction list.
+
+**🔴 Also fixed, and more consequential: the FIFO allocation was
+nondeterministic.** `applyLoanAllocation`'s query ordered on `occurredAt` asc
+with no tiebreak, so two loans made on the SAME DAY had no defined order and
+which one a repayment paid down was undetermined between runs. Now
+`[{ occurredAt: "asc" }, { createdAt: "asc" }]`, matching the statement query
+that already had it. Oldest entered first is both stable and what FIFO means.
+Every existing FIFO test still passes, so no allocation changed.
+
+**Verification.** New `lending-order.integration.test.ts` (4 tests): newest
+entered first within a day, date still wins across days, the order is stable
+across repeated reads, and single/empty histories are unaffected. 663 unit, 245
+integration, tsc, eslint, next build.
+
+**Pre-existing E2E failures, confirmed unrelated** by stashing the change,
+rebuilding at HEAD and re-running: `e2e-lending` 2/5 and `e2e-lending-import`
+16/17 fail identically without it (nav slots, summary cards, a "+ You Gave"
+button — none of which an `orderBy` can affect). `e2e-lending-settlement` 0/1
+remains the long-standing "+ You Got" timeout.
+
 ### ✅ SETTLEMENTS SORT WITH THE DAY, NOT ABOVE IT (2026-08-20)
 
 Reported as "the list looks sorted by amount". It was not — the give-away was
