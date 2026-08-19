@@ -148,6 +148,50 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ SORT CONTROL ON THE LENDING DASHBOARD (2026-08-20)
+
+Extends the contact-ledger sort to the dashboard's Contacts list.
+
+**What was there.** The dashboard has two lists. The Contacts list already had a
+search but no sort and no date grouping — its order came from the server
+(`lendingBalances` → `orderBy: { displayName: "asc" }`), i.e. alphabetical. The
+Recent-entries panel is server-truncated to 8 rows and grouped by day.
+
+**Applied to the Contacts list only.** Sorting a `limit: 8` panel by "Oldest"
+would show the oldest OF THE 8 NEWEST — misleading, so the entries panel and its
+day headings are untouched. The Contacts list has no date headings at all, so
+the show/hide-headings rule does not arise there.
+
+**New `sortLendingContacts` / `CONTACT_SORTS` in `loan-sort.ts` — a SIBLING of
+the history sort, not a reuse.** A contact row carries a *signed net*, a
+*last-activity* date and a *name*; an entry carries an amount and its own date.
+Deliberately not coupled to `FIFO_ORDER`.
+
+- Recent (default) / Oldest / Highest amount / Lowest amount / Person
+- "Amount" is |net| — the list mixes "they owe you" with "you owe them", so size
+  of the balance is the useful question
+- Contacts with no transactions sort LAST in both date directions — an empty
+  contact is not "the oldest"
+- Every comparison falls back to name, so equal balances or equal dates cannot
+  swap between renders
+- **The default changes from alphabetical to Recent.** "Person" restores the
+  previous behaviour exactly.
+
+**Financially inert, proved end to end.** `dashboard-sort-safety.integration
+.test.ts` takes a full snapshot — summary totals, per-contact balances,
+`LoanAllocation` rows, running balances, open-loan order — under each of the
+five sorts and asserts `snapshots.size === 1`, on the FIFO-ambiguous fixture
+(two same-day loans + a partial repayment). It separately asserts the five sorts
+DO produce different screen orders, so it cannot pass vacuously.
+`loan-settlement.ts`, `lending.ts` and `lending-import.ts` are not in the diff.
+
+**Verification.** 711 unit (+16), 261 integration (+7), tsc, eslint, next build.
+Browser 13/13 including no overflow at 360/390/430/1440. Pre-existing E2E
+unchanged: `e2e-lending` 2/5, `e2e-lending-settlement` 0/1, `e2e-lending-import`
+16/17 — that last one returned 13/17 on one run and 16/17 on two more; it is
+flaky, not regressed, and its FIFO checks pass. No schema change. Production
+untouched.
+
 ### ✅ DETERMINISTIC FIFO + LENDING SORT CONTROL (2026-08-20)
 
 **🔴 Correction to the entry below.** That note said the FIFO allocation query

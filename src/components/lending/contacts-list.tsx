@@ -11,6 +11,7 @@ import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import type { LendingParticipantView } from "@/server/services/lending";
 import { EmptyState } from "@/components/shell/empty-state";
+import { CONTACT_SORTS, DEFAULT_CONTACT_SORT, parseContactSort, sortLendingContacts, type ContactSort } from "@/lib/loan-sort";
 
 function matches(c: LendingParticipantView, needle: string): boolean {
   return (
@@ -65,20 +66,39 @@ export function LendingContactsList({
   importedContacts?: Record<string, string>;
 }) {
   const [q, setQ] = useState("");
+  // Display order only. `contacts` carries balances the server already
+  // computed; nothing here is sent anywhere, and FIFO reads the database, not
+  // this array.
+  const [sort, setSort] = useState<ContactSort>(DEFAULT_CONTACT_SORT);
   const needle = q.trim().toLowerCase();
-  const filtered = needle ? contacts.filter((c) => matches(c, needle)) : contacts;
+  // Filter first, then order what survived — so the sort applies to what is
+  // actually on screen rather than to rows the search has already removed.
+  const filtered = sortLendingContacts(needle ? contacts.filter((c) => matches(c, needle)) : contacts, sort);
 
   return (
     <section className="card flex-[1_1_320px] p-[var(--pad)] flex flex-col gap-[13px]">
       <h2 className="text-[13.5px] font-bold m-0">Contacts</h2>
       {contacts.length > 0 && (
-        <input
-          className="field"
-          placeholder="Search name, phone, or notes…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          aria-label="Search contacts"
-        />
+        <div className="flex gap-1.5">
+          <input
+            className="field flex-1 min-w-0"
+            placeholder="Search name, phone, or notes…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Search contacts"
+          />
+          <select
+            className="field w-auto flex-none min-h-[44px] text-[12.5px] font-semibold"
+            value={sort}
+            onChange={(e) => setSort(parseContactSort(e.target.value))}
+            aria-label="Sort contacts"
+            title="Sort contacts"
+          >
+            {CONTACT_SORTS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
       )}
       {contacts.length === 0 && (
         <EmptyState icon="🤝" title="You haven't started lending yet" detail='Tap "You Gave" to record your first loan.' compact />
