@@ -113,6 +113,7 @@ describe("computeOverview", () => {
       totalSettlementCount: 0,
       totalSettlementSum: 0,
       lastActivity: null,
+      unsharedSum: 0,
     });
   });
 });

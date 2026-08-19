@@ -74,8 +74,11 @@ export function GroupExpenses({ expenses, groupId }: { expenses: GroupExpenseLis
               <span className="flex-1 min-w-0">
                 <span className="block text-[13px] font-bold truncate text-ink">{e.merchant}</span>
                 <span className="block text-[11.5px] text-mut2 truncate">
-                  {friendlyDay(e.ymd)} · {e.paidByName === "You" ? "you paid" : `${e.paidByName} paid`} · split {e.splitCount} way
-                  {e.splitCount === 1 ? "" : "s"}
+                  {friendlyDay(e.ymd)} · {e.paidByName === "You" ? "you paid" : `${e.paidByName} paid`} ·{" "}
+                  {/* An expense recorded in the group but split with nobody is a
+                      real case (a personal purchase on the trip). "split 0 ways"
+                      is not a sentence — say what it is. */}
+                  {e.splitCount === 0 ? "not shared" : `split ${e.splitCount} way${e.splitCount === 1 ? "" : "s"}`}
                 </span>
               </span>
               <span className="text-right flex-none">

@@ -82,6 +82,15 @@ export default async function GroupDashboardPage({
       <div className="flex flex-wrap gap-3.5">
         <StatCard label={`TOTAL EXPENSES`} value={formatPaise(g.overview.totalExpenseSum)}>
           <div className="text-[11.5px] text-mut2 mt-[5px]">{g.overview.totalExpenseCount} shared · all time</div>
+          {/* Spend recorded here but split with nobody — a personal purchase
+              made on the trip, say. Without this line the owner's own standing
+              sits above the sum of what the members owe by exactly this much,
+              and there is nothing on the page to explain the difference. */}
+          {g.overview.unsharedSum > 0 && (
+            <div className="text-[11.5px] text-mut2 mt-[3px]" title="Recorded in this group but not split with anyone">
+              {formatPaise(g.overview.unsharedSum)} not shared
+            </div>
+          )}
         </StatCard>
         <StatCard label="SETTLEMENTS" value={formatPaise(g.overview.totalSettlementSum)}>
           <div className="text-[11.5px] text-mut2 mt-[5px]">{g.overview.totalSettlementCount} recorded</div>
