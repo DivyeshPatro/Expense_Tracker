@@ -148,6 +148,57 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ A SETTLEMENT LANDS IN THE LEDGER IT SETTLES (2026-08-19)
+
+Reported: the Shared page showed people as settled while the Srisailam group
+still asked them for the full amount.
+
+**Cause — not a sync bug.** `Settlement.groupId` is optional. All eight of the
+owner's settlements had been recorded from the Shared page, so `groupId` was
+null. `netBalances()` counts every settlement (Shared page → correct); the group
+dashboard counts only settlements tagged to it (group page → counted zero, so it
+displayed pre-settlement amounts). The group page was faithfully applying a rule
+that should not have been reachable.
+
+**How Splitwise avoids it.** In a Splitwise export a payment is a row in the
+SAME ledger as the expenses — payer `+amount`, receiver `−amount`, everyone else
+zero. Because it lives in that ledger it necessarily moves those balances; there
+is no way to record a payment that settles a person but not the group they owe
+from. Ledgerly's optional `groupId` is what allowed the divergence.
+
+**Fix.** `recordSettlement()` now infers the group when none is passed, the same
+way the expense form infers one from the people picked: if the participant
+belongs to exactly ONE of the caller's groups, the settlement is tagged to it.
+
+**🔴 It deliberately does not guess when ambiguous.** With the person in several
+groups it stays null rather than settling the wrong ledger — guessing is worse
+than the gap. That case still needs the UI to ask; it is the one part not
+covered.
+
+**Also in this round:** `softDeleteTransaction()` now refuses to delete a
+settlement's cash leg, pointing at the settlement instead. Deleting it directly
+removed the money while leaving the settlement in place, so the debt still read
+as settled and the balance quietly disagreed — and someone deleting the row to
+undo a duplicate settlement had not undone anything. That happened in production.
+
+**Production data repaired (owner-approved, audited):** eight settlements
+retagged to Srisailam (no money moved, only the tag); earlier, two duplicate
+no-group settlements deleted with their cash legs reversed, and one stale
+cash-leg link cleared. Afterwards every person's group-page net equals their true
+net. One genuine overpayment remains by the owner's confirmation.
+
+**⚠️ Verification lesson.** A check script summed settlement amounts ignoring
+`direction` and reported a false mismatch; three of the rows were FROM_OWNER.
+Any settlement arithmetic must sign by direction — `TO_OWNER` positive,
+`FROM_OWNER` negative.
+
+**Verification.** New `settlement-group-inference.integration.test.ts` (7 tests):
+attaches when unambiguous; the group page reflects it; an explicit group wins;
+untagged with no group; untagged with several AND neither group absorbs it;
+never reaches across users; shared and group pages agree. Plus 3 new cash-leg
+guard tests. 659 unit, 233 integration, tsc, eslint, next build, six E2E suites.
+No schema change, so no migration.
+
 ### ✅ SETTLEMENTS NOW MOVE REAL MONEY (2026-08-19)
 
 Reported by the owner: money paid into a shared group counts as spending, but

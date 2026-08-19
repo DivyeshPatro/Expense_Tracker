@@ -14,6 +14,7 @@ import { parsePeriod } from "@/lib/period";
 import { groupDashboard } from "./group-dashboard";
 import { personalShareExpense } from "./ledger";
 import { deleteSettlement, recordSettlement } from "./shared";
+import { softDeleteTransaction } from "./transactions";
 import { prisma } from "../db";
 
 const EMAIL = "settle-cash@ledgerly.app";
@@ -116,6 +117,38 @@ describe("settlement cash leg", () => {
     await deleteSettlement(userId, s.id);
     expect(await balance()).toBe(rup(-300)); // back where it started
     expect(await prisma.transaction.count({ where: { userId, type: "INCOME" } })).toBe(0);
+  });
+
+  it("the cash leg cannot be deleted on its own", async () => {
+    // Deleting it directly would take the money out while leaving the debt
+    // reading as settled — and someone deleting the row to undo a duplicate
+    // settlement would not have undone anything. It happened in production.
+    await recordSettlement(userId, anaId, "TO_OWNER", rup(100), "UPI", undefined, groupId, accountId);
+    const s = await prisma.settlement.findFirstOrThrow({ where: { userId } });
+    await expect(softDeleteTransaction(userId, s.transactionId!)).rejects.toThrow(/Delete that settlement instead/);
+    // nothing moved, and the row is still there
+    expect(await balance()).toBe(rup(-200));
+    const cash = await prisma.transaction.findFirstOrThrow({ where: { id: s.transactionId! } });
+    expect(cash.deletedAt).toBeNull();
+  });
+
+  it("an ordinary transaction still deletes normally", async () => {
+    const plain = await prisma.transaction.create({
+      data: { userId, type: "EXPENSE", amount: rup(25), accountId, categoryId, merchant: "Coffee", occurredAt: new Date() },
+    });
+    await prisma.account.update({ where: { id: accountId }, data: { balance: { decrement: rup(25) } } });
+    await softDeleteTransaction(userId, plain.id);
+    expect(await balance()).toBe(rup(-300)); // the ₹25 reversed
+  });
+
+  it("deleting the settlement still removes its cash leg", async () => {
+    // The route the guard points people at must keep working.
+    await recordSettlement(userId, anaId, "TO_OWNER", rup(100), "UPI", undefined, groupId, accountId);
+    const s = await prisma.settlement.findFirstOrThrow({ where: { userId } });
+    const txId = s.transactionId!;
+    await deleteSettlement(userId, s.id);
+    expect(await balance()).toBe(rup(-300));
+    expect(await prisma.transaction.findFirst({ where: { id: txId } })).toBeNull();
   });
 
   it("refuses an account belonging to somebody else", async () => {

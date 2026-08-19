@@ -162,6 +162,27 @@ export async function recordSettlement(
     if (groupId) {
       const member = await db.groupMember.findUnique({ where: { groupId_participantId: { groupId, participantId } }, include: { group: { select: { createdById: true } } } });
       if (member && member.group.createdById === userId) scopedGroupId = groupId;
+    } else {
+      // Infer the group, the way the expense form already infers one from the
+      // people picked.
+      //
+      // A settlement recorded without a group settles the shared-page balance
+      // but NOT the group's, because the group dashboard only counts
+      // settlements tagged to it. Someone paying back what they owe from a trip
+      // therefore saw the debt clear on one screen and not the other — the
+      // shared page said settled, the group still asked for the money. In
+      // Splitwise a payment lives in the same ledger as the expenses it
+      // settles, so the two can never disagree; this is the same idea.
+      //
+      // Only when the answer is unambiguous: exactly one group of the caller's
+      // contains this person. With several it is genuinely unknown which debt
+      // is being paid, and guessing would settle the wrong ledger — worse than
+      // leaving it untagged, so it stays null and the caller must say which.
+      const memberships = await db.groupMember.findMany({
+        where: { participantId, group: { createdById: userId } },
+        select: { groupId: true },
+      });
+      if (memberships.length === 1) scopedGroupId = memberships[0].groupId;
     }
     // The cash leg, when an account was chosen and it is really the caller's.
     let cashLegId: string | null = null;

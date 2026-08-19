@@ -795,6 +795,20 @@ export async function softDeleteTransaction(actingUserId: string, id: string, in
     const t = await db.transaction.findFirst({ where: { id, deletedAt: null } });
     if (!t) return { entityId: id, overridden: false };
     await assertCanWrite(db, actingUserId, t, "delete");
+    // A settlement's cash leg cannot be deleted on its own. Doing so removes
+    // the money while leaving the settlement in place, so the debt still reads
+    // as settled and the balance quietly disagrees with it — and someone
+    // deleting the row to undo a duplicate settlement has not actually undone
+    // anything. The settlement is the record; this row only mirrors it.
+    const settledBy = await db.settlement.findFirst({
+      where: { transactionId: id },
+      select: { participant: { select: { displayName: true } } },
+    });
+    if (settledBy) {
+      throw new Error(
+        `This is the money from a settlement with ${settledBy.participant.displayName}. Delete that settlement instead — it removes this automatically.`
+      );
+    }
     const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, t, intent?.baseVersion);
     await db.transaction.update({ where: { id }, data: { deletedAt: new Date() } });
     await applyBalances(db, t, -1);
