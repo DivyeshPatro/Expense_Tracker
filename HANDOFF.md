@@ -148,6 +148,29 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ THE GROUP STATEMENT LISTS ITS EXPENSES (2026-08-19)
+
+The exported statement reported "Total expenses 7 / ₹15,157" and then showed
+only member balances and settlement history. The seven rows that produced the
+figure were absent, so the sheet could not be checked against anything — and
+this is the sheet people take to the group to verify the maths.
+
+**Cause.** `exportGroupStatementXlsx()` never wrote them. `GroupDashboardData`
+already carries `expenses` (the group page renders it); the export simply
+skipped the section.
+
+**Now.** A Date / Description / Category / Amount / Paid by / Split / Your share
+table between the member balances and the settlement history. Oldest first — the
+service returns newest-first for the screen, but a statement reads
+chronologically. An unsplit row reads "not shared" rather than "0 ways",
+matching the group page.
+
+**Verification.** New `export-group.integration.test.ts` (7 tests): every expense
+appears; the header is correct; payer, split and your share are recorded;
+"not shared" for an unsplit row; chronological order; **the listed amounts
+reconcile with the stated total**; and the balance and settlement sections still
+survive. 659 unit, 240 integration, tsc, eslint. No schema change.
+
 ### ✅ A SETTLEMENT LANDS IN THE LEDGER IT SETTLES (2026-08-19)
 
 Reported: the Shared page showed people as settled while the Srisailam group

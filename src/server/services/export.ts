@@ -206,6 +206,27 @@ export async function exportGroupStatementXlsx(userId: string, groupId: string):
   for (const m of g.members) sheet.addRow([m.name, R(m.paid), R(m.owes), R(m.net)]);
   sheet.addRow([]);
 
+  // The expenses themselves. A statement that totals ₹15,157 without listing
+  // what produced it is not a statement — and this is the sheet people take to
+  // the group to check the maths against.
+  const eHead = sheet.addRow(["Date", "Description", "Category", "Amount", "Paid by", "Split", "Your share"]);
+  eHead.font = { bold: true };
+  // Oldest first: the service hands them back newest-first for the screen, but
+  // a statement reads chronologically.
+  for (const e of [...g.expenses].reverse()) {
+    sheet.addRow([
+      e.ymd,
+      e.merchant,
+      e.categoryName ?? "",
+      R(e.amount),
+      e.paidByName,
+      e.splitCount === 0 ? "not shared" : `${e.splitCount} way${e.splitCount === 1 ? "" : "s"}`,
+      R(e.yourShare),
+    ]);
+  }
+  if (g.expenses.length === 0) sheet.addRow(["No expenses yet"]);
+  sheet.addRow([]);
+
   const sHead = sheet.addRow(["Settlement date", "Member", "Direction", "Amount", "Method"]);
   sHead.font = { bold: true };
   for (const s of g.settlements) {
@@ -214,8 +235,12 @@ export async function exportGroupStatementXlsx(userId: string, groupId: string):
   if (g.settlements.length === 0) sheet.addRow(["No settlements yet"]);
 
   sheet.getColumn(1).width = 20;
-  sheet.getColumn(2).width = 18;
-  for (const c of [3, 4, 5]) {
+  sheet.getColumn(2).width = 26; // descriptions live here
+  sheet.getColumn(5).width = 16;
+  sheet.getColumn(6).width = 12;
+  // numFmt only affects numeric cells, so the text columns that share these
+  // positions in other sections are unharmed.
+  for (const c of [3, 4, 7]) {
     sheet.getColumn(c).width = 16;
     sheet.getColumn(c).numFmt = "#,##0.00";
   }
