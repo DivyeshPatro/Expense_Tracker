@@ -5,6 +5,7 @@ import { cache } from "react";
 import { minimizeSettlements, type SettleTransfer } from "@/lib/settlement";
 import { prisma } from "../db";
 import { audit } from "./audit";
+import { applyBalances } from "./transactions";
 
 const AVATAR_COLORS = ["#6d5ae6", "#0f766e", "#d1497e", "#b97d10", "#1d4ed8", "#dc2626"];
 
@@ -113,6 +114,34 @@ export async function sharedSummary(userId: string): Promise<SharedSummary> {
   return { youOwe, owedToYou, net: owedToYou - youOwe, members, suggestions };
 }
 
+/**
+ * Record a repayment, and optionally the money that actually moved.
+ *
+ * A settlement used to be a debt record only: it touched no account and created
+ * no transaction. That left two things wrong. Account balances drifted from the
+ * bank, because money coming back was never recorded. And "cash outflow" stayed
+ * permanently overstated: the ₹1,240 you fronted was counted, the ₹992 repaid
+ * to you was not.
+ *
+ * When `accountId` is given, the settlement also writes its cash leg:
+ *   • TO_OWNER   → INCOME  into that account (they paid you back)
+ *   • FROM_OWNER → EXPENSE out of that account (you paid them back)
+ *
+ * Two details keep this from double-counting:
+ *
+ * 1. The cash leg carries NO groupId. The group dashboard reads
+ *    `{ groupId, type: "EXPENSE" }`, so a FROM_OWNER row with a groupId would
+ *    come back as a group expense and corrupt the very balances it settles.
+ *
+ * 2. The FROM_OWNER row carries a single owner split of ZERO. personalShareOf()
+ *    counts unsplit expenses in full and split ones at the owner's own share, so
+ *    a zero owner share means this counts as cash out but adds nothing to "your
+ *    share" — which is correct: repaying a debt is not consumption. You already
+ *    bore that share when the original expense was recorded.
+ *
+ * Omitting `accountId` keeps the old behaviour — a debt record with no cash
+ * leg, for a repayment that never touched a tracked account.
+ */
 export async function recordSettlement(
   userId: string,
   participantId: string,
@@ -120,7 +149,8 @@ export async function recordSettlement(
   amount: number,
   method: "UPI" | "CASH" | "BANK",
   note?: string,
-  groupId?: string
+  groupId?: string,
+  accountId?: string
 ) {
   await prisma.$transaction(async (db) => {
     const p = await db.participant.findFirst({ where: { id: participantId, ownerId: userId } });
@@ -133,8 +163,42 @@ export async function recordSettlement(
       const member = await db.groupMember.findUnique({ where: { groupId_participantId: { groupId, participantId } }, include: { group: { select: { createdById: true } } } });
       if (member && member.group.createdById === userId) scopedGroupId = groupId;
     }
+    // The cash leg, when an account was chosen and it is really the caller's.
+    let cashLegId: string | null = null;
+    if (accountId) {
+      const acct = await db.account.findFirst({ where: { id: accountId, userId } });
+      if (!acct) throw new Error("Account not found");
+      const toOwner = direction === "TO_OWNER";
+      const cash = await db.transaction.create({
+        data: {
+          userId,
+          // Money coming back is INCOME: it offsets an outflow already counted,
+          // and personalShareOf/netBalances both filter on type EXPENSE, so it
+          // cannot disturb either your share or anyone's balance.
+          //
+          // Money going out is a TRANSFER, not an EXPENSE. Three things rule
+          // EXPENSE out: with no splits personalShareOf counts it in full and
+          // double-counts the share you already bore; with a participant split
+          // netBalances re-creates the very debt being settled (it sums every
+          // split expense, group or not); and a zero-sum split is rejected
+          // outright by the split_sum_constraint trigger. A TRANSFER moves the
+          // money without claiming it was consumption — which is the truth.
+          type: toOwner ? "INCOME" : "TRANSFER",
+          amount,
+          accountId,
+          merchant: toOwner ? `Settled up — ${p.displayName} paid you` : `Settled up — you paid ${p.displayName}`,
+          occurredAt: new Date(),
+          notes: note || null,
+          paymentMethod: method,
+          // Deliberately NOT groupId — see the note above.
+        },
+      });
+      await applyBalances(db, cash, 1);
+      cashLegId = cash.id;
+    }
+
     const s = await db.settlement.create({
-      data: { userId, participantId, direction, amount, method, note: note || null, groupId: scopedGroupId },
+      data: { userId, participantId, direction, amount, method, note: note || null, groupId: scopedGroupId, transactionId: cashLegId },
     });
     await audit(db, userId, "create", "Settlement", s.id, undefined, s);
   });
@@ -148,6 +212,16 @@ export async function deleteSettlement(userId: string, settlementId: string) {
     const s = await db.settlement.findFirst({ where: { id: settlementId, userId }, include: { participant: { select: { displayName: true } } } });
     if (!s) throw new Error("Settlement not found");
     await db.settlement.delete({ where: { id: settlementId } });
+    // Reverse the cash leg too, or deleting a settlement would leave the money
+    // it moved sitting in the account with nothing to explain it.
+    if (s.transactionId) {
+      const cash = await db.transaction.findFirst({ where: { id: s.transactionId, userId } });
+      if (cash) {
+        await applyBalances(db, cash, -1);
+        await db.expenseSplit.deleteMany({ where: { txId: cash.id } });
+        await db.transaction.delete({ where: { id: cash.id } });
+      }
+    }
     await audit(db, userId, "delete", "Settlement", settlementId, {
       participantId: s.participantId,
       participantName: s.participant.displayName,

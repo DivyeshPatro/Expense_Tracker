@@ -148,6 +148,57 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ SETTLEMENTS NOW MOVE REAL MONEY (2026-08-19)
+
+Reported by the owner: money paid into a shared group counts as spending, but
+settling up never shows as money coming back.
+
+**Cause.** `recordSettlement()` wrote a `Settlement` row and nothing else — no
+transaction, no account touched. So the outbound leg was recorded and the return
+leg never was. Cash outflow stayed permanently overstated, and **account
+balances drifted from the bank a little further with every settle-up.**
+
+**Now.** The settle sheet has an ACCOUNT field (defaults to the first account;
+"Not tracked" keeps the old behaviour). With an account chosen the settlement
+also writes its cash leg and applies the balance.
+
+**The representation, and why it is asymmetric:**
+- **TO_OWNER (they repay you) → INCOME.** Safe because `personalShareOf()` and
+  `netBalances()` both filter on `type: "EXPENSE"`, so it cannot disturb your
+  share or anyone's balance.
+- **FROM_OWNER (you repay them) → TRANSFER**, not EXPENSE. Three things rule
+  EXPENSE out, all verified: with no splits `personalShareOf` counts it in full
+  and double-counts the share already borne; with a participant-side split
+  `netBalances` re-creates the very debt being settled (it sums every split
+  expense, group or not); and a zero-sum split is rejected by the
+  `split_sum_constraint` trigger. A TRANSFER moves the money without claiming it
+  was consumption — which is the truth.
+
+**🔴 The cash leg carries NO groupId.** The group dashboard reads
+`{ groupId, type: "EXPENSE" }`; a grouped row would come back as a group expense
+and corrupt the balances it settles. There is a test pinning this.
+
+**Reversal.** New nullable, unique `Settlement.transactionId` (migration
+`20260819104059_settlement_cash_leg`, `ON DELETE SET NULL` — the debt record is
+the source of truth, the cash leg a mirror). `deleteSettlement()` reverses the
+balance and removes the transaction.
+
+**⚠️ Forward-only.** Settlements recorded before this have no cash leg and no
+balance was ever applied for them. Backfilling would invent account movements
+that may already have been entered by hand — not attempted. Separate,
+explicitly-approved data job if ever wanted.
+
+**⚠️ Migration pending on production.** Applied to local Docker only.
+
+**Verification.** New `settlement-cash-leg.integration.test.ts` (9 tests):
+repayment lands as income; the cash leg never becomes a group expense; repaying
+moves money but is not your spending; the group balance still adjusts
+identically; without an account nothing changes from before; deleting reverses
+the money; another user's account is refused with nothing moved; and cash in/out
+reconcile to exactly your own share once everyone has settled. Plus 659 unit,
+223 integration, tsc, eslint, next build, six E2E suites, and a browser run of
+the real flow (balance moved ₹100, cash leg INCOME with groupId null, linked).
+
 ### ✅ SPLIT PICKER SCOPED TO THE GROUP (2026-08-18)
 
 Reported while editing a group expense: the "Split with friends" picker listed

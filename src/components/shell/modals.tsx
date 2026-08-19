@@ -717,9 +717,15 @@ function TransferForm({ prefill }: { prefill?: ModalPrefill }) {
 
 function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
   const { run, busy, error } = useSubmit();
+  const { refData } = useUI();
   const [amount, setAmount] = useState(prefill?.amountRupees ?? "");
   const [method, setMethod] = useState<"UPI" | "CASH" | "BANK">("UPI");
   const [note, setNote] = useState("");
+  // Settling is real money moving. Recording which account it moved through is
+  // what keeps balances matching the bank and stops "cash outflow" counting the
+  // money you fronted but never the money repaid to you. "Not tracked" stays
+  // available for a repayment that never touched an account.
+  const [settleAccountId, setSettleAccountId] = useState(refData.accounts[0]?.id ?? "");
   const direction = prefill?.direction ?? "TO_OWNER";
   const name = prefill?.participantName ?? "";
   return (
@@ -748,6 +754,21 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
           ))}
         </div>
       </Field>
+      <Field label="ACCOUNT">
+        <select className="field" value={settleAccountId} onChange={(e) => setSettleAccountId(e.target.value)}>
+          {refData.accounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.icon} {a.name}</option>
+          ))}
+          <option value="">Not tracked</option>
+        </select>
+        <div className="text-[11px] text-mut2 mt-1">
+          {settleAccountId
+            ? direction === "TO_OWNER"
+              ? "Added to this account as income."
+              : "Taken from this account. It won't count as your spending — you already bore your share."
+            : "Records the repayment only. No account balance changes."}
+        </div>
+      </Field>
       <Field label="NOTE (OPTIONAL)">
         <input className="field" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. UPI ref, cash in hand" />
       </Field>
@@ -755,7 +776,7 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
       <SubmitButton
         busy={busy}
         color="var(--green)"
-        onClick={() => run(() => settleAction({ participantId: prefill?.participantId, direction, amount, method, note: note.trim() || undefined, groupId: prefill?.settleGroupId }), "Payment recorded")}
+        onClick={() => run(() => settleAction({ participantId: prefill?.participantId, direction, amount, method, note: note.trim() || undefined, groupId: prefill?.settleGroupId, accountId: settleAccountId || undefined }), "Payment recorded")}
       >
         Record payment
       </SubmitButton>

@@ -169,6 +169,8 @@ model Transaction {
   paidByParticipantId String? // null ⇒ paid by owner
   paidBy              Participant?     @relation("paidBy", fields: [paidByParticipantId], references: [id])
   splits              ExpenseSplit[]
+  /** Set when this row is the cash leg of a settlement (see Settlement.transaction). */
+  settlement          Settlement?
   tags                TransactionTag[]
   receipts            Receipt[]
   deletedAt           DateTime? // soft delete → undo
@@ -510,6 +512,14 @@ model Settlement {
   // page) settlement, counted in the global per-friend balance only.
   groupId       String?
   group         Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  // The cash leg. Settling is real money moving — recording it only here left
+  // account balances drifting from the bank and made "cash outflow" count the
+  // money going out but never the money coming back. When an account is chosen
+  // the settlement also writes a Transaction, and this is the link that lets
+  // deleting the settlement reverse it. Null for settlements recorded without
+  // an account (cash in hand), and for every row created before this existed.
+  transactionId String?         @unique
+  transaction   Transaction?    @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@index([userId, settledAt(sort: Desc)])
   @@index([groupId])

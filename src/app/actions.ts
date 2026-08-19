@@ -279,7 +279,7 @@ export async function settleAction(input: unknown): Promise<ActionResult> {
   try {
     const user = await requireUser();
     const data = settlementSchema.parse(input);
-    await recordSettlement(user.id, data.participantId, data.direction, data.amount, data.method, data.note, data.groupId);
+    await recordSettlement(user.id, data.participantId, data.direction, data.amount, data.method, data.note, data.groupId, data.accountId);
     refresh();
     return { ok: true };
   } catch (e) {

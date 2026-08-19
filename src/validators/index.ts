@@ -151,6 +151,9 @@ export const settlementSchema = z.object({
   note: z.string().trim().max(200).optional(),
   // v2.0 P3: attributes the settlement to a group (validated server-side).
   groupId: z.string().min(1).optional(),
+  // The account the money actually moved through. Optional: a repayment in
+  // cash that never touched a tracked account stays a debt record only.
+  accountId: z.string().min(1).optional(),
 });
 
 export const budgetSchema = z.object({
