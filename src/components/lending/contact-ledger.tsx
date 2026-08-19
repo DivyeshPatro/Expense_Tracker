@@ -22,6 +22,7 @@ import { AmountInput, ErrorNote, Field, SubmitButton } from "@/components/shell/
 import { useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 import type { LendingParticipantView, LoanEntryRow } from "@/server/services/lending";
+import { DEFAULT_LOAN_SORT, groupsByMonth, LOAN_SORTS, parseLoanSort, sortLoanEntries, type LoanSort } from "@/lib/loan-sort";
 
 const TIMELINE_PAGE_SIZE = 30;
 
@@ -29,6 +30,9 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   const { openModal, showToast } = useUI();
   const [contact, setContact] = useState<LendingParticipantView | null | undefined>(undefined);
   const [entries, setEntries] = useState<LoanEntryRow[] | undefined>(undefined);
+  // Display order for the history list. Deliberately local state and nothing
+  // more: it is never sent to the server and never reaches allocation.
+  const [sort, setSort] = useState<LoanSort>(DEFAULT_LOAN_SORT);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDetails, setEditingDetails] = useState(false);
   // v2.0 contact tabs: Overview / Transactions / Reports / Activity log.
@@ -264,6 +268,8 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
       {tab === "transactions" && (
         <TransactionsTab
           entries={entries}
+          sort={sort}
+          setSort={setSort}
           balanceAfterById={balanceAfterById}
           search={search}
           setSearch={setSearch}
@@ -291,6 +297,8 @@ function TransactionsTab({
   balanceAfterById,
   search,
   setSearch,
+  sort,
+  setSort,
   visibleCount,
   setVisibleCount,
   contactName,
@@ -303,6 +311,8 @@ function TransactionsTab({
   balanceAfterById: Map<string, number>;
   search: string;
   setSearch: (s: string) => void;
+  sort: LoanSort;
+  setSort: (s: LoanSort) => void;
   visibleCount: number;
   setVisibleCount: (fn: (c: number) => number) => void;
   contactName: string;
@@ -329,28 +339,46 @@ function TransactionsTab({
   const filtered = q
     ? entries.filter((e) => (e.reason ?? "").toLowerCase().includes(q) || (e.notes ?? "").toLowerCase().includes(q) || String(e.amount / 100).includes(q))
     : entries;
-  const visible = filtered.slice(0, visibleCount);
+  // Presentation only. `entries` itself is never reordered — the summary and
+  // the running-balance column are computed from it in chronological order, and
+  // FIFO allocation reads the database, not this array.
+  const visible = sortLoanEntries(filtered, sort).slice(0, visibleCount);
   const groups: { label: string; items: LoanEntryRow[] }[] = [];
   for (const e of visible) {
-    const label = `${MONTH_NAMES[Number(e.ymd.slice(5, 7)) - 1]} ${e.ymd.slice(0, 4)}`;
+    // Month headings only while the list runs in date order — under an amount
+    // sort the rows jump between months and the headings become noise.
+    const label = groupsByMonth(sort) ? `${MONTH_NAMES[Number(e.ymd.slice(5, 7)) - 1]} ${e.ymd.slice(0, 4)}` : "";
     const last = groups[groups.length - 1];
     if (last?.label === label) last.items.push(e);
     else groups.push({ label, items: [e] });
   }
   return (
     <div className="flex flex-col gap-0.5">
-      <input
-        className="field mb-1"
-        type="search"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by reason, note, or amount"
-        aria-label="Search transactions"
-      />
+      <div className="flex gap-1.5 mb-1">
+        <input
+          className="field flex-1 min-w-0"
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by reason, note, or amount"
+          aria-label="Search transactions"
+        />
+        <select
+          className="field w-auto flex-none min-h-[44px] text-[12.5px] font-semibold"
+          value={sort}
+          onChange={(e) => setSort(parseLoanSort(e.target.value))}
+          aria-label="Sort transactions"
+          title="Sort transactions"
+        >
+          {LOAN_SORTS.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+      </div>
       {filtered.length === 0 && <div className="text-[12.5px] text-mut2 py-4 text-center">No transactions match “{search}”.</div>}
       {groups.map((g) => (
         <div key={g.label}>
-          <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mt-3 mb-1 uppercase first:mt-0">{g.label}</div>
+          {g.label && <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mt-3 mb-1 uppercase first:mt-0">{g.label}</div>}
           {g.items.map((e) => (
             <EntryRow
               key={e.id}

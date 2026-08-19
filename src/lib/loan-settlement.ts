@@ -9,6 +9,28 @@ export interface OpenLoan {
   amount: number; // paise, original GAVE amount
   settledAmount: number; // paise, already allocated against this loan
   occurredAt: string; // "YYYY-MM-DD" — lexicographically sortable, oldest-first for FIFO
+  /** ISO instant the row was entered. The tiebreak when two loans share a day —
+   *  see FIFO_ORDER. */
+  createdAt: string;
+}
+
+/**
+ * THE definition of FIFO order: oldest loan date first, and within one date the
+ * one entered first.
+ *
+ * `occurredAt` is a date only, so any two loans made on the same day compare
+ * equal on it. Array.prototype.sort is stable, which means the tie silently
+ * inherited whatever order the caller happened to pass — and the caller's query
+ * had no ORDER BY, so Postgres was free to return them however it liked. Two
+ * runs could therefore allocate the same repayment to different loans.
+ *
+ * Comparing createdAt second makes the order a property of the data rather than
+ * of the query plan. Exported so the allocation and the UI preview cannot drift
+ * apart: whatever the picker shows as "next to be paid" is what actually gets
+ * paid.
+ */
+export function FIFO_ORDER(a: Pick<OpenLoan, "occurredAt" | "createdAt">, b: Pick<OpenLoan, "occurredAt" | "createdAt">): number {
+  return a.occurredAt.localeCompare(b.occurredAt) || a.createdAt.localeCompare(b.createdAt);
 }
 
 export interface AllocationResult {
@@ -24,9 +46,7 @@ export interface AllocationResult {
  * regardless of how much of it ended up allocated to a specific loan.
  */
 export function allocateFifo(repaymentAmount: number, openLoans: OpenLoan[]): AllocationResult[] {
-  const sorted = [...openLoans]
-    .filter((l) => l.amount - l.settledAmount > 0)
-    .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+  const sorted = [...openLoans].filter((l) => l.amount - l.settledAmount > 0).sort(FIFO_ORDER);
   const result: AllocationResult[] = [];
   let remaining = repaymentAmount;
   for (const loan of sorted) {

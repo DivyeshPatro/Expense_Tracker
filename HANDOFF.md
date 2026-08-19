@@ -148,6 +148,57 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ DETERMINISTIC FIFO + LENDING SORT CONTROL (2026-08-20)
+
+**🔴 Correction to the entry below.** That note said the FIFO allocation query
+was fixed. It was not — `lending.ts` line 611 is the running-balance
+accumulation for the loan detail view, not the allocator. The real allocator was
+still nondeterministic.
+
+**Real root cause.** `allocateFifo()` sorted by
+`a.occurredAt.localeCompare(b.occurredAt)`, and `occurredAt` is a **date-only
+string**, so two loans on the same day compare EQUAL. `Array.prototype.sort` is
+stable, so that tie silently inherited whatever order the caller passed — and
+the caller, `loadOpenLoans()`, ran **no ORDER BY at all** and did not even select
+`createdAt`. Which loan a repayment consumed was decided by Postgres's physical
+row order.
+
+**Fix — ordering only; the greedy loop is untouched.**
+- `OpenLoan` gains `createdAt`; new exported **`FIFO_ORDER`** = `occurredAt`
+  then `createdAt`, used by the allocator AND by `openLoansForContact` so the
+  picker's "next to be paid" is what actually gets paid.
+- `loadOpenLoans()` (and `lending-import.ts`'s own copy) order
+  `[occurredAt asc, createdAt asc]` and select `createdAt`.
+- Import rows not yet in the DB carry a sentinel `createdAt` that sorts after
+  anything already stored for that day, preserving file order.
+
+**⚠️ Which test actually guards this.** Mutation-checked by removing the
+tiebreak: `fifo-determinism.test.ts` fails **8 tests**;
+`fifo-vs-display-sort.integration.test.ts` still passes 9/9, because
+`loadOpenLoans`' ORDER BY masks the comparator. The two layers are
+belt-and-braces — either alone yields the right allocation — but **the pure
+test is the regression guard**, not the integration one.
+
+**Lending sort control.** A single `<select>` inline with the existing search
+field (no new card or toolbar): Recent (default) / Oldest / Highest amount /
+Lowest amount. `src/lib/loan-sort.ts` is presentation only — local `useState`,
+never sent to the server, never imported by any service, and `sortLoanEntries`
+copies rather than mutates so the summary and running-balance figures stay
+chronological. Month headings show only for date sorts; under an amount sort
+rows jump between months and the headings become noise.
+
+**Proof of independence (end to end, real service + DB):** two same-day loans
+(A ₹1,000 entered first, B ₹500 second), ₹700 partial repayment recorded once
+per display sort. The screen order changes (`B>A` / `A>B` / `A>B` / `B>A`) while
+the allocation is byte-identical every time — A receives ₹700, A remaining ₹300,
+B remaining ₹500, read back from `LoanAllocation`.
+
+**Verification.** 695 unit (+32), 254 integration (+9), tsc, eslint, next build.
+Widths 360/390/430/1440 verified on each one's real rendering path (mobile opens
+the ledger as a modal; desktop inline) — no overflow, control 141×48.
+Pre-existing E2E unchanged: `e2e-lending` 2/5, `e2e-lending-import` 16/17,
+`e2e-lending-settlement` 0/1. No schema change. Production untouched.
+
 ### ✅ LENDING ENTRIES SORT NEWEST-ENTERED FIRST (2026-08-20)
 
 Same complaint as the settlement ordering, in the Lending module.

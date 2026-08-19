@@ -18,7 +18,7 @@ import { cache } from "react";
 import { Prisma } from "@prisma/client";
 import { currentMonthKey, istNoon, monthRange, shiftMonthKey, toYMD } from "@/lib/dates";
 import { computeLoanBalances } from "@/lib/lending";
-import { allocateFifo, computeLoanStatus, validateManualAllocation, type LoanStatus, type OpenLoan } from "@/lib/loan-settlement";
+import { allocateFifo, computeLoanStatus, FIFO_ORDER, validateManualAllocation, type LoanStatus, type OpenLoan } from "@/lib/loan-settlement";
 import {
   cardExposure,
   monthlyLending,
@@ -198,7 +198,11 @@ async function loadOpenLoans(
   const [gaveEntries, allocations] = await Promise.all([
     db.loanEntry.findMany({
       where: { userId, participantId, kind: "GAVE", deletedAt: null },
-      select: { id: true, amount: true, occurredAt: true, reason: true, dueDate: true },
+      select: { id: true, amount: true, occurredAt: true, createdAt: true, reason: true, dueDate: true },
+      // Deterministic input for allocateFifo. It sorts by FIFO_ORDER anyway, so
+      // this is belt and braces — but an unordered query feeding money
+      // allocation is not a thing to leave lying around.
+      orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
     }),
     db.loanAllocation.findMany({
       where: { userId, gaveEntry: { participantId, deletedAt: null }, gotEntry: { deletedAt: null } },
@@ -212,6 +216,7 @@ async function loadOpenLoans(
     amount: Number(g.amount),
     settledAmount: settledByLoan.get(g.id) ?? 0,
     occurredAt: toYMD(g.occurredAt),
+    createdAt: g.createdAt.toISOString(),
     reason: g.reason,
     dueDate: g.dueDate,
   }));
@@ -370,6 +375,10 @@ export interface LoanEntryRow {
   notes: string | null;
   dueDate: string | null; // YYYY-MM-DD
   ymd: string;
+  /** ISO instant the row was entered. `ymd` is a date only, so this is what
+   *  separates two entries made on the same day — for display order, and
+   *  nothing else. */
+  createdAt: string;
   version: number;
 }
 
@@ -405,6 +414,7 @@ export async function listLoanEntries(userId: string, opts: { participantId?: st
     notes: e.notes,
     dueDate: e.dueDate ? toYMD(e.dueDate) : null,
     ymd: toYMD(e.occurredAt),
+    createdAt: e.createdAt.toISOString(),
     version: e.version,
   }));
 }
@@ -523,6 +533,9 @@ export interface OpenLoanRow {
   reason: string | null;
   dueDate: string | null;
   status: LoanStatus;
+  /** Carried so the list can be ordered by FIFO_ORDER — the same order the
+   *  allocator consumes them in. */
+  createdAt: string;
 }
 
 /** Open/partial GAVE entries for a contact, oldest-first — the allocation UI's
@@ -539,13 +552,16 @@ export async function openLoansForContact(userId: string, participantId: string)
         settledAmount: l.settledAmount,
         remainingAmount,
         occurredAt: l.occurredAt,
+        createdAt: l.createdAt,
         reason: l.reason,
         dueDate: l.dueDate ? toYMD(l.dueDate) : null,
         status,
       };
     })
     .filter((l) => l.remainingAmount > 0)
-    .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+    // The same order the allocator uses, so the picker's "next to be paid"
+    // matches what a repayment actually consumes.
+    .sort(FIFO_ORDER);
 }
 
 export interface RelatedAllocationRow {

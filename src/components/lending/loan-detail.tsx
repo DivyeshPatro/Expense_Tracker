@@ -72,6 +72,7 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
           notes: detail.notes,
           dueDate: detail.dueDate,
           ymd: detail.occurredAt.slice(0, 10),
+          createdAt: detail.createdAt,
           version: detail.version,
         }}
         onDone={() => {

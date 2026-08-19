@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { allocateFifo, computeLoanStatus, validateManualAllocation, type OpenLoan } from "./loan-settlement";
 
-const loan = (id: string, amount: number, occurredAt: string, settledAmount = 0): OpenLoan => ({ id, amount, settledAmount, occurredAt });
+// createdAt defaults to the id, so existing cases keep a stable, explicit
+// tiebreak without having to state one; same-day cases pass it deliberately.
+const loan = (id: string, amount: number, occurredAt: string, settledAmount = 0, createdAt = id): OpenLoan => ({ id, amount, settledAmount, occurredAt, createdAt });
 
 describe("allocateFifo", () => {
   it("allocates the full repayment to a single open loan when it covers it exactly", () => {

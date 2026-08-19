@@ -175,7 +175,11 @@ export async function commitLendingImport(userId: string, input: CommitLendingIn
       const openLoans: OpenLoan[] = existingId ? await loadOpenLoans(db, userId, existingId) : [];
       for (const e of entries) {
         if (e.kind === "GAVE") {
-          openLoans.push({ id: e.id, amount: e.amountPaise, settledAmount: 0, occurredAt: e.ymd });
+          // Not in the database yet, so there is no createdAt to read. The
+          // import walks the file in order, so position in the file IS the
+          // order these were entered — and it must sort AFTER anything already
+          // stored for that day, which every real ISO instant does.
+          openLoans.push({ id: e.id, amount: e.amountPaise, settledAmount: 0, occurredAt: e.ymd, createdAt: `9999-${String(openLoans.length).padStart(6, "0")}` });
           continue;
         }
         for (const a of allocateFifo(e.amountPaise, openLoans)) {
@@ -256,7 +260,8 @@ async function loadOpenLoans(db: Db, userId: string, participantId: string): Pro
   const [gave, allocations] = await Promise.all([
     db.loanEntry.findMany({
       where: { userId, participantId, kind: "GAVE", deletedAt: null },
-      select: { id: true, amount: true, occurredAt: true },
+      select: { id: true, amount: true, occurredAt: true, createdAt: true },
+      orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
     }),
     db.loanAllocation.findMany({
       where: { userId, gaveEntry: { participantId, deletedAt: null }, gotEntry: { deletedAt: null } },
@@ -265,7 +270,13 @@ async function loadOpenLoans(db: Db, userId: string, participantId: string): Pro
   ]);
   const settled = new Map<string, number>();
   for (const a of allocations) settled.set(a.gaveEntryId, (settled.get(a.gaveEntryId) ?? 0) + Number(a.amount));
-  return gave.map((g) => ({ id: g.id, amount: Number(g.amount), settledAmount: settled.get(g.id) ?? 0, occurredAt: toYMD(g.occurredAt) }));
+  return gave.map((g) => ({
+    id: g.id,
+    amount: Number(g.amount),
+    settledAmount: settled.get(g.id) ?? 0,
+    occurredAt: toYMD(g.occurredAt),
+    createdAt: g.createdAt.toISOString(),
+  }));
 }
 
 /**
