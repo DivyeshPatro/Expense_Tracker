@@ -10,6 +10,7 @@
 //   • repaying a debt must not count a second time as "your share"
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { istNoon, toYMD } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
 import { groupDashboard } from "./group-dashboard";
 import { personalShareExpense } from "./ledger";
@@ -44,7 +45,7 @@ describe("settlement cash leg", () => {
     await prisma.transaction.create({
       data: {
         userId, type: "EXPENSE", amount: rup(300), accountId, categoryId, merchant: "Dinner",
-        occurredAt: new Date(), groupId, paidByParticipantId: null,
+        occurredAt: istNoon(toYMD(new Date())), groupId, paidByParticipantId: null,
         splits: { create: [{ participantId: null, owedAmount: rup(100) }, { participantId: anaId, owedAmount: rup(100) }, { participantId: benId, owedAmount: rup(100) }] },
       },
     });
@@ -119,6 +120,30 @@ describe("settlement cash leg", () => {
     expect(await prisma.transaction.count({ where: { userId, type: "INCOME" } })).toBe(0);
   });
 
+  it("sorts with the day's other rows, not above them", async () => {
+    // Every transaction in the app is stored at istNoon so same-day rows tie on
+    // occurredAt and fall back to createdAt — i.e. entry order. A precise
+    // timestamp here put every settlement above every expense of the same day
+    // whatever the entry order, which reads as if the list is sorted by
+    // something other than time.
+    await recordSettlement(userId, anaId, "TO_OWNER", rup(100), "UPI", undefined, groupId, accountId);
+    const cash = await prisma.transaction.findFirstOrThrow({ where: { userId, type: "INCOME" } });
+    const dinner = await prisma.transaction.findFirstOrThrow({ where: { userId, merchant: "Dinner" } });
+    expect(cash.occurredAt.getTime()).toBe(dinner.occurredAt.getTime());
+
+    // an expense entered AFTER the settlement therefore sorts above it
+    const later = await prisma.transaction.create({
+      data: { userId, type: "EXPENSE", amount: rup(10), accountId, categoryId, merchant: "Later", occurredAt: cash.occurredAt },
+    });
+    const ordered = await prisma.transaction.findMany({
+      where: { userId, occurredAt: cash.occurredAt },
+      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      select: { merchant: true },
+    });
+    expect(ordered[0].merchant).toBe("Later");
+    await prisma.transaction.delete({ where: { id: later.id } });
+  });
+
   it("the cash leg cannot be deleted on its own", async () => {
     // Deleting it directly would take the money out while leaving the debt
     // reading as settled — and someone deleting the row to undo a duplicate
@@ -134,7 +159,7 @@ describe("settlement cash leg", () => {
 
   it("an ordinary transaction still deletes normally", async () => {
     const plain = await prisma.transaction.create({
-      data: { userId, type: "EXPENSE", amount: rup(25), accountId, categoryId, merchant: "Coffee", occurredAt: new Date() },
+      data: { userId, type: "EXPENSE", amount: rup(25), accountId, categoryId, merchant: "Coffee", occurredAt: istNoon(toYMD(new Date())) },
     });
     await prisma.account.update({ where: { id: accountId }, data: { balance: { decrement: rup(25) } } });
     await softDeleteTransaction(userId, plain.id);

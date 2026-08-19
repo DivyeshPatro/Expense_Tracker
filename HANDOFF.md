@@ -148,6 +148,40 @@ conservation on a split that does not divide evenly.
 
 **Production was not touched** — local Docker only, no migration, no deploy.
 
+### ✅ SETTLEMENTS SORT WITH THE DAY, NOT ABOVE IT (2026-08-20)
+
+Reported as "the list looks sorted by amount". It was not — the give-away was
+₹2,127 sitting above ₹2,947 — but settlements did sort above every expense of
+the same day whatever the entry order.
+
+**Cause.** The settlement cash leg was written with `occurredAt: new Date()`, a
+precise instant. **Every other transaction write in the app uses
+`istNoon(date)`** — one canonical time per day — so same-day rows tie on
+`occurredAt` and the `createdAt` tiebreak orders them by when they were actually
+entered. A precise stamp (06:57Z) beat every same-day expense (06:30Z), so a
+settlement made at 12:26 IST outranked an expense added at 14:47 IST.
+
+**Fix.** `istNoon(todayYMD())`, matching every other write.
+
+**Timezone note.** `toYMD`/`todayYMD` are pinned to Asia/Kolkata via
+`Intl.DateTimeFormat`, independent of the server clock — at 19:00 UTC they
+correctly return the *next* day, where a naive `toISOString().slice(0,10)` would
+not. Nothing needed changing; `settlement-date.test.ts` pins it so it cannot
+regress.
+
+**Production data:** the four existing cash legs normalised from precise
+timestamps to the canonical stamp. Only `occurredAt` — no amounts, no balances,
+no settlements.
+
+**Verification.** `settlement-date.test.ts` (4 tests) covers the IST midnight
+boundary; a new case in `settlement-cash-leg.integration.test.ts` asserts the
+cash leg shares the day's stamp and that an expense entered *after* a settlement
+sorts above it. 663 unit, 241 integration, tsc, eslint, next build, six E2E.
+
+**⚠️ Test-fixture lesson.** The integration fixture created its expense with a
+raw `new Date()`, unlike the app, so the first assertion failed for the wrong
+reason. Fixtures must use `istNoon` if they are to reflect production ordering.
+
 ### ✅ THE GROUP STATEMENT LISTS ITS EXPENSES (2026-08-19)
 
 The exported statement reported "Total expenses 7 / ₹15,157" and then showed

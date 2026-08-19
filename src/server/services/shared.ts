@@ -6,6 +6,7 @@ import { minimizeSettlements, type SettleTransfer } from "@/lib/settlement";
 import { prisma } from "../db";
 import { audit } from "./audit";
 import { applyBalances } from "./transactions";
+import { istNoon, todayYMD } from "@/lib/dates";
 
 const AVATAR_COLORS = ["#6d5ae6", "#0f766e", "#d1497e", "#b97d10", "#1d4ed8", "#dc2626"];
 
@@ -208,7 +209,15 @@ export async function recordSettlement(
           amount,
           accountId,
           merchant: toOwner ? `Settled up — ${p.displayName} paid you` : `Settled up — you paid ${p.displayName}`,
-          occurredAt: new Date(),
+          // istNoon, like every other transaction write — NOT `new Date()`.
+          // Ledgerly stores one canonical time per day so same-day rows tie on
+          // occurredAt and fall back to createdAt, which orders them by when
+          // they were actually entered. A precise timestamp here sorted every
+          // settlement above every expense of the same day regardless of entry
+          // order: a settlement made at 12:26 sat above an expense added at
+          // 14:47, which reads as though the list is sorted by something else
+          // entirely.
+          occurredAt: istNoon(todayYMD()),
           notes: note || null,
           paymentMethod: method,
           // Deliberately NOT groupId — see the note above.
