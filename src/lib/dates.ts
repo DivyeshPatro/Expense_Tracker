@@ -133,6 +133,25 @@ export function fullToday(now = new Date()): string {
     .replace(/(\d+), (\d{4})/, "$1 $2");
 }
 
+/** "20 Aug 2026" — a dated row's own label, where friendlyDay's
+ *  "Today"/"Yesterday" would hide the actual date the money moved. */
+export function entryDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return `${String(d).padStart(2, "0")} ${MONTH_NAMES[m - 1]} ${y}`;
+}
+
+const timeFmt = new Intl.DateTimeFormat("en-IN", { timeZone: IST, hour: "numeric", minute: "2-digit", hour12: true });
+
+/** "12:33 PM" in IST for an ISO instant.
+ *
+ *  Only ever used for `createdAt` — when a row was RECORDED. `occurredAt` is
+ *  written as istNoon(date) and carries no time of day, so rendering a clock
+ *  time from it would be inventing precision the data does not have. Callers
+ *  must label this as the recorded-at time, never as when the money moved. */
+export function recordedAtTime(iso: string): string {
+  return timeFmt.format(new Date(iso)).toUpperCase().replace(/\s+/g, " ");
+}
+
 /** IST hour (0–23) for greeting. */
 export function istHour(now = new Date()): number {
   return Number(new Intl.DateTimeFormat("en-GB", { timeZone: IST, hour: "2-digit", hour12: false }).format(now));

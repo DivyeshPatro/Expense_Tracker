@@ -9,7 +9,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { contactActivityAction, lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryAction, updateParticipantDetailsAction } from "@/app/actions";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import type { TimelineEvent } from "@/lib/activity";
@@ -23,6 +22,9 @@ import { useOffline } from "@/components/shell/offline-context";
 import { useUI } from "@/components/shell/ui-context";
 import type { LendingParticipantView, LoanEntryRow } from "@/server/services/lending";
 import { DEFAULT_LOAN_SORT, groupsByMonth, LOAN_SORTS, parseLoanSort, sortLoanEntries, type LoanSort } from "@/lib/loan-sort";
+import { entryDate, recordedAtTime } from "@/lib/dates";
+import { copyText } from "@/lib/clipboard";
+import { lendingStatementText } from "@/lib/lending-statement-text";
 
 const TIMELINE_PAGE_SIZE = 30;
 
@@ -268,6 +270,7 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
       {tab === "transactions" && (
         <TransactionsTab
           entries={entries}
+          participantId={participantId}
           sort={sort}
           setSort={setSort}
           balanceAfterById={balanceAfterById}
@@ -295,6 +298,7 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
 function TransactionsTab({
   entries,
   balanceAfterById,
+  participantId,
   search,
   setSearch,
   sort,
@@ -309,6 +313,7 @@ function TransactionsTab({
 }: {
   entries: LoanEntryRow[];
   balanceAfterById: Map<string, number>;
+  participantId: string;
   search: string;
   setSearch: (s: string) => void;
   sort: LoanSort;
@@ -354,17 +359,21 @@ function TransactionsTab({
   }
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex gap-1.5 mb-1">
+      {/* On a phone the sort picker and the share menu leave the search box
+          about 76px of usable width, which truncates its placeholder to a
+          couple of letters however short the wording is. Below sm it takes a
+          row of its own; from sm up all three sit on one line as before. */}
+      <div className="flex flex-wrap gap-1.5 mb-1">
         <input
-          className="field flex-1 min-w-0"
+          className="field basis-full sm:basis-auto sm:flex-1 min-w-0"
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by reason, note, or amount"
+          placeholder="Search transactions…"
           aria-label="Search transactions"
         />
         <select
-          className="field w-auto flex-none min-h-[44px] text-[12.5px] font-semibold"
+          className="field w-auto flex-1 sm:flex-none min-h-[44px] text-[12.5px] font-semibold"
           value={sort}
           onChange={(e) => setSort(parseLoanSort(e.target.value))}
           aria-label="Sort transactions"
@@ -374,6 +383,7 @@ function TransactionsTab({
             <option key={s.value} value={s.value}>{s.label}</option>
           ))}
         </select>
+        <ShareExportMenu entries={entries} balanceAfterById={balanceAfterById} contactName={contactName} participantId={participantId} />
       </div>
       {filtered.length === 0 && <div className="text-[12.5px] text-mut2 py-4 text-center">No transactions match “{search}”.</div>}
       {groups.map((g) => (
@@ -557,7 +567,6 @@ function EntryRow({
 }) {
   const { enqueueMutation, cancelPending } = useOffline();
   const { showToast, openModal } = useUI();
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const gave = entry.kind === "GAVE";
   const directionColor = gave ? "var(--acc)" : "var(--green)";
@@ -592,50 +601,63 @@ function EntryRow({
 
   return (
     <div className="flex items-center gap-2.5 py-[9px] border-b border-line last:border-b-0">
-      <button
-        onClick={() => openModal("loanDetail", { loanEntryId: entry.id })}
-        aria-label={`View details for ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-        className="flex items-center gap-2.5 flex-1 min-w-0 text-left bg-transparent border-none cursor-pointer p-0 rounded-lg hover:bg-accsoft"
-      >
-        <span className="w-9 h-9 rounded-[10px] grid place-items-center text-[14px] flex-none" style={{ background: gave ? "var(--accSoft)" : "var(--greenSoft)" }}>
-          {gave ? "💸" : "💰"}
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="text-[11.5px] font-bold" style={{ color: directionColor }}>{gave ? "You Gave" : "You Got"}</div>
-          <div className="text-[13px] font-semibold text-ink truncate">{entry.reason || "—"}</div>
-          <div className="text-[11px] text-mut2 truncate">
-            {entry.accountName ? (
-              // Phase 2.5 cross-navigation: the funding source opens the
-              // Accounts page instead of being dead text — stopPropagation so
-              // the surrounding loan-detail button doesn't also fire
-              <span
-                role="link"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  router.push("/accounts");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.stopPropagation();
-                    router.push("/accounts");
-                  }
-                }}
-                className="hover:text-acc hover:underline cursor-pointer"
-              >
-                via {entry.accountName}
-              </span>
-            ) : (
-              "Untracked / cash"
+      {/* The funding-source link used to sit inline on the row's second line,
+          INSIDE the loan-detail button. Nesting it there put a second target
+          across the primary one — and once the balance line made the row three
+          lines tall, the row's geometric centre landed on the link, so tapping
+          the middle of a transaction navigated to /accounts instead of opening
+          it. The link now lives on its own line below the button: separate
+          targets, no overlap, and a real 44px-tall control instead of a 14px
+          strip of text. */}
+      <div className="flex-1 min-w-0">
+        <button
+          onClick={() => openModal("loanDetail", { loanEntryId: entry.id })}
+          aria-label={`View details for ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
+          className="flex items-center gap-2.5 w-full min-w-0 text-left bg-transparent border-none cursor-pointer p-0 rounded-lg hover:bg-accsoft"
+        >
+          <span className="w-9 h-9 rounded-[10px] grid place-items-center text-[14px] flex-none" style={{ background: gave ? "var(--accSoft)" : "var(--greenSoft)" }}>
+            {gave ? "💸" : "💰"}
+          </span>
+          <div className="flex-1 min-w-0">
+            {/* Date leads the row: it is the thing being scanned for. The time is
+                when the entry was RECORDED — occurredAt carries no time of day —
+                so it says "added" rather than implying the money moved then. */}
+            <div className="text-[13px] font-bold text-ink truncate">
+              {entryDate(entry.ymd)}
+              <span className="text-[11px] font-medium text-mut2"> · added {recordedAtTime(entry.createdAt)}</span>
+            </div>
+            {(entry.reason || !entry.accountName) && (
+              <div className="text-[11px] text-mut2 truncate">
+                {entry.reason ? <span className="text-ink font-semibold">{entry.reason}</span> : null}
+                {entry.reason && !entry.accountName ? " · " : null}
+                {entry.accountName ? null : "Untracked / cash"}
+              </div>
             )}
+            <div className="text-[11px] truncate" style={{ color: balanceAfterLabel(balanceAfter, contactName).color }}>
+              Balance: {balanceAfterLabel(balanceAfter, contactName).text}
+            </div>
           </div>
-          <div className="text-[11px] font-semibold truncate" style={{ color: balanceAfterLabel(balanceAfter, contactName).color }}>
-            After this: {balanceAfterLabel(balanceAfter, contactName).text}
-          </div>
-        </div>
-      </button>
+        </button>
+        {entry.accountName && (
+          // Phase 2.5 cross-navigation: the funding source opens the Accounts
+          // page instead of being dead text. A real anchor now — outside the
+          // loan-detail button, so it needs no stopPropagation and keyboard
+          // users get a link rather than a div pretending to be one.
+          <Link
+            href="/accounts"
+            aria-label={`Open the account this entry was funded from: ${entry.accountName}`}
+            className="inline-flex items-center gap-1 max-w-full min-h-[44px] px-2 ml-[38px] rounded-lg text-[11px] font-semibold text-mut2 no-underline hover:text-acc hover:bg-accsoft"
+          >
+            <span className="truncate">via {entry.accountName}</span>
+            <span aria-hidden className="flex-none">↗</span>
+          </Link>
+        )}
+      </div>
       <div className="flex flex-col items-end gap-1.5 flex-none">
-        <div className="text-[13.5px] font-bold" style={{ color: directionColor }}>{formatPaise(entry.amount)}</div>
+        <div className="text-right leading-tight">
+          <div className="text-[10px] font-bold uppercase tracking-[.04em]" style={{ color: directionColor }}>{gave ? "You Gave" : "You Got"}</div>
+          <div className="text-[15px] font-extrabold tabular-nums" style={{ color: directionColor }}>{formatPaise(entry.amount)}</div>
+        </div>
         <div className="flex gap-0.5 -mr-1.5">
           <button
             onClick={onEdit}
@@ -811,6 +833,104 @@ function ContactDetailsForm({ contact, onSaved }: { contact: LendingParticipantV
       <SubmitButton busy={busy} onClick={save}>
         Save contact details
       </SubmitButton>
+    </div>
+  );
+}
+
+/**
+ * Share / Export for one contact's ledger.
+ *
+ * Share builds the text from `entries` — the FULL history the view already
+ * holds, not the rows currently rendered (visibleCount only limits painting) —
+ * and from the same `balanceAfterById` the rows display, so the message can
+ * never disagree with the screen.
+ *
+ * Export reuses the statement page that already exists at
+ * /lending/statement/<id>: a printable A4 sheet whose Print button produces the
+ * PDF. Building a second PDF pipeline here would mean a second set of totals to
+ * keep in step with the first.
+ */
+function ShareExportMenu({
+  entries,
+  balanceAfterById,
+  contactName,
+  participantId,
+}: {
+  entries: LoanEntryRow[];
+  balanceAfterById: Map<string, number>;
+  contactName: string;
+  participantId: string;
+}) {
+  const { showToast } = useUI();
+  const [open, setOpen] = useState(false);
+
+  function buildText() {
+    // entries arrive newest-first; the statement reads the same way.
+    const rows = entries.map((e) => ({
+      ymd: e.ymd,
+      createdAt: e.createdAt,
+      kind: e.kind,
+      amount: e.amount,
+      balanceAfterPaise: balanceAfterById.get(e.id) ?? 0,
+    }));
+    const totalGavePaise = entries.filter((e) => e.kind === "GAVE").reduce((t, e) => t + e.amount, 0);
+    const totalGotPaise = entries.filter((e) => e.kind === "GOT").reduce((t, e) => t + e.amount, 0);
+    return lendingStatementText({
+      contactName,
+      periodLabel: "All time",
+      entries: rows,
+      totalGavePaise,
+      totalGotPaise,
+      // the newest row's running balance IS the current standing
+      closingBalancePaise: rows[0]?.balanceAfterPaise ?? 0,
+    });
+  }
+
+  async function share() {
+    setOpen(false);
+    const text = buildText();
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: `Ledgerly — ${contactName}`, text });
+        return;
+      } catch {
+        // cancelled or refused — fall through so there is always a way out
+      }
+    }
+    showToast((await copyText(text)) ? "Statement copied — paste it into WhatsApp" : "Couldn't copy the statement");
+  }
+
+  return (
+    <div className="relative flex-none">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Share or export statement"
+        title="Share or export statement"
+        className="field w-auto min-h-[44px] px-3 text-[12.5px] font-semibold cursor-pointer"
+      >
+        Share
+      </button>
+      {open && (
+        <>
+          {/* click-away, behind the menu */}
+          <button aria-hidden tabIndex={-1} onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-transparent border-none cursor-default" />
+          <div role="menu" className="absolute right-0 top-[calc(100%+4px)] z-50 card p-1 min-w-[178px] flex flex-col shadow-lg">
+            <button role="menuitem" onClick={share} className="text-left px-3 min-h-[44px] rounded-lg text-[12.5px] font-semibold bg-transparent border-none cursor-pointer hover:bg-accsoft">
+              Share statement
+            </button>
+            <Link
+              role="menuitem"
+              href={`/lending/statement/${participantId}`}
+              onClick={() => setOpen(false)}
+              className="px-3 min-h-[44px] flex items-center rounded-lg text-[12.5px] font-semibold no-underline text-ink hover:bg-accsoft"
+            >
+              Export as PDF
+            </Link>
+          </div>
+        </>
+      )}
     </div>
   );
 }

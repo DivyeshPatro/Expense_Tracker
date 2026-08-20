@@ -22,7 +22,31 @@ function modal(page: Page) {
 async function contactPane(page: Page) {
   const overlay = modal(page);
   if ((await overlay.count()) > 0) return overlay;
-  return page.locator("section.card", { hasText: "+ You Gave" });
+  // Anchor on the ledger's own tablist, not on a control that only exists on
+  // one tab — "+ You gave" lives on Overview, so anchoring there made the pane
+  // unresolvable the moment the script switched to Transactions.
+  return page.locator("section.card").filter({ has: page.getByRole("tablist", { name: "Contact sections" }) });
+}
+
+/** #187 removed the two "＋ You Gave / ＋ You Got" buttons from the Lending page
+ * header — the context-aware quick-add FAB opens the same modal now. Both FABs
+ * (mobile bar, desktop bottom-right) are in the DOM at once, so resolve to
+ * whichever the current viewport actually shows. */
+async function openLendingEntry(page: Page, kind: "GAVE" | "GOT") {
+  const fab = page.locator('button[aria-label="Lending — quick add"]:visible').first();
+  // The FAB is client-rendered; on a loaded machine `load` can fire well before
+  // it paints. Wait for it rather than racing it.
+  await fab.waitFor({ state: "visible", timeout: 30000 });
+  await fab.click();
+  await page.getByRole("button", { name: kind === "GAVE" ? /You gave money/ : /You got money/ }).first().click();
+  await page.waitForSelector('input[placeholder="0"]');
+}
+
+/** A contact's ledger is tabbed (Overview / Transactions / Reports / Activity);
+ * the entry rows live under Transactions, not on the Overview landing tab. */
+async function openTransactionsTab(page: Page) {
+  await (await contactPane(page)).getByRole("tab", { name: "transactions" }).click();
+  await page.waitForTimeout(400);
 }
 
 async function waitForSyncedEntry(reason: string) {
@@ -78,8 +102,7 @@ async function main() {
     });
 
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
-    await page.getByRole("button", { name: "+ You Got", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
+    await openLendingEntry(page, "GOT");
     await modal(page).locator("select").first().selectOption({ label: "Rohan" });
     await page.waitForSelector("text=Apply to", { timeout: 10000 });
     ok("the allocation picker defaults to Auto (FIFO)", await modal(page).getByRole("button", { name: "Auto", exact: true }).isVisible());
@@ -102,9 +125,13 @@ async function main() {
     const rohanRow = page.getByRole("button", { name: /Rohan/ }).first();
     await rohanRow.click();
     await page.waitForSelector("text=+ You Gave");
+    await openTransactionsTab(page);
     const pane = await contactPane(page);
-    const oldRow = pane.locator("div.flex-1.min-w-0").filter({ hasText: `E2ESettleOld-${suffix}` }).locator("xpath=..");
-    await oldRow.click();
+    // Click the row by its own accessible name, on the date line. The row's
+    // second line carries the "via <account>" cross-link to /accounts, and a
+    // default centre-click lands on it for an account-funded loan.
+    const oldRow = pane.getByRole("button", { name: new RegExp(`View details .*E2ESettleOld-${suffix}`) });
+    await oldRow.click({ position: { x: 60, y: 10 } });
     await page.waitForSelector("text=Original Amount", { timeout: 10000 });
     // stat labels render with CSS text-transform: uppercase — innerText()
     // reflects the rendered text, not the literal DOM string
@@ -121,8 +148,7 @@ async function main() {
 
     // ══════════════ 3. Full settlement ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
-    await page.getByRole("button", { name: "+ You Got", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
+    await openLendingEntry(page, "GOT");
     await modal(page).locator("select").first().selectOption({ label: "Rohan" });
     await page.waitForSelector("text=Apply to", { timeout: 10000 });
     await page.fill('input[placeholder="0"]', "300"); // clears the remaining ₹300 on the newer loan exactly
@@ -147,8 +173,7 @@ async function main() {
     });
 
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
-    await page.getByRole("button", { name: "+ You Got", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
+    await openLendingEntry(page, "GOT");
     await modal(page).locator("select").first().selectOption({ label: "Priya" });
     await page.waitForSelector("text=Apply to", { timeout: 10000 });
     await modal(page).getByRole("button", { name: "Custom", exact: true }).click();
@@ -225,9 +250,10 @@ async function main() {
     const loanRow = contactsSection.getByRole("button", { name: /Rohan/ }).first();
     await loanRow.click();
     await page.waitForSelector("text=+ You Gave");
+    await openTransactionsTab(page);
     const cardPane = await contactPane(page);
-    const cardEntryRow = cardPane.locator("div.flex-1.min-w-0").filter({ hasText: `E2ECardLoan-${suffix}` }).locator("xpath=..");
-    await cardEntryRow.click();
+    const cardEntryRow = cardPane.getByRole("button", { name: new RegExp(`View details .*E2ECardLoan-${suffix}`) });
+    await cardEntryRow.click({ position: { x: 60, y: 10 } });
     await page.waitForSelector("text=Original Amount", { timeout: 10000 });
     const cardLoanDetail = await modal(page).innerText();
     ok("Loan Detail shows the card account as the funding source", cardLoanDetail.includes(cardAccount.name));
@@ -235,8 +261,7 @@ async function main() {
     // ══════════════ 8. Offline settlement sync ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await context.setOffline(true);
-    await page.getByRole("button", { name: "+ You Got", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
+    await openLendingEntry(page, "GOT");
     await modal(page).locator("select").first().selectOption({ label: "Rohan" });
     await page.fill('input[placeholder="0"]', "100");
     await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2EOfflineSettle-${suffix}`);

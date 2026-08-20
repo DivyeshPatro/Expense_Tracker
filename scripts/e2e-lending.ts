@@ -27,7 +27,33 @@ function modal(page: Page) {
 async function contactPane(page: Page) {
   const overlay = modal(page);
   if ((await overlay.count()) > 0) return overlay;
-  return page.locator("section.card", { hasText: "+ You Gave" });
+  // Anchor on the ledger's own tablist, not on a control that only exists on
+  // one tab — "+ You gave" lives on Overview, so anchoring there made the pane
+  // unresolvable the moment the script switched to Transactions.
+  return page.locator("section.card").filter({ has: page.getByRole("tablist", { name: "Contact sections" }) });
+}
+
+/** #187 removed the two "＋ You Gave / ＋ You Got" buttons from the Lending
+ * page header — they are the context-aware quick-add FAB's job now. Same
+ * modal, same fields, same intent; only the entry point moved. Both FABs
+ * (mobile bar, desktop bottom-right) are in the DOM at once, so resolve to
+ * whichever the current viewport actually shows. */
+async function openLendingEntry(page: Page, kind: "GAVE" | "GOT") {
+  const fab = page.locator('button[aria-label="Lending — quick add"]:visible').first();
+  // The FAB is client-rendered; on a loaded machine `load` can fire well before
+  // it paints. Wait for it rather than racing it.
+  await fab.waitFor({ state: "visible", timeout: 30000 });
+  await fab.click();
+  await page.getByRole("button", { name: kind === "GAVE" ? /You gave money/ : /You got money/ }).first().click();
+  await page.waitForSelector('input[placeholder="0"]');
+}
+
+/** A contact's ledger is tabbed (Overview / Transactions / Reports / Activity).
+ * Overview carries the summary card and the quick actions; the entry rows —
+ * with their Edit and Delete controls — live under Transactions. */
+async function openTransactionsTab(page: Page) {
+  await (await contactPane(page)).getByRole("tab", { name: "transactions" }).click();
+  await page.waitForTimeout(400);
 }
 
 /** Server creates go through the offline outbox before landing in Postgres —
@@ -91,8 +117,7 @@ async function main() {
     // ══════════════ 3. Add "You Gave" via the UI, offline-outbox create ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     ok("Lending dashboard shows the three summary cards", await page.getByText("YOU ARE OWED", { exact: true }).isVisible());
-    await page.getByRole("button", { name: "+ You Gave", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
+    await openLendingEntry(page, "GAVE");
     ok("Lending entry form has no native date input", (await modal(page).locator('input[type="date"]').count()) === 0);
     await page.fill('input[placeholder="0"]', "2000");
     await modal(page).locator("select").first().selectOption({ label: "Rohan" });
@@ -122,7 +147,7 @@ async function main() {
     // behind the modal — scope to the contact sheet to avoid the ambiguity
     await rohanRow.click();
     await page.waitForSelector("text=+ You Gave");
-    await (await contactPane(page)).getByRole("button", { name: "+ You Got", exact: true }).click();
+    await (await contactPane(page)).getByRole("button", { name: "+ You got", exact: true }).click();
     await page.waitForSelector('input[placeholder="0"]');
     await page.fill('input[placeholder="0"]', "500");
     await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2ERepay-${suffix}`);
@@ -150,15 +175,12 @@ async function main() {
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await page.getByRole("button", { name: /Rohan/ }).first().click();
     await page.waitForSelector("text=+ You Gave");
-    // find the specific reason-text wrapper (unique per entry, since the
-    // suffix is random), then step up to its parent row — a plain hasText
-    // filter matches every ancestor div too, some of which contain multiple
-    // rows' worth of Edit/Delete buttons and would be ambiguous to click.
-    // Two levels up (Phase 2): the reason div now lives inside the row's
-    // own clickable button (opens Loan Detail), so the first ".." reaches
-    // that inner button, not the outer row that holds Edit/Delete.
-    const entryRow = (await contactPane(page)).locator("div.flex-1.min-w-0").filter({ hasText: `E2ELent-${suffix}` }).locator("xpath=../..");
-    await entryRow.getByRole("button", { name: /^Edit .* entry of/ }).click();
+    // Target the control by its own accessible name — it already carries the
+    // entry's reason, which is unique per run. The previous approach walked up
+    // from a text wrapper by xpath, which silently re-aimed itself every time
+    // the row's DOM nesting changed.
+    await openTransactionsTab(page);
+    await (await contactPane(page)).getByRole("button", { name: new RegExp(`^Edit .* for E2ELent-${suffix}$`) }).click();
     await page.waitForSelector('input[placeholder="0"]');
     await page.fill('input[placeholder="0"]', "2200");
     await page.getByRole("button", { name: "Save changes", exact: true }).click();
@@ -171,12 +193,55 @@ async function main() {
     const rohanBalAfterEdit = balancesAfterEdit.find((c) => c.id === rohan.id)?.net ?? 0;
     ok("running balance reflects the edited amount: ₹2,200 − ₹500 = ₹1,700", rohanBalAfterEdit === 170000, `net=${rohanBalAfterEdit}`);
 
+    // ══════════════ 7b. Row hit targets ══════════════
+    // An account-funded row carries two destinations: the row opens the
+    // transaction, the "via <account>" link opens Accounts. They used to be
+    // nested — the link sat inside the row's own button — so a tap in the
+    // middle of a three-line row navigated away instead of opening it. These
+    // checks pin both destinations AND the separation that makes them
+    // unambiguous. E2ELent-* was funded from HDFC Savings in §3.
+    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+    await page.getByRole("button", { name: /Rohan/ }).first().click();
+    await page.waitForSelector("text=+ You gave");
+    await openTransactionsTab(page);
+    const hitPane = await contactPane(page);
+    // Scope to the one row: the seeded history has HDFC-funded entries of its
+    // own, so an unscoped account link is ambiguous. `.last()` is the innermost
+    // div containing this row's primary button — the left column that holds
+    // both the button and its account link.
+    const rowGroup = hitPane
+      .locator("div")
+      .filter({ has: page.getByRole("button", { name: new RegExp(`View details .*E2ELent-${suffix}`) }) })
+      .last();
+    const primaryTarget = rowGroup.getByRole("button", { name: new RegExp(`View details .*E2ELent-${suffix}`) });
+    const accountLink = rowGroup.getByRole("link", { name: /funded from: HDFC Savings/ });
+
+    const pBox = await primaryTarget.boundingBox();
+    const aBox = await accountLink.boundingBox();
+    const overlaps =
+      !!pBox && !!aBox && pBox.x < aBox.x + aBox.width && aBox.x < pBox.x + pBox.width && pBox.y < aBox.y + aBox.height && aBox.y < pBox.y + pBox.height;
+    ok("the account link does not overlap the row's primary click target", !overlaps, `row ${JSON.stringify(pBox)} link ${JSON.stringify(aBox)}`);
+    ok("the account link keeps a 44px touch target", (aBox?.height ?? 0) >= 44, `${Math.round(aBox?.height ?? 0)}px`);
+
+    // 1. clicking the row — dead centre, the tap that used to navigate away
+    await primaryTarget.click();
+    await page.waitForSelector("text=Original Amount", { timeout: 10000 });
+    ok("clicking the middle of a transaction row opens the transaction", (await modal(page).innerText()).includes(`E2ELent-${suffix}`));
+    ok("opening the transaction did not navigate away from Lending", page.url().includes("/lending"), page.url());
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(400);
+
+    // 2. clicking the account link still opens the account
+    await rowGroup.getByRole("link", { name: /funded from: HDFC Savings/ }).click();
+    await page.waitForURL("**/accounts", { timeout: 10000 }).catch(() => {});
+    ok("clicking the account link opens the account", page.url().includes("/accounts"), page.url());
+
     // ══════════════ 8. Delete + undo ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await page.getByRole("button", { name: /Rohan/ }).first().click();
     await page.waitForSelector("text=+ You Gave");
-    const repayRow = (await contactPane(page)).locator("div.flex-1.min-w-0").filter({ hasText: `E2ERepay-${suffix}` }).locator("xpath=../..");
-    await repayRow.getByRole("button", { name: /^Delete .* entry of/ }).click();
+    await openTransactionsTab(page);
+    await (await contactPane(page)).getByRole("button", { name: new RegExp(`^Delete .* for E2ERepay-${suffix}$`) }).click();
     await page.waitForTimeout(500);
     const afterDelete = await prisma.loanEntry.findFirst({ where: { id: gotEntry.id } });
     ok("deleting an entry soft-deletes it", afterDelete?.deletedAt != null);
@@ -192,8 +257,7 @@ async function main() {
     // ══════════════ 9. Offline: queue a create while offline, confirm it syncs ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await context.setOffline(true);
-    await page.getByRole("button", { name: "+ You Gave", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
+    await openLendingEntry(page, "GAVE");
     await page.fill('input[placeholder="0"]', "300");
     await modal(page).locator("select").first().selectOption({ label: "Rohan" });
     await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2EOffline-${suffix}`);
