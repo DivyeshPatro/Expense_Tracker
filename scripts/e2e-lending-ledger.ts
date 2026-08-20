@@ -55,15 +55,14 @@ async function openLedger(page: Page, participantId: string) {
   await page.getByLabel("Search transactions").waitFor({ state: "visible", timeout: 15000 });
 }
 
-/** One transaction's card: the ledger line, the funding-source link and the
- *  balance strip. The innermost div holding the button is only the ledger
- *  line, so step up once to take in the whole card. */
+/** One transaction's card: the ledger line, the source line and the balance
+ *  strip. The button is a direct child of the card, so the innermost div
+ *  holding it IS the card. */
 function row(page: Page, reason: string) {
   return page
     .locator("div")
     .filter({ has: page.getByRole("button", { name: new RegExp(`View details .*${reason}`) }) })
-    .last()
-    .locator("xpath=..");
+    .last();
 }
 
 async function main() {
@@ -89,6 +88,27 @@ async function main() {
   await new Promise((r) => setTimeout(r, 20));
   await mk("GOT", 500000, "2026-08-20", CARD_NOTE, account.id);
 
+  // A second contact for the geometry checks: five entries covering every
+  // combination of note and funding source that could plausibly change a
+  // card's height. Kept apart from the fixture above so measuring them cannot
+  // disturb the running balances the other checks assert.
+  const geomContact = await prisma.participant.create({ data: { ownerId: user.id, displayName: `ZGeom-${S}` } });
+  const mkGeom = (kind: "GAVE" | "GOT", amount: number, ymd: string, reason: string | null, accountId?: string) =>
+    prisma.loanEntry.create({ data: { userId: user.id, participantId: geomContact.id, kind, amount, occurredAt: istNoon(ymd), reason, accountId } });
+  // Six times the Notes column's width at 360px, which is all case E needs to
+  // prove: longer still would also widen the dashboard's own recent-entries
+  // panel, an unrelated pre-existing issue in lending-workspace.tsx.
+  const LONG_NOTE = `Far too long for this column ${S}`;
+  await mkGeom("GAVE", 110000, "2026-02-01", `Dinner with the team ${S}`, account.id); // A: note + account
+  await new Promise((r) => setTimeout(r, 20));
+  await mkGeom("GOT", 120000, "2026-02-02", null, account.id); // B: no note + account
+  await new Promise((r) => setTimeout(r, 20));
+  await mkGeom("GAVE", 130000, "2026-02-03", `Petrol ${S}`); // C: note + cash
+  await new Promise((r) => setTimeout(r, 20));
+  await mkGeom("GOT", 140000, "2026-02-04", null); // D: no note + cash
+  await new Promise((r) => setTimeout(r, 20));
+  await mkGeom("GAVE", 150000, "2026-02-05", LONG_NOTE); // E: long note + cash
+
   const browser = await chromium.launch({ headless: true });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 950 }, permissions: ["clipboard-read", "clipboard-write"] });
   const page = await ctx.newPage();
@@ -98,7 +118,7 @@ async function main() {
     const body = await page.locator("body").innerText();
 
     // ══════════════ 1. Four columns, headed ══════════════
-    for (const label of ["Date · added", "Notes", "You gave", "You got", "Actions"]) {
+    for (const label of ["Date · added", "Notes", "You gave", "You got"]) {
       ok(`column header "${label}" is present`, new RegExp(label.replace(/[·]/g, "."), "i").test(body));
     }
 
@@ -127,8 +147,13 @@ async function main() {
 
     // ══════════════ 4. Notes carry context, not the contact's name ══════════════
     ok("the note itself shows", gaveRowText.includes(GAVE_NOTE));
-    ok("a cash entry says where the money sat", gaveRowText.includes("Untracked / cash"));
-    ok("an account-funded entry names the account", (await row(page, CARD_NOTE).innerText()).includes("via HDFC Savings"));
+    // Where the money sat is metadata for one transaction, not something you
+    // scan a list by, so the list omits it and the detail sheet carries it.
+    const cardRowText = await row(page, CARD_NOTE).innerText();
+    const cashRowText = await row(page, GAVE_NOTE).innerText();
+    ok("an account-funded row does not name the account", !/via HDFC Savings|Untracked/.test(cardRowText), cardRowText.replace(/\s+/g, " ").slice(0, 70));
+    ok("a cash row does not say 'Untracked / cash' either", !/Untracked/.test(cashRowText), cashRowText.replace(/\s+/g, " ").slice(0, 70));
+    ok("no row in the list carries an account link", (await page.getByRole("link", { name: /funded from/ }).count()) === 0);
     const rowTexts = await Promise.all([GAVE_NOTE, GOT_NOTE, CARD_NOTE].map((r) => row(page, r).innerText()));
     const naming = rowTexts.filter((t) => t.includes(contactName)).length;
     ok("no transaction row repeats the contact's name", naming === 0, `${naming} of ${rowTexts.length} rows name the contact`);
@@ -209,17 +234,51 @@ async function main() {
 
       const cardRow = row(p2, CARD_NOTE);
       const primary = cardRow.getByRole("button", { name: new RegExp(`View details .*${CARD_NOTE}`) });
-      const link = cardRow.getByRole("link", { name: /funded from: HDFC Savings/ });
-      const edit = p2.getByRole("button", { name: new RegExp(`^Edit .*${CARD_NOTE}`) });
-      const del = p2.getByRole("button", { name: new RegExp(`^Delete .*${CARD_NOTE}`) });
-      const [pb, lb, eb, db] = await Promise.all([primary.boundingBox(), link.boundingBox(), edit.boundingBox(), del.boundingBox()]);
+      const pb = await primary.boundingBox();
 
-      const overlaps = (a: typeof pb, b: typeof lb) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-      ok(`${w}px: the account link does not overlap the row`, !overlaps(pb, lb), `row y${Math.round(pb?.y ?? 0)}+${Math.round(pb?.height ?? 0)} link y${Math.round(lb?.y ?? 0)}+${Math.round(lb?.height ?? 0)}`);
-      ok(`${w}px: the actions do not overlap the row`, !overlaps(pb, eb) && !overlaps(pb, db));
-      ok(`${w}px: every target is 44px+`, (pb?.height ?? 0) >= 44 && (lb?.height ?? 0) >= 44 && (eb?.height ?? 0) >= 44 && (db?.height ?? 0) >= 44,
-        `row ${Math.round(pb?.height ?? 0)} link ${Math.round(lb?.height ?? 0)} edit ${Math.round(eb?.height ?? 0)} delete ${Math.round(db?.height ?? 0)}`);
+      ok(`${w}px: the row is a single click target`, (await cardRow.getByRole("link").count()) === 0 && (await cardRow.getByRole("button").count()) === 1);
+      ok(`${w}px: the row carries no per-row edit/delete controls`, (await p2.getByRole("button", { name: /^(Edit|Delete) .* entry of/ }).count()) === 0);
+      ok(`${w}px: the row target is 44px+`, (pb?.height ?? 0) >= 44, `${Math.round(pb?.height ?? 0)}px`);
 
+      // ── every card measures the same, whatever its content ────────────
+      await openLedger(p2, geomContact.id);
+      const geom = await p2.evaluate(`(() => {
+        const cards = [...document.querySelectorAll("button")]
+          .filter((b) => (b.getAttribute("aria-label") || "").startsWith("View details"))
+          .map((b) => b.parentElement)
+          .filter(Boolean);
+        return cards.map((c) => {
+          const r = c.getBoundingClientRect();
+          const kids = [...c.children].map((k) => Math.round(k.getBoundingClientRect().height));
+          const balance = [...c.children].find((k) => (k.textContent || "").startsWith("Balance:"));
+          return {
+            h: Math.round(r.height),
+            slots: kids,
+            balanceTop: balance ? Math.round(balance.getBoundingClientRect().top - r.top) : -1,
+          };
+        });
+      })()`) as { h: number; slots: number[]; balanceTop: number }[];
+      const heights = [...new Set(geom.map((g) => g.h))];
+      ok(`${w}px: every card is the same height whatever its content`, heights.length === 1, `${geom.length} cards, heights ${heights.join("/")}`);
+      const slotShapes = [...new Set(geom.map((g) => g.slots.join("/")))];
+      ok(`${w}px: every card has the same slot structure`, slotShapes.length === 1, slotShapes.join(" vs "));
+      const balanceTops = [...new Set(geom.map((g) => g.balanceTop))];
+      ok(`${w}px: the balance strip starts at the same offset on every card`, balanceTops.length === 1 && balanceTops[0] > 0, `${balanceTops.join("/")}px from card top`);
+      console.log(`    ${w}px card geometry — height ${heights[0]}px, slots ${geom[0].slots.join("/")}, balance at +${balanceTops[0]}px`);
+
+      // The long note must stay inside its card. (The page-level check runs on
+      // the main fixture below: the Lending dashboard's own "Recent entries"
+      // panel renders reasons untruncated and widens behind the modal, which
+      // predates this layout — HEAD overflows identically — and belongs to
+      // lending-workspace.tsx rather than the card.)
+      const cardOverflow = await p2.evaluate(`(() => {
+        const cards = [...document.querySelectorAll("button")]
+          .filter((b) => (b.getAttribute("aria-label") || "").startsWith("View details"))
+          .map((b) => b.parentElement);
+        return cards.some((c) => c && c.scrollWidth > c.clientWidth + 1);
+      })()`);
+      ok(`${w}px: a note too long for the column stays inside its card`, !cardOverflow);
+      await openLedger(p2, contact.id);
       const overflow = await p2.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       ok(`${w}px: no horizontal overflow`, !overflow);
       const rowText = (await cardRow.innerText()).replace(/\s+/g, " ");
@@ -234,10 +293,15 @@ async function main() {
       await p2.waitForSelector("text=Funding Source", { timeout: 10000 });
       const opened = await p2.locator(".fixed.inset-0").first().innerText();
       ok(`${w}px: clicking the row opens that transaction`, opened.includes("₹5,000") && p2.url().includes("/lending"));
+      // and the sheet is where editing and deleting live now
+      ok(`${w}px: the transaction offers Edit and Delete`,
+        (await p2.getByRole("button", { name: "Edit", exact: true }).count()) === 1 && (await p2.getByRole("button", { name: "Delete", exact: true }).count()) === 1);
+      ok(`${w}px: the sheet names the funding account the list omits`, opened.includes("HDFC Savings"));
+      // and a cash entry says so there too
       await openLedger(p2, contact.id);
-      await row(p2, CARD_NOTE).getByRole("link", { name: /funded from: HDFC Savings/ }).click();
-      await p2.waitForURL("**/accounts", { timeout: 10000 }).catch(() => {});
-      ok(`${w}px: clicking the account link opens the account`, p2.url().includes("/accounts"), p2.url());
+      await row(p2, GAVE_NOTE).getByRole("button", { name: new RegExp(`View details .*${GAVE_NOTE}`) }).click();
+      await p2.waitForSelector("text=Funding Source", { timeout: 10000 });
+      ok(`${w}px: the sheet marks a cash entry Untracked / cash`, (await p2.locator(".fixed.inset-0").first().innerText()).includes("Untracked / cash"));
 
       if (w === 390 || w === 1440) {
         await openLedger(p2, contact.id);
@@ -253,6 +317,8 @@ async function main() {
       where: { OR: [{ gaveEntry: { participantId: contact.id } }, { gotEntry: { participantId: contact.id } }] },
     });
     await prisma.loanEntry.deleteMany({ where: { participantId: contact.id } });
+    await prisma.loanEntry.deleteMany({ where: { participantId: geomContact.id } });
+    await prisma.participant.delete({ where: { id: geomContact.id } }).catch(() => {});
     await prisma.participant.delete({ where: { id: contact.id } }).catch(() => {});
     await prisma.$disconnect();
     const failed = results.filter((r) => !r.pass);

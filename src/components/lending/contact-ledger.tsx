@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { contactActivityAction, lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryAction, updateParticipantDetailsAction } from "@/app/actions";
+import { contactActivityAction, lendingDashboardAction, listLoanEntriesAction, updateParticipantDetailsAction } from "@/app/actions";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import type { TimelineEvent } from "@/lib/activity";
 import { computeContactSummary, type ContactSummary } from "@/lib/lending";
@@ -29,6 +29,29 @@ import { lendingStatementText } from "@/lib/lending-statement-text";
 
 const TIMELINE_PAGE_SIZE = 30;
 
+// The ledger's column geometry, declared once. The header, the transaction
+// line and the source line beneath it all lay themselves out from these, so
+// the three can never drift apart — and nothing needs a hard-coded offset to
+// line the source up under Notes: it reuses COL_DATE as a leading spacer and
+// the same gutter, so it starts exactly where the note above it starts.
+//
+// Date is sized to hold "20 Aug 2026" (71px at the mobile size, 74px at the
+// desktop one) with room to spare. The amount columns are sized to the widest
+// sum each breakpoint has to show without spilling into Notes — a phone gets a
+// smaller figure and a tighter gutter so Notes keeps a readable width, which
+// on a 360px screen is the difference between showing a few letters of a note
+// and showing most of it. Notes takes whatever is left and truncates; it is
+// the only column that flexes, which is why it has no fixed width.
+const COL_DATE = "w-[74px] sm:w-[92px] flex-none";
+const COL_AMOUNT = "w-[72px] sm:w-[100px] flex-none";
+const COL_NOTES = "flex-1 min-w-0";
+const GUTTER = "gap-1 sm:gap-2";
+const CARD_PAD = "px-2 sm:px-2.5";
+// The header sits outside the cards, so it carries CARD_PAD plus the 1px the
+// card spends on its border — otherwise every column would read 1px left of
+// the values beneath it.
+const HEADER_PAD = "px-[9px] sm:px-[11px]";
+
 export function ContactLedgerView({ participantId, onClose }: { participantId: string; onClose?: () => void }) {
   const { openModal, showToast } = useUI();
   const [contact, setContact] = useState<LendingParticipantView | null | undefined>(undefined);
@@ -36,7 +59,6 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   // Display order for the history list. Deliberately local state and nothing
   // more: it is never sent to the server and never reaches allocation.
   const [sort, setSort] = useState<LoanSort>(DEFAULT_LOAN_SORT);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDetails, setEditingDetails] = useState(false);
   // v2.0 contact tabs: Overview / Transactions / Reports / Activity log.
   const [tab, setTab] = useState<"overview" | "transactions" | "reports" | "activity">("overview");
@@ -59,7 +81,6 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
   useEffect(() => {
     setContact(undefined);
     setEntries(undefined);
-    setEditingId(null);
     setEditingDetails(false);
     setVisibleCount(TIMELINE_PAGE_SIZE);
     setTab("overview");
@@ -124,22 +145,6 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
         }
       />
     );
-  }
-
-  if (editingId) {
-    const entry = entries.find((e) => e.id === editingId);
-    if (entry) {
-      return (
-        <EditEntryForm
-          entry={entry}
-          onDone={() => {
-            setEditingId(null);
-            void load();
-          }}
-          onCancel={() => setEditingId(null)}
-        />
-      );
-    }
   }
 
   const name = contact?.name ?? entries[0]?.participantName ?? "Contact";
@@ -280,9 +285,6 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
           visibleCount={visibleCount}
           setVisibleCount={setVisibleCount}
           contactName={name}
-          onEdit={setEditingId}
-          onDeleted={(id) => setEntries((es) => es?.filter((x) => x.id !== id))}
-          onRestored={() => void load()}
           onQuickAdd={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GAVE" })}
           net={net}
         />
@@ -308,9 +310,6 @@ function TransactionsTab({
   visibleCount,
   setVisibleCount,
   contactName,
-  onEdit,
-  onDeleted,
-  onRestored,
   onQuickAdd,
   net,
 }: {
@@ -325,9 +324,6 @@ function TransactionsTab({
   visibleCount: number;
   setVisibleCount: (fn: (c: number) => number) => void;
   contactName: string;
-  onEdit: (id: string) => void;
-  onDeleted: (id: string) => void;
-  onRestored: () => void;
   onQuickAdd: () => void;
 }) {
   if (entries.length === 0) {
@@ -395,14 +391,11 @@ function TransactionsTab({
           that the actions drop to the row's second line and the header's
           spacer goes with them. */}
       {filtered.length > 0 && (
-        <div className="flex items-end gap-2 px-[11px] pb-1.5 border-b border-line2 text-[9px] sm:text-[10px] font-bold uppercase tracking-[.05em] text-mut2">
-          <div className="flex-1 flex items-end gap-1 sm:gap-2 min-w-0">
-            <span className="w-[78px] sm:w-[92px] flex-none">Date · added</span>
-            <span className="flex-1 min-w-0">Notes</span>
-            <span className="w-[64px] sm:w-[92px] flex-none text-right text-red">You gave</span>
-            <span className="w-[64px] sm:w-[92px] flex-none text-right text-green">You got</span>
-          </div>
-          <span className="hidden min-[430px]:block w-[90px] sm:w-[95px] flex-none text-center">Actions</span>
+        <div className={`flex items-end ${GUTTER} ${HEADER_PAD} pb-1.5 border-b border-line2 text-[9px] sm:text-[10px] font-bold uppercase tracking-[.05em] text-mut2`}>
+          <span className={COL_DATE}>Date · added</span>
+          <span className={COL_NOTES}>Notes</span>
+          <span className={`${COL_AMOUNT} text-right text-red pl-1 sm:pl-1.5`}>You gave</span>
+          <span className={`${COL_AMOUNT} text-right text-green pl-1 sm:pl-1.5`}>You got</span>
         </div>
       )}
       {filtered.length === 0 && <div className="text-[12.5px] text-mut2 py-4 text-center">No transactions match “{search}”.</div>}
@@ -410,14 +403,7 @@ function TransactionsTab({
         <div key={g.label}>
           {g.label && <div className="text-[11px] font-bold text-mut2 tracking-[.06em] mt-3 mb-1 uppercase first:mt-0">{g.label}</div>}
           {g.items.map((e) => (
-            <EntryRow
-              key={e.id}
-              entry={e}
-              balanceAfter={balanceAfterById.get(e.id) ?? 0}
-              onEdit={() => onEdit(e.id)}
-              onDeleted={() => onDeleted(e.id)}
-              onRestored={onRestored}
-            />
+            <EntryRow key={e.id} entry={e} balanceAfter={balanceAfterById.get(e.id) ?? 0} />
           ))}
         </div>
       ))}
@@ -600,137 +586,72 @@ function ContactLedgerSkeleton() {
   );
 }
 
-function EntryRow({
-  entry,
-  balanceAfter,
-  onEdit,
-  onDeleted,
-  onRestored,
-}: {
-  entry: LoanEntryRow;
-  balanceAfter: number;
-  onEdit: () => void;
-  onDeleted: () => void;
-  onRestored: () => void;
-}) {
-  const { enqueueMutation, cancelPending } = useOffline();
-  const { showToast, openModal } = useUI();
-  const [busy, setBusy] = useState(false);
+function EntryRow({ entry, balanceAfter }: { entry: LoanEntryRow; balanceAfter: number }) {
+  const { openModal } = useUI();
   const gave = entry.kind === "GAVE";
-
-  async function handleDelete() {
-    setBusy(true);
-    const res = await enqueueMutation(
-      "loan.delete",
-      entry.id,
-      { amount: String(entry.amount / 100), kind: entry.kind, participantName: entry.participantName },
-      entry.version
-    );
-    setBusy(false);
-    if (!res.ok) {
-      showToast(res.error);
-      return;
-    }
-    onDeleted();
-    const intentId = res.intentId;
-    showToast("Entry deleted", async () => {
-      const restoredLocally = intentId ? await cancelPending(intentId) : null;
-      if (restoredLocally) {
-        showToast("Restored");
-        onRestored();
-        return;
-      }
-      const undo = await undoDeleteLoanEntryAction(entry.id);
-      showToast(undo.ok ? "Restored" : "Could not restore");
-      onRestored();
-    });
-  }
 
   const notes = entryNotes(entry);
   const cols = amountColumns(entry);
   const balance = compactBalanceLabel(balanceAfter);
 
-  // Three flex children, reordered by breakpoint so one DOM structure serves
-  // both layouts. From sm up: [ledger line][actions] on one row, meta beneath.
-  // Below sm the ledger line takes a full row of its own and meta + actions
-  // share the next, which keeps the four columns intact on a 360px screen
-  // without duplicating the buttons into a second, mobile-only block.
+  // A ledger row is a fixed template, not a box that grows to fit. Two slots
+  // of declared height, in the same order on every card:
+  //
+  //   1. the ledger line   — date over time | note | You Gave | You Got
+  //   2. the balance strip
+  //
+  // Height comes from those declarations alone. A missing note or a note far
+  // too long for the column resolves inside its slot — it truncates — so every
+  // card measures the same and the eye can run down the amount columns without
+  // the rhythm breaking. No negative margins, no absolute positioning: the
+  // slots simply stack.
+  //
+  // Where the money sat — "via HDFC Savings", "Untracked / cash" — used to
+  // occupy a slot of its own here. It is metadata for one transaction, not
+  // something you scan a list by, so it now lives only in the detail sheet
+  // this row opens, which shows it as the Funding Source alongside the note,
+  // the balance and the actions. Nothing about the data changed: entryNotes
+  // still derives it, and LoanDetail still renders it.
   return (
     <div className="rounded-[10px] border border-line bg-card mb-1.5 overflow-hidden">
-      <div className="flex flex-wrap items-stretch gap-x-2 gap-y-0.5 px-2.5 py-2">
-      {/* DATE & TIME | NOTES | YOU GAVE | YOU GOT — one button, so anywhere on
-          the ledger line opens the transaction. The account link and the two
-          actions are siblings of it, never nested inside, so no two click
-          targets can overlap. */}
+      {/* slot 1 — the ledger line */}
       <button
         onClick={() => openModal("loanDetail", { loanEntryId: entry.id })}
         aria-label={`View details for ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-        className="order-1 basis-full min-[430px]:basis-0 min-[430px]:flex-1 flex items-start gap-1 sm:gap-2 min-w-0 min-h-[44px] py-1 text-left bg-transparent border-none cursor-pointer px-0 rounded-lg hover:bg-accsoft"
+        className={`w-full h-[46px] ${CARD_PAD} flex items-center ${GUTTER} min-w-0 text-left bg-transparent border-none cursor-pointer hover:bg-accsoft`}
       >
         {/* The date the money moved, over the time it was RECORDED — occurredAt
             carries no time of day, so the clock reading can only ever be
             createdAt. The column header says "added" for the same reason. */}
-        <span className="w-[78px] sm:w-[92px] flex-none leading-tight">
+        <span className={`${COL_DATE} leading-tight`}>
           <span className="block text-[12px] sm:text-[12.5px] font-bold text-ink whitespace-nowrap">{entryDate(entry.ymd)}</span>
-          <span className="block text-[10.5px] text-mut2 tabular-nums">{recordedAtTime(entry.createdAt)}</span>
+          <span className="block text-[10.5px] text-mut2 tabular-nums whitespace-nowrap">{recordedAtTime(entry.createdAt)}</span>
         </span>
-        <span className="flex-1 min-w-0 leading-tight">
-          <span className={`block text-[12px] truncate ${notes.note ? "font-semibold text-ink" : "text-mut2 italic"}`}>{notes.noteLabel}</span>
-          {!notes.linksToAccount && <span className="block text-[10.5px] text-mut2 truncate">{notes.source}</span>}
+        {/* One line, truncated. A long note must not push the card taller. */}
+        <span className={`${COL_NOTES} block text-[12px] truncate ${notes.note ? "font-semibold text-ink" : "text-mut2 italic"}`}>
+          {notes.noteLabel}
         </span>
         {/* Two columns, never one. An em dash holds the empty side so the eye
             can run straight down either column without re-reading a label. */}
         <span
-          className="w-[64px] sm:w-[92px] flex-none self-stretch flex items-center justify-end border-l border-line pl-2 text-[13.5px] font-extrabold tabular-nums"
+          className={`${COL_AMOUNT} self-stretch flex items-center justify-end border-l border-line pl-1 sm:pl-1.5 text-[11.5px] sm:text-[13.5px] font-extrabold tabular-nums`}
           style={{ color: cols.gave ? "var(--red)" : "var(--mut2)" }}
         >
           {cols.gave ?? "—"}
         </span>
         <span
-          className="w-[64px] sm:w-[92px] flex-none self-stretch flex items-center justify-end border-l border-line pl-2 text-[13.5px] font-extrabold tabular-nums"
+          className={`${COL_AMOUNT} self-stretch flex items-center justify-end border-l border-line pl-1 sm:pl-1.5 text-[11.5px] sm:text-[13.5px] font-extrabold tabular-nums`}
           style={{ color: cols.got ? "var(--green)" : "var(--mut2)" }}
         >
           {cols.got ?? "—"}
         </span>
       </button>
 
-      <div className="order-3 min-[430px]:order-2 flex-none flex items-center gap-0.5 sm:border-l sm:border-line sm:pl-1">
-        <button
-          onClick={onEdit}
-          aria-label={`Edit ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-          className="w-11 h-11 rounded-md grid place-items-center text-mut2 bg-transparent border-none cursor-pointer hover:bg-accsoft flex-none"
-        >
-          ✏️
-        </button>
-        <button
-          onClick={handleDelete}
-          disabled={busy}
-          aria-label={`Delete ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-          className="w-11 h-11 rounded-md grid place-items-center text-mut2 bg-transparent border-none cursor-pointer hover:text-red hover:bg-redsoft flex-none disabled:opacity-50"
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* The funding source sits under the Notes column, level with the time —
-          a real anchor, and a sibling of the loan-detail button rather than a
-          child of it, so the two targets can never overlap. */}
-      <div className="order-2 min-[430px]:order-3 flex-1 min-[430px]:basis-full min-w-0 flex items-center min-[430px]:pl-[82px] sm:pl-[100px]">
-        {notes.linksToAccount && (
-          <Link
-            href="/accounts"
-            aria-label={`Open the account this entry was funded from: ${entry.accountName}`}
-            className="inline-flex items-center gap-1 min-w-0 max-w-full min-h-[44px] px-2 -ml-2 rounded-lg text-[11px] font-semibold text-mut2 no-underline hover:text-acc hover:bg-accsoft"
-          >
-            <span className="truncate">{notes.source}</span>
-            <span aria-hidden className="flex-none">↗</span>
-          </Link>
-        )}
-      </div>
-      </div>
-      {/* The running balance gets its own ruled strip at the foot of the card,
-          secondary to the ledger line rather than competing with it. */}
-      <div className="border-t border-line px-2.5 py-1.5 text-[11.5px] font-semibold tabular-nums" style={{ color: balance.color }}>
+      {/* slot 3 — the running balance, ruled off and secondary */}
+      <div
+        className={`h-[30px] border-t border-line ${CARD_PAD} flex items-center text-[11.5px] font-semibold tabular-nums`}
+        style={{ color: balance.color }}
+      >
         Balance: {balance.text}
       </div>
     </div>
