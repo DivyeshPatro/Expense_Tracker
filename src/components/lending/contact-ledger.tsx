@@ -12,7 +12,8 @@ import Link from "next/link";
 import { contactActivityAction, lendingDashboardAction, listLoanEntriesAction, undoDeleteLoanEntryAction, updateParticipantDetailsAction } from "@/app/actions";
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import type { TimelineEvent } from "@/lib/activity";
-import { balanceAfterLabel, computeContactSummary, type ContactSummary } from "@/lib/lending";
+import { computeContactSummary, type ContactSummary } from "@/lib/lending";
+import { amountColumns, compactBalanceLabel, entryNotes } from "@/lib/lending-row";
 import { formatPaise } from "@/lib/money";
 import { AccountOptions } from "@/components/shell/account-options";
 import { DateField } from "@/components/shell/date-field";
@@ -365,7 +366,7 @@ function TransactionsTab({
           row of its own; from sm up all three sit on one line as before. */}
       <div className="flex flex-wrap gap-1.5 mb-1">
         <input
-          className="field basis-full sm:basis-auto sm:flex-1 min-w-0"
+          className="field basis-full sm:basis-0 sm:flex-1 min-w-0"
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -385,6 +386,21 @@ function TransactionsTab({
         </select>
         <ShareExportMenu entries={entries} balanceAfterById={balanceAfterById} contactName={contactName} participantId={participantId} />
       </div>
+      {/* Column header. The widths here mirror EntryRow's ledger line exactly,
+          including the 88px actions block that only exists from sm up — below
+          that the actions drop to the row's second line and the header's
+          spacer goes with them. */}
+      {filtered.length > 0 && (
+        <div className="flex items-end gap-2 pb-1 border-b border-line2 text-[9px] sm:text-[10px] font-bold uppercase tracking-[.05em] text-mut2">
+          <div className="flex-1 flex items-end gap-2 min-w-0">
+            <span className="w-[78px] sm:w-[92px] flex-none">Date · added</span>
+            <span className="flex-1 min-w-0">Notes</span>
+            <span className="w-[64px] sm:w-[92px] flex-none text-right text-red">You gave</span>
+            <span className="w-[64px] sm:w-[92px] flex-none text-right text-green">You got</span>
+          </div>
+          <span className="hidden sm:block w-[88px] flex-none text-right">Actions</span>
+        </div>
+      )}
       {filtered.length === 0 && <div className="text-[12.5px] text-mut2 py-4 text-center">No transactions match “{search}”.</div>}
       {groups.map((g) => (
         <div key={g.label}>
@@ -393,7 +409,6 @@ function TransactionsTab({
             <EntryRow
               key={e.id}
               entry={e}
-              contactName={contactName}
               balanceAfter={balanceAfterById.get(e.id) ?? 0}
               onEdit={() => onEdit(e.id)}
               onDeleted={() => onDeleted(e.id)}
@@ -552,14 +567,12 @@ function ContactLedgerSkeleton() {
 
 function EntryRow({
   entry,
-  contactName,
   balanceAfter,
   onEdit,
   onDeleted,
   onRestored,
 }: {
   entry: LoanEntryRow;
-  contactName: string;
   balanceAfter: number;
   onEdit: () => void;
   onDeleted: () => void;
@@ -569,7 +582,6 @@ function EntryRow({
   const { showToast, openModal } = useUI();
   const [busy, setBusy] = useState(false);
   const gave = entry.kind === "GAVE";
-  const directionColor = gave ? "var(--acc)" : "var(--green)";
 
   async function handleDelete() {
     setBusy(true);
@@ -599,82 +611,90 @@ function EntryRow({
     });
   }
 
+  const notes = entryNotes(entry);
+  const cols = amountColumns(entry);
+  const balance = compactBalanceLabel(balanceAfter);
+
+  // Three flex children, reordered by breakpoint so one DOM structure serves
+  // both layouts. From sm up: [ledger line][actions] on one row, meta beneath.
+  // Below sm the ledger line takes a full row of its own and meta + actions
+  // share the next, which keeps the four columns intact on a 360px screen
+  // without duplicating the buttons into a second, mobile-only block.
   return (
-    <div className="flex items-center gap-2.5 py-[9px] border-b border-line last:border-b-0">
-      {/* The funding-source link used to sit inline on the row's second line,
-          INSIDE the loan-detail button. Nesting it there put a second target
-          across the primary one — and once the balance line made the row three
-          lines tall, the row's geometric centre landed on the link, so tapping
-          the middle of a transaction navigated to /accounts instead of opening
-          it. The link now lives on its own line below the button: separate
-          targets, no overlap, and a real 44px-tall control instead of a 14px
-          strip of text. */}
-      <div className="flex-1 min-w-0">
-        <button
-          onClick={() => openModal("loanDetail", { loanEntryId: entry.id })}
-          aria-label={`View details for ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-          className="flex items-center gap-2.5 w-full min-w-0 text-left bg-transparent border-none cursor-pointer p-0 rounded-lg hover:bg-accsoft"
+    <div className="flex flex-wrap items-start gap-x-2 gap-y-0.5 py-2 border-b border-line last:border-b-0">
+      {/* DATE & TIME | NOTES | YOU GAVE | YOU GOT — one button, so anywhere on
+          the ledger line opens the transaction. The account link and the two
+          actions are siblings of it, never nested inside, so no two click
+          targets can overlap. */}
+      <button
+        onClick={() => openModal("loanDetail", { loanEntryId: entry.id })}
+        aria-label={`View details for ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
+        className="order-1 basis-full sm:basis-auto sm:flex-1 flex items-start gap-2 min-w-0 min-h-[44px] py-1.5 text-left bg-transparent border-none cursor-pointer px-0 rounded-lg hover:bg-accsoft"
+      >
+        {/* The date the money moved, over the time it was RECORDED — occurredAt
+            carries no time of day, so the clock reading can only ever be
+            createdAt. The column header says "added" for the same reason. */}
+        <span className="w-[78px] sm:w-[92px] flex-none leading-tight">
+          <span className="block text-[12px] sm:text-[12.5px] font-bold text-ink whitespace-nowrap">{entryDate(entry.ymd)}</span>
+          <span className="block text-[10.5px] text-mut2 tabular-nums">{recordedAtTime(entry.createdAt)}</span>
+        </span>
+        <span className="flex-1 min-w-0 leading-tight">
+          <span className={`block text-[12px] truncate ${notes.note ? "font-semibold text-ink" : "text-mut2 italic"}`}>{notes.noteLabel}</span>
+          {!notes.linksToAccount && <span className="block text-[10.5px] text-mut2 truncate">{notes.source}</span>}
+        </span>
+        {/* Two columns, never one. An em dash holds the empty side so the eye
+            can run straight down either column without re-reading a label. */}
+        <span
+          className="w-[64px] sm:w-[92px] flex-none text-right text-[13.5px] font-extrabold tabular-nums"
+          style={{ color: cols.gave ? "var(--red)" : "var(--mut2)" }}
         >
-          <span className="w-9 h-9 rounded-[10px] grid place-items-center text-[14px] flex-none" style={{ background: gave ? "var(--accSoft)" : "var(--greenSoft)" }}>
-            {gave ? "💸" : "💰"}
-          </span>
-          <div className="flex-1 min-w-0">
-            {/* Date leads the row: it is the thing being scanned for. The time is
-                when the entry was RECORDED — occurredAt carries no time of day —
-                so it says "added" rather than implying the money moved then. */}
-            <div className="text-[13px] font-bold text-ink truncate">
-              {entryDate(entry.ymd)}
-              <span className="text-[11px] font-medium text-mut2"> · added {recordedAtTime(entry.createdAt)}</span>
-            </div>
-            {(entry.reason || !entry.accountName) && (
-              <div className="text-[11px] text-mut2 truncate">
-                {entry.reason ? <span className="text-ink font-semibold">{entry.reason}</span> : null}
-                {entry.reason && !entry.accountName ? " · " : null}
-                {entry.accountName ? null : "Untracked / cash"}
-              </div>
-            )}
-            <div className="text-[11px] truncate" style={{ color: balanceAfterLabel(balanceAfter, contactName).color }}>
-              Balance: {balanceAfterLabel(balanceAfter, contactName).text}
-            </div>
-          </div>
+          {cols.gave ?? "—"}
+        </span>
+        <span
+          className="w-[64px] sm:w-[92px] flex-none text-right text-[13.5px] font-extrabold tabular-nums"
+          style={{ color: cols.got ? "var(--green)" : "var(--mut2)" }}
+        >
+          {cols.got ?? "—"}
+        </span>
+      </button>
+
+      <div className="order-3 sm:order-2 flex-none flex gap-0.5 -mr-1.5">
+        <button
+          onClick={onEdit}
+          aria-label={`Edit ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
+          className="w-11 h-11 rounded-md grid place-items-center text-mut2 bg-transparent border-none cursor-pointer hover:bg-accsoft flex-none"
+        >
+          ✏️
         </button>
-        {entry.accountName && (
-          // Phase 2.5 cross-navigation: the funding source opens the Accounts
-          // page instead of being dead text. A real anchor now — outside the
-          // loan-detail button, so it needs no stopPropagation and keyboard
-          // users get a link rather than a div pretending to be one.
+        <button
+          onClick={handleDelete}
+          disabled={busy}
+          aria-label={`Delete ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
+          className="w-11 h-11 rounded-md grid place-items-center text-mut2 bg-transparent border-none cursor-pointer hover:text-red hover:bg-redsoft flex-none disabled:opacity-50"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Funding source and running balance: the row's supporting line. Indented
+          to the Notes column on desktop so the account reads as part of it. */}
+      <div className="order-2 sm:order-3 flex-1 sm:basis-full min-w-0 flex items-center gap-2 sm:pl-[100px]">
+        {notes.linksToAccount && (
+          // Phase 2.5 cross-navigation: a real anchor, outside the loan-detail
+          // button, so it needs no stopPropagation and keyboard users get a
+          // link rather than a div pretending to be one.
           <Link
             href="/accounts"
             aria-label={`Open the account this entry was funded from: ${entry.accountName}`}
-            className="inline-flex items-center gap-1 max-w-full min-h-[44px] px-2 ml-[38px] rounded-lg text-[11px] font-semibold text-mut2 no-underline hover:text-acc hover:bg-accsoft"
+            className="inline-flex items-center gap-1 min-w-0 max-w-full min-h-[44px] px-2 -ml-2 rounded-lg text-[11px] font-semibold text-mut2 no-underline hover:text-acc hover:bg-accsoft"
           >
-            <span className="truncate">via {entry.accountName}</span>
+            <span className="truncate">{notes.source}</span>
             <span aria-hidden className="flex-none">↗</span>
           </Link>
         )}
-      </div>
-      <div className="flex flex-col items-end gap-1.5 flex-none">
-        <div className="text-right leading-tight">
-          <div className="text-[10px] font-bold uppercase tracking-[.04em]" style={{ color: directionColor }}>{gave ? "You Gave" : "You Got"}</div>
-          <div className="text-[15px] font-extrabold tabular-nums" style={{ color: directionColor }}>{formatPaise(entry.amount)}</div>
-        </div>
-        <div className="flex gap-0.5 -mr-1.5">
-          <button
-            onClick={onEdit}
-            aria-label={`Edit ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-            className="w-11 h-11 rounded-md grid place-items-center text-mut2 bg-transparent border-none cursor-pointer hover:bg-accsoft flex-none"
-          >
-            ✏️
-          </button>
-          <button
-            onClick={handleDelete}
-            disabled={busy}
-            aria-label={`Delete ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-            className="w-11 h-11 rounded-md grid place-items-center text-mut2 bg-transparent border-none cursor-pointer hover:text-red hover:bg-redsoft flex-none disabled:opacity-50"
-          >
-            ✕
-          </button>
-        </div>
+        <span className="ml-auto flex-none text-[11px] font-semibold tabular-nums" style={{ color: balance.color }}>
+          Balance: {balance.text}
+        </span>
       </div>
     </div>
   );
