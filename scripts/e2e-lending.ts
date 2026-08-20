@@ -110,13 +110,26 @@ async function main() {
     ok("desktop sidebar has a Lending link", await page.getByRole("link", { name: /Lending/ }).isVisible());
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload({ waitUntil: "load" });
-    const mobileNav = page.locator("nav").filter({ has: page.getByText("Home") });
+    // The tab bar's first slot is labelled "Dashboard" now (#201 collapsed the
+    // shell's parallel catalogue into NAV_ITEMS) — anchoring on "Home" matched
+    // no nav at all, so this check could only ever report false.
+    const mobileNav = page.locator("nav").filter({ has: page.getByRole("button", { name: "More sections" }) });
     ok("mobile bottom nav has a genuine 6th Lending slot (not tucked in More)", await mobileNav.getByText("Lending", { exact: true }).isVisible());
     await page.setViewportSize({ width: 1280, height: 900 });
 
     // ══════════════ 3. Add "You Gave" via the UI, offline-outbox create ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
-    ok("Lending dashboard shows the three summary cards", await page.getByText("YOU ARE OWED", { exact: true }).isVisible());
+    // #187 rebuilt the three figures as a ModuleHero: the same three numbers in
+    // plain language ("You'll get" / "You'll pay" / "Net") instead of the old
+    // YOU ARE OWED / YOU OWE / NET LENDING caps. The two secondary labels
+    // render with CSS text-transform: uppercase, so they are compared
+    // case-insensitively (the pattern this script already uses below). The hero
+    // is server-rendered, so anchor on it first — a fast `load` event can be
+    // observed before the RSC payload has painted.
+    await page.getByText(/you'll get/i).first().waitFor({ timeout: 20000 });
+    const heroBody = (await page.locator("main, body").first().innerText()).toUpperCase();
+    const heroLabels = ["You'll get", "You'll pay", "Net"];
+    ok("Lending dashboard shows the three summary cards", heroLabels.every((l) => heroBody.includes(l.toUpperCase())), heroLabels.join(" / "));
     await openLendingEntry(page, "GAVE");
     ok("Lending entry form has no native date input", (await modal(page).locator('input[type="date"]').count()) === 0);
     await page.fill('input[placeholder="0"]', "2000");
@@ -348,7 +361,13 @@ async function main() {
         "First Transaction",
       ].every((label) => summaryBody.includes(label.toUpperCase()))
     );
-    ok("entries are grouped under a date header (Today)", /\bTODAY\b/.test(summaryBody));
+    // The timeline moved off Overview and into the Transactions tab, where it
+    // groups by month rather than by day. Grouping is what this check is about,
+    // so it follows the list; matching "TODAY" in the Overview body was in fact
+    // matching the summary card's "Last Transaction · Today", not a header.
+    await openTransactionsTab(page);
+    const monthHeadings = await (await contactPane(page)).getByText(/^[a-z]{3} \d{4}$/i).count();
+    ok("entries are grouped under a date header (month)", monthHeadings > 0, `${monthHeadings} headings`);
 
     // ══════════════ 14. Desktop two-pane: selecting a contact does NOT open a modal ══════════════
     ok(

@@ -141,7 +141,8 @@ async function main() {
     ok("Loan Detail shows the settlement history entry (the repayment that covered it)", oldDetailBody.includes(`E2EFifoRepay-${suffix}`) || /Repayment/.test(oldDetailBody));
     ok(
       "Loan Detail shows Original Amount / Remaining Balance / Funding Source fields",
-      ["Original Amount", "Remaining Balance", "Funding Source", "Settlement History"].every((l) => oldDetailUpper.includes(l.toUpperCase()))
+      // the repayment list is headed "Payment History" in the shipped detail sheet
+      ["Original Amount", "Remaining Balance", "Funding Source", "Payment History"].every((l) => oldDetailUpper.includes(l.toUpperCase()))
     );
     await page.keyboard.press("Escape").catch(() => {});
     await page.locator("body").click({ position: { x: 5, y: 5 } }).catch(() => {});
@@ -197,30 +198,58 @@ async function main() {
     ok("the skipped (older) loan received nothing", (await prisma.loanAllocation.count({ where: { gaveEntryId: manualA.id } })) === 0);
 
     // ══════════════ 5. Card billing: set details via UI, fund a loan from the card ══════════════
-    await page.goto(`${BASE}/accounts`, { waitUntil: "load" });
-    await page.getByRole("button", { name: "Card details", exact: true }).first().click();
-    await page.waitForSelector('input[placeholder="e.g. Visa"]');
-    await page.fill('input[placeholder="e.g. Visa"]', "Visa");
-    await page.fill('input[placeholder="4242"]', "9999");
-    const dayInputs = modal(page).locator('input[type="number"]');
-    await dayInputs.nth(0).fill("25");
-    await dayInputs.nth(1).fill("10");
-    await page.getByRole("button", { name: "Save card details", exact: true }).click();
-    await page.waitForSelector("text=Card details saved", { timeout: 10000 });
-    const updatedCard = await prisma.account.findUniqueOrThrow({ where: { id: cardAccount.id } });
-    ok("card details saved via the Accounts page UI", updatedCard.cardNetwork === "Visa" && updatedCard.cardLast4 === "9999" && updatedCard.statementDay === 25 && updatedCard.dueDay === 10);
+    // NOT a stale selector: AccountCardDetailsForm still exists and its server
+    // action still works, but nothing in the app opens it any more — the
+    // Accounts page's "Card details" trigger is gone and /cards never gained
+    // one, so the network/last4/statement-day/due-day editor is unreachable.
+    // The assertion stays as-is (this is real, shipped behaviour that
+    // regressed); it is scoped so the failure does not abort the eight card
+    // billing / recovery / offline checks that follow it.
+    let cardDetailsSavedViaUi = false;
+    try {
+      await page.goto(`${BASE}/accounts`, { waitUntil: "load" });
+      await page.getByRole("button", { name: "Card details", exact: true }).first().click({ timeout: 8000 });
+      await page.waitForSelector('input[placeholder="e.g. Visa"]');
+      await page.fill('input[placeholder="e.g. Visa"]', "Visa");
+      await page.fill('input[placeholder="4242"]', "9999");
+      const dayInputs = modal(page).locator('input[type="number"]');
+      await dayInputs.nth(0).fill("25");
+      await dayInputs.nth(1).fill("10");
+      await page.getByRole("button", { name: "Save card details", exact: true }).click();
+      await page.waitForSelector("text=Card details saved", { timeout: 10000 });
+      const updatedCard = await prisma.account.findUniqueOrThrow({ where: { id: cardAccount.id } });
+      cardDetailsSavedViaUi =
+        updatedCard.cardNetwork === "Visa" && updatedCard.cardLast4 === "9999" && updatedCard.statementDay === 25 && updatedCard.dueDay === 10;
+    } catch (e) {
+      cardDetailsSavedViaUi = false;
+      console.log("   (card-details UI unreachable: " + String(e).slice(0, 120) + ")");
+    }
+    ok("card details saved via the Accounts page UI", cardDetailsSavedViaUi);
+    // the billing-cycle checks below are about Card Recovery, not about how the
+    // card got its details — give them the data the UI could not.
+    await prisma.account.update({ where: { id: cardAccount.id }, data: { cardNetwork: "Visa", cardLast4: "9999", statementDay: 25, dueDay: 10 } });
 
     const cardLoan = await seed({
       userId: alice.id, participantId: rohan.id, kind: "GAVE", amount: 75000, accountId: cardAccount.id,
       occurredAt: new Date("2026-07-05T12:00:00+05:30"), reason: `E2ECardLoan-${suffix}`,
     });
 
-    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.reload({ waitUntil: "load" });
-    await page.getByRole("button", { name: "Card Recovery", exact: true }).click();
-    await page.waitForTimeout(600);
-    const recoveryBody = await page.locator("body").innerText();
+    // NOT a stale selector either: lending-tabs.tsx retired Card Recovery as a
+    // user-facing tab in the v2.0 UX polish, so the dashboard these three
+    // checks describe no longer exists anywhere in the app. The assertions are
+    // left standing — deleting them is a product call, not a test-maintenance
+    // one — but scoped so the retired feature does not abort §7–§9 behind it.
+    let recoveryBody = "";
+    try {
+      await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.reload({ waitUntil: "load" });
+      await page.getByRole("button", { name: "Card Recovery", exact: true }).click({ timeout: 8000 });
+      await page.waitForTimeout(600);
+      recoveryBody = await page.locator("body").innerText();
+    } catch (e) {
+      console.log("   (Card Recovery tab retired: " + String(e).slice(0, 110) + ")");
+    }
     ok("Card Recovery Dashboard surfaces the card-funded loan's contact", recoveryBody.includes("Rohan"));
     ok("Card Recovery Dashboard shows a 'Recover before' guidance line", /Recover before|Overdue since|Due today/.test(recoveryBody));
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -230,15 +259,22 @@ async function main() {
     // are md:hidden — mobile-only), so no tab click is needed here; scope
     // the "Rohan" click to the Affected Loans list specifically, since the
     // name also appears elsewhere on this now fully-stacked desktop page
-    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
-    await page.waitForSelector("text=Affected loans", { timeout: 10000 });
-    const affectedLoansSection = page.getByText("Affected loans", { exact: true }).locator("xpath=..");
-    await affectedLoansSection.getByText("Rohan", { exact: true }).click();
-    await page.waitForSelector("text=+ You Gave", { timeout: 10000 });
-    // the drill-down always calls openModal("lendingContact", ...) directly
-    // (it doesn't go through LendingWorkspace's own desktop/mobile
-    // selection path), so it's always a modal regardless of viewport
-    ok("drilling into a Card Recovery row opens Rohan's contact ledger", (await modal(page).count()) === 1);
+    // Same retired feature as §5 — the "Affected loans" list went with the tab.
+    let recoveryDrillDownOpensLedger = false;
+    try {
+      await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+      await page.waitForSelector("text=Affected loans", { timeout: 8000 });
+      const affectedLoansSection = page.getByText("Affected loans", { exact: true }).locator("xpath=..");
+      await affectedLoansSection.getByText("Rohan", { exact: true }).click();
+      await page.waitForSelector("text=+ You gave", { timeout: 10000 });
+      // the drill-down always calls openModal("lendingContact", ...) directly
+      // (it doesn't go through LendingWorkspace's own desktop/mobile
+      // selection path), so it's always a modal regardless of viewport
+      recoveryDrillDownOpensLedger = (await modal(page).count()) === 1;
+    } catch (e) {
+      console.log("   (Affected loans list retired with the tab: " + String(e).slice(0, 110) + ")");
+    }
+    ok("drilling into a Card Recovery row opens Rohan's contact ledger", recoveryDrillDownOpensLedger);
     await page.locator("body").press("Escape").catch(() => {});
 
     // ══════════════ 7. Loan Detail for the card-funded loan shows funding source + due-date guidance ══════════════
@@ -282,7 +318,9 @@ async function main() {
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await page.waitForSelector("text=Top borrowers", { timeout: 10000 });
     const reportsBody = await page.locator("body").innerText();
-    ok("Reports tab shows the receivable/payable/recovery-rate stat cards", ["RECEIVABLE", "PAYABLE", "RECOVERY RATE"].every((l) => reportsBody.includes(l)));
+    // the third card is the same recoveryRatePercent figure, relabelled in
+    // plain language ("RECEIVED SO FAR") — value and meaning unchanged
+    ok("Reports tab shows the receivable/payable/recovery-rate stat cards", ["RECEIVABLE", "PAYABLE", "RECEIVED SO FAR"].every((l) => reportsBody.includes(l)));
     ok("Reports tab's Top Borrowers includes a contact with an outstanding balance", /Top borrowers/i.test(reportsBody));
   } catch (e) {
     ok("script error", false, String(e).slice(0, 900));
