@@ -32,8 +32,9 @@ function useAction() {
   return { busy, run };
 }
 
-export function AccountCardActions({ id, name, hasHistory }: { id: string; name: string; hasHistory: boolean }) {
+export function AccountCardActions({ id, name, hasHistory, isCard }: { id: string; name: string; hasHistory: boolean; isCard: boolean }) {
   const { busy, run } = useAction();
+  const { openModal } = useUI();
   const [mode, setMode] = useState<"idle" | "rename" | "confirm">("idle");
   const [draft, setDraft] = useState(name);
 
@@ -106,6 +107,25 @@ export function AccountCardActions({ id, name, hasHistory }: { id: string; name:
         >
           Rename
         </button>
+        {/* #209 folded the row's three equal-weight buttons into this menu but
+            only carried Rename and Archive across, so the network / last-4 /
+            statement-day / due-day editor lost its only trigger: those fields
+            could be set when the account was created and never corrected
+            afterwards. The form, action and validation were all still here —
+            this is the button that went missing. It matters beyond tidiness,
+            because lending's card reminders only fire for an account that has
+            both a statement day and a due day. */}
+        {isCard && (
+          <button
+            onClick={(e) => {
+              (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+              openModal("accountCardDetails", { accountId: id });
+            }}
+            className="text-left px-3 min-h-[44px] rounded-lg text-[13px] font-semibold text-ink bg-transparent border-none cursor-pointer hover:bg-accsoft"
+          >
+            Card details
+          </button>
+        )}
         <button
           onClick={() => setMode("confirm")}
           className="text-left px-3 min-h-[44px] rounded-lg text-[13px] font-semibold text-red bg-transparent border-none cursor-pointer hover:bg-redsoft"

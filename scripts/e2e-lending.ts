@@ -110,11 +110,22 @@ async function main() {
     ok("desktop sidebar has a Lending link", await page.getByRole("link", { name: /Lending/ }).isVisible());
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload({ waitUntil: "load" });
-    // The tab bar's first slot is labelled "Dashboard" now (#201 collapsed the
-    // shell's parallel catalogue into NAV_ITEMS) — anchoring on "Home" matched
-    // no nav at all, so this check could only ever report false.
+    // What matters is that Lending is REACHABLE on a phone, not which slot
+    // holds it. #202 tiers Lending "weekly" and #207 made People the daily
+    // answer to "what does this person owe me", so with the default six tabs
+    // (five plus More) Lending sits in the More sheet by design — and a user
+    // can pin it into the bar from Settings → Navigation. Asserting a fixed
+    // slot tested a layout decision the product had already moved past.
     const mobileNav = page.locator("nav").filter({ has: page.getByRole("button", { name: "More sections" }) });
-    ok("mobile bottom nav has a genuine 6th Lending slot (not tucked in More)", await mobileNav.getByText("Lending", { exact: true }).isVisible());
+    const inBar = await mobileNav.getByText("Lending", { exact: true }).isVisible().catch(() => false);
+    if (!inBar) await mobileNav.getByRole("button", { name: "More sections" }).click();
+    const lendingLink = inBar ? mobileNav.getByText("Lending", { exact: true }) : page.getByRole("link", { name: "Lending", exact: true });
+    await lendingLink.waitFor({ state: "visible", timeout: 10000 });
+    ok(`mobile navigation reaches Lending (${inBar ? "bottom-bar slot" : "More sheet"})`, await lendingLink.isVisible());
+    // and it actually goes there, rather than merely being listed
+    await lendingLink.click();
+    await page.waitForURL("**/lending**", { timeout: 15000 });
+    ok("tapping it opens Lending", page.url().includes("/lending"), page.url());
     await page.setViewportSize({ width: 1280, height: 900 });
 
     // ══════════════ 3. Add "You Gave" via the UI, offline-outbox create ══════════════

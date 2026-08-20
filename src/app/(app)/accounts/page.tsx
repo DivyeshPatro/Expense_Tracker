@@ -95,7 +95,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
                 {a.balance < 0 ? "−" : ""}{formatPaise(a.balance)}
               </span>
             </Link>
-            <AccountCardActions id={a.id} name={a.name} hasHistory={referenced.has(a.id)} />
+            <AccountCardActions id={a.id} name={a.name} hasHistory={referenced.has(a.id)} isCard={a.type === "CREDIT_CARD"} />
           </li>
         ))}
       </ul>
