@@ -62,3 +62,21 @@ export function entryNotes(entry: { reason?: string | null; notes?: string | nul
 export function amountColumns(entry: { kind: "GAVE" | "GOT"; amount: number }): { gave: string | null; got: string | null } {
   return entry.kind === "GAVE" ? { gave: formatPaise(entry.amount), got: null } : { gave: null, got: formatPaise(entry.amount) };
 }
+
+/**
+ * The foot of the ledger: what the rows on screen add up to.
+ *
+ * Deliberately a sum of the rows being DISPLAYED, so it agrees with what the
+ * eye can add up — narrow the list with a search and the totals follow. That
+ * makes it a different question from the contact's balance, which is computed
+ * from the full history in ContactLedgerView and is not touched here.
+ */
+export function ledgerTotals(entries: { kind: "GAVE" | "GOT"; amount: number }[]): { gave: number; got: number; count: number } {
+  let gave = 0;
+  let got = 0;
+  for (const e of entries) {
+    if (e.kind === "GAVE") gave += e.amount;
+    else got += e.amount;
+  }
+  return { gave, got, count: entries.length };
+}

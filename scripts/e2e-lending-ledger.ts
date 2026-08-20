@@ -55,13 +55,15 @@ async function openLedger(page: Page, participantId: string) {
   await page.getByLabel("Search transactions").waitFor({ state: "visible", timeout: 15000 });
 }
 
-/** The innermost element wrapping one row's ledger line — the flex row that
- *  holds the button, the actions and the supporting line. */
+/** One transaction's card: the ledger line, the funding-source link and the
+ *  balance strip. The innermost div holding the button is only the ledger
+ *  line, so step up once to take in the whole card. */
 function row(page: Page, reason: string) {
   return page
     .locator("div")
     .filter({ has: page.getByRole("button", { name: new RegExp(`View details .*${reason}`) }) })
-    .last();
+    .last()
+    .locator("xpath=..");
 }
 
 async function main() {

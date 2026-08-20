@@ -13,7 +13,7 @@ import { contactActivityAction, lendingDashboardAction, listLoanEntriesAction, u
 import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import type { TimelineEvent } from "@/lib/activity";
 import { computeContactSummary, type ContactSummary } from "@/lib/lending";
-import { amountColumns, compactBalanceLabel, entryNotes } from "@/lib/lending-row";
+import { amountColumns, compactBalanceLabel, entryNotes, ledgerTotals } from "@/lib/lending-row";
 import { formatPaise } from "@/lib/money";
 import { AccountOptions } from "@/components/shell/account-options";
 import { DateField } from "@/components/shell/date-field";
@@ -284,6 +284,7 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
           onDeleted={(id) => setEntries((es) => es?.filter((x) => x.id !== id))}
           onRestored={() => void load()}
           onQuickAdd={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GAVE" })}
+          net={net}
         />
       )}
 
@@ -311,9 +312,11 @@ function TransactionsTab({
   onDeleted,
   onRestored,
   onQuickAdd,
+  net,
 }: {
   entries: LoanEntryRow[];
   balanceAfterById: Map<string, number>;
+  net: number;
   participantId: string;
   search: string;
   setSearch: (s: string) => void;
@@ -349,6 +352,7 @@ function TransactionsTab({
   // the running-balance column are computed from it in chronological order, and
   // FIFO allocation reads the database, not this array.
   const visible = sortLoanEntries(filtered, sort).slice(0, visibleCount);
+  const totals = ledgerTotals(filtered);
   const groups: { label: string; items: LoanEntryRow[] }[] = [];
   for (const e of visible) {
     // Month headings only while the list runs in date order — under an amount
@@ -391,14 +395,14 @@ function TransactionsTab({
           that the actions drop to the row's second line and the header's
           spacer goes with them. */}
       {filtered.length > 0 && (
-        <div className="flex items-end gap-2 pb-1 border-b border-line2 text-[9px] sm:text-[10px] font-bold uppercase tracking-[.05em] text-mut2">
-          <div className="flex-1 flex items-end gap-2 min-w-0">
+        <div className="flex items-end gap-2 px-[11px] pb-1.5 border-b border-line2 text-[9px] sm:text-[10px] font-bold uppercase tracking-[.05em] text-mut2">
+          <div className="flex-1 flex items-end gap-1 sm:gap-2 min-w-0">
             <span className="w-[78px] sm:w-[92px] flex-none">Date · added</span>
             <span className="flex-1 min-w-0">Notes</span>
             <span className="w-[64px] sm:w-[92px] flex-none text-right text-red">You gave</span>
             <span className="w-[64px] sm:w-[92px] flex-none text-right text-green">You got</span>
           </div>
-          <span className="hidden sm:block w-[88px] flex-none text-right">Actions</span>
+          <span className="hidden min-[430px]:block w-[90px] sm:w-[95px] flex-none text-center">Actions</span>
         </div>
       )}
       {filtered.length === 0 && <div className="text-[12.5px] text-mut2 py-4 text-center">No transactions match “{search}”.</div>}
@@ -417,6 +421,37 @@ function TransactionsTab({
           ))}
         </div>
       ))}
+      {/* The foot of the ledger: what the two columns add up to, then the
+          contact's actual standing. The totals sum the rows ON SCREEN, so they
+          follow the search; the net comes from ContactLedgerView's own figure
+          over the full history and is not recomputed here. When those answer
+          different questions the caption says so rather than letting the two
+          numbers look like they disagree. */}
+      {filtered.length > 0 && (
+        <div className="flex flex-col gap-2 mt-3">
+          <div className="flex gap-2">
+            <div className="flex-1 min-w-0 rounded-[10px] border px-3 py-2.5 text-center" style={{ borderColor: "var(--red)", background: "var(--redSoft)" }}>
+              <div className="text-[11px] font-semibold" style={{ color: "var(--red)" }}>You Gave</div>
+              <div className="text-[17px] font-extrabold tabular-nums truncate" style={{ color: "var(--red)" }}>{formatPaise(totals.gave)}</div>
+            </div>
+            <div className="flex-1 min-w-0 rounded-[10px] border px-3 py-2.5 text-center" style={{ borderColor: "var(--green)", background: "var(--greenSoft)" }}>
+              <div className="text-[11px] font-semibold" style={{ color: "var(--green)" }}>You Got</div>
+              <div className="text-[17px] font-extrabold tabular-nums truncate" style={{ color: "var(--green)" }}>{formatPaise(totals.got)}</div>
+            </div>
+          </div>
+          <div className="rounded-[10px] border border-line2 bg-card px-3 py-2.5 text-center text-[13px] font-semibold">
+            Net Balance:{" "}
+            <span className="font-extrabold tabular-nums" style={{ color: compactBalanceLabel(net).color }}>
+              {compactBalanceLabel(net).text}
+            </span>
+          </div>
+          <div className="text-[10.5px] text-mut2 text-center">
+            {filtered.length === entries.length
+              ? `Totals cover all ${totals.count} transaction${totals.count === 1 ? "" : "s"} with this person.`
+              : `Totals cover the ${totals.count} transaction${totals.count === 1 ? "" : "s"} shown; the net balance covers the full history.`}
+          </div>
+        </div>
+      )}
       {visible.length < filtered.length && (
         <button
           onClick={() => setVisibleCount((c) => c + TIMELINE_PAGE_SIZE)}
@@ -621,7 +656,8 @@ function EntryRow({
   // share the next, which keeps the four columns intact on a 360px screen
   // without duplicating the buttons into a second, mobile-only block.
   return (
-    <div className="flex flex-wrap items-start gap-x-2 gap-y-0.5 py-2 border-b border-line last:border-b-0">
+    <div className="rounded-[10px] border border-line bg-card mb-1.5 overflow-hidden">
+      <div className="flex flex-wrap items-stretch gap-x-2 gap-y-0.5 px-2.5 py-2">
       {/* DATE & TIME | NOTES | YOU GAVE | YOU GOT — one button, so anywhere on
           the ledger line opens the transaction. The account link and the two
           actions are siblings of it, never nested inside, so no two click
@@ -629,7 +665,7 @@ function EntryRow({
       <button
         onClick={() => openModal("loanDetail", { loanEntryId: entry.id })}
         aria-label={`View details for ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
-        className="order-1 basis-full sm:basis-auto sm:flex-1 flex items-start gap-2 min-w-0 min-h-[44px] py-1.5 text-left bg-transparent border-none cursor-pointer px-0 rounded-lg hover:bg-accsoft"
+        className="order-1 basis-full min-[430px]:basis-0 min-[430px]:flex-1 flex items-start gap-1 sm:gap-2 min-w-0 min-h-[44px] py-1 text-left bg-transparent border-none cursor-pointer px-0 rounded-lg hover:bg-accsoft"
       >
         {/* The date the money moved, over the time it was RECORDED — occurredAt
             carries no time of day, so the clock reading can only ever be
@@ -645,20 +681,20 @@ function EntryRow({
         {/* Two columns, never one. An em dash holds the empty side so the eye
             can run straight down either column without re-reading a label. */}
         <span
-          className="w-[64px] sm:w-[92px] flex-none text-right text-[13.5px] font-extrabold tabular-nums"
+          className="w-[64px] sm:w-[92px] flex-none self-stretch flex items-center justify-end border-l border-line pl-2 text-[13.5px] font-extrabold tabular-nums"
           style={{ color: cols.gave ? "var(--red)" : "var(--mut2)" }}
         >
           {cols.gave ?? "—"}
         </span>
         <span
-          className="w-[64px] sm:w-[92px] flex-none text-right text-[13.5px] font-extrabold tabular-nums"
+          className="w-[64px] sm:w-[92px] flex-none self-stretch flex items-center justify-end border-l border-line pl-2 text-[13.5px] font-extrabold tabular-nums"
           style={{ color: cols.got ? "var(--green)" : "var(--mut2)" }}
         >
           {cols.got ?? "—"}
         </span>
       </button>
 
-      <div className="order-3 sm:order-2 flex-none flex gap-0.5 -mr-1.5">
+      <div className="order-3 min-[430px]:order-2 flex-none flex items-center gap-0.5 sm:border-l sm:border-line sm:pl-1">
         <button
           onClick={onEdit}
           aria-label={`Edit ${gave ? "You Gave" : "You Got"} entry of ${formatPaise(entry.amount)}${entry.reason ? ` for ${entry.reason}` : ""}`}
@@ -676,13 +712,11 @@ function EntryRow({
         </button>
       </div>
 
-      {/* Funding source and running balance: the row's supporting line. Indented
-          to the Notes column on desktop so the account reads as part of it. */}
-      <div className="order-2 sm:order-3 flex-1 sm:basis-full min-w-0 flex items-center gap-2 sm:pl-[100px]">
+      {/* The funding source sits under the Notes column, level with the time —
+          a real anchor, and a sibling of the loan-detail button rather than a
+          child of it, so the two targets can never overlap. */}
+      <div className="order-2 min-[430px]:order-3 flex-1 min-[430px]:basis-full min-w-0 flex items-center min-[430px]:pl-[82px] sm:pl-[100px]">
         {notes.linksToAccount && (
-          // Phase 2.5 cross-navigation: a real anchor, outside the loan-detail
-          // button, so it needs no stopPropagation and keyboard users get a
-          // link rather than a div pretending to be one.
           <Link
             href="/accounts"
             aria-label={`Open the account this entry was funded from: ${entry.accountName}`}
@@ -692,9 +726,12 @@ function EntryRow({
             <span aria-hidden className="flex-none">↗</span>
           </Link>
         )}
-        <span className="ml-auto flex-none text-[11px] font-semibold tabular-nums" style={{ color: balance.color }}>
-          Balance: {balance.text}
-        </span>
+      </div>
+      </div>
+      {/* The running balance gets its own ruled strip at the foot of the card,
+          secondary to the ledger line rather than competing with it. */}
+      <div className="border-t border-line px-2.5 py-1.5 text-[11.5px] font-semibold tabular-nums" style={{ color: balance.color }}>
+        Balance: {balance.text}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountColumns, compactBalanceLabel, entryNotes } from "./lending-row";
+import { amountColumns, compactBalanceLabel, entryNotes, ledgerTotals } from "./lending-row";
 import { balanceAfterLabel } from "./lending";
 
 describe("compactBalanceLabel", () => {
@@ -117,5 +117,42 @@ describe("amountColumns", () => {
 
   it("formats in rupees, not paise", () => {
     expect(amountColumns({ kind: "GOT", amount: 1000000 }).got).toBe("₹10,000");
+  });
+});
+
+describe("ledgerTotals", () => {
+  const rows = [
+    { kind: "GAVE", amount: 2000000 },
+    { kind: "GOT", amount: 1000000 },
+    { kind: "GOT", amount: 500000 },
+  ] as const;
+
+  it("totals each column separately", () => {
+    expect(ledgerTotals([...rows])).toEqual({ gave: 2000000, got: 1500000, count: 3 });
+  });
+
+  it("counts what is on screen, so a filtered list totals the filtered rows", () => {
+    expect(ledgerTotals(rows.filter((r) => r.kind === "GOT"))).toEqual({ gave: 0, got: 1500000, count: 2 });
+  });
+
+  it("an empty ledger totals zero rather than throwing", () => {
+    expect(ledgerTotals([])).toEqual({ gave: 0, got: 0, count: 0 });
+  });
+
+  it("never mutates or reorders its input — display order is not its business", () => {
+    const input = [...rows];
+    const snapshot = JSON.stringify(input);
+    ledgerTotals(input);
+    expect(JSON.stringify(input)).toBe(snapshot);
+  });
+
+  it("stays in paise integers, so no float drift reaches the screen", () => {
+    const t = ledgerTotals([
+      { kind: "GAVE", amount: 1 },
+      { kind: "GAVE", amount: 2 },
+      { kind: "GOT", amount: 3 },
+    ]);
+    expect(Number.isInteger(t.gave) && Number.isInteger(t.got)).toBe(true);
+    expect(t).toEqual({ gave: 3, got: 3, count: 3 });
   });
 });
