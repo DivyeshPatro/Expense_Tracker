@@ -39,10 +39,25 @@ if (args.length === 0) {
   process.exit(1);
 }
 
-// A deliberate remote URL is REFUSED, not quietly replaced. Overriding it would
-// mean a developer who set DATABASE_URL on purpose got something else without
-// being told — and the whole failure this guard exists to prevent was a
-// database silently not being the one anybody expected.
+// The rule is that the database must be LOCAL — not that it must be this
+// particular local one.
+//
+// An inherited local URL is kept. Replacing it broke CI: the integration job
+// sets DATABASE_URL to its own service container (ci@localhost/ledgerly_test),
+// this script overwrote it with the Docker default, and every test then failed
+// against a role and database that exist only on a developer's machine. The
+// guard is meant to stop a command reaching production, and forcing one exact
+// URL was never what made that true.
+//
+// A remote URL is REFUSED rather than quietly replaced. Overriding it would
+// mean someone who set DATABASE_URL on purpose got something else without being
+// told — and the failure this guard exists to prevent was a database silently
+// not being the one anybody expected.
+//
+// Absent is the one case that must not be left alone: unset is exactly the
+// state in which Prisma reads .env and finds production, so it is filled in
+// with the local default.
+const env = { ...process.env };
 for (const name of ["DATABASE_URL", "DIRECT_URL"]) {
   const inherited = process.env[name];
   if (inherited && !isLocal(inherited)) {
@@ -51,16 +66,12 @@ for (const name of ["DATABASE_URL", "DIRECT_URL"]) {
 ` +
         `      ${redact(inherited)}
 ` +
-        `  This command only ever targets local. Unset it, or point it at ${redact(LOCAL)}.`
+        `  This command only ever targets local. Unset it, or point it at a loopback host.`
     );
     process.exit(1);
   }
+  if (!inherited) env[name] = LOCAL;
 }
-
-// Force BOTH vars local. Prisma/dotenv won't override already-set process.env
-// vars, so these win over the Supabase values in .env — the same precedence the
-// rest of the local workflow relies on.
-const env = { ...process.env, DATABASE_URL: LOCAL, DIRECT_URL: LOCAL };
 
 // Check what we are about to hand the child rather than trusting the two lines
 // above — same assertion the integration suite runs on itself.
@@ -72,6 +83,8 @@ try {
 }
 
 const command = shellMode ? args.join(" ") : ["npx", ...args].join(" ");
-console.log(`→ running \`${args.join(" ")}\` against LOCAL (${redact(LOCAL)})`);
+// The URL actually handed to the child, not the default — a banner naming a
+// database the command is not using is how this went unnoticed for two runs.
+console.log(`→ running \`${args.join(" ")}\` against LOCAL (${redact(env.DATABASE_URL)})`);
 const res = spawnSync(command, { stdio: "inherit", env, shell: true });
 process.exit(res.status ?? 1);
