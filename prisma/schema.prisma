@@ -3,6 +3,19 @@
 
 generator client {
   provider = "prisma-client-js"
+  // The engine is a native binary, so it has to match the machine that RUNS it,
+  // not the one that generated it. Vercel used to build the app itself, so
+  // "native" happened to be right. It no longer is: deploy.yml generates on an
+  // ubuntu runner and ships the result with `vercel deploy --prebuilt`, which
+  // put a Debian engine into Vercel's RHEL-based lambda. Every Prisma query
+  // then failed at runtime — including better-auth's session lookup, so every
+  // authenticated page 500'd with "Failed to get session" while the static and
+  // unauthenticated routes looked perfectly healthy.
+  //
+  // native keeps local machines and CI working; rhel-openssl-3.0.x is Vercel's
+  // Node runtime. Emitting both costs bundle size and nothing else — no schema
+  // change, no migration.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
