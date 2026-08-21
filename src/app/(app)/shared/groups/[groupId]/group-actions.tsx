@@ -10,7 +10,7 @@ import { useState } from "react";
 import { MemberPicker } from "@/components/shared/member-picker";
 import { BottomSheet } from "@/components/shell/bottom-sheet";
 import { useUI } from "@/components/shell/ui-context";
-import { formatPaise } from "@/lib/money";
+import { formatPaise, toRupeeInput } from "@/lib/money";
 import { balanceState } from "@/lib/group-dashboard";
 
 export interface SettleTarget {
@@ -55,7 +55,7 @@ export function GroupQuickActions({
               participantId: t.participantId,
               participantName: t.name,
               direction: t.net > 0 ? "TO_OWNER" : "FROM_OWNER",
-              amountRupees: String(Math.round(Math.abs(t.net) / 100)),
+              amountRupees: toRupeeInput(t.net),
               settleNetPaise: t.net,
               settleGroupId: groupId,
             });

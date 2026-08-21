@@ -14,7 +14,7 @@ import { friendlyDay, MONTH_NAMES } from "@/lib/dates";
 import type { TimelineEvent } from "@/lib/activity";
 import { computeContactSummary, type ContactSummary } from "@/lib/lending";
 import { amountColumns, compactBalanceLabel, entryNotes, ledgerTotals } from "@/lib/lending-row";
-import { formatPaise } from "@/lib/money";
+import { formatPaise, toRupeeInput } from "@/lib/money";
 import { AccountOptions } from "@/components/shell/account-options";
 import { DateField } from "@/components/shell/date-field";
 import { EmptyState } from "@/components/shell/empty-state";
@@ -232,7 +232,7 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
                     participantId,
                     participantName: name,
                     loanKind: net > 0 ? "GOT" : "GAVE",
-                    dupAmountRupees: String(Math.round(Math.abs(net) / 100)),
+                    dupAmountRupees: toRupeeInput(net),
                   })
                 }
                 className="p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border border-line2 bg-card text-acc hover:bg-accsoft"

@@ -20,6 +20,26 @@ export function formatPaise(paise: Paise | bigint): string {
   return "₹" + (p % 100 === 0 ? intFmt.format(rupees) : decFmt.format(rupees));
 }
 
+/**
+ * Paise as a plain rupee string for an amount INPUT — "745.33", "600".
+ *
+ * The inverse of toPaise, and deliberately not formatPaise: prefilling a field
+ * with "₹745.33" puts a currency symbol and grouping commas into something the
+ * user is about to edit. Built from integer parts rather than p / 100 so no
+ * float ever touches the value.
+ *
+ * Callers used to write String(Math.round(paise / 100)), which rounds to whole
+ * RUPEES — so settling a ₹745.33 balance offered ₹745 and quietly left 33 paise
+ * behind, which is exactly the kind of residue that makes a group impossible to
+ * zero out. Sign is dropped, as in formatPaise; direction is carried separately.
+ */
+export function toRupeeInput(paise: Paise | bigint): string {
+  const p = Math.abs(Number(paise));
+  const whole = Math.floor(p / 100);
+  const rem = p % 100;
+  return rem === 0 ? String(whole) : `${whole}.${String(rem).padStart(2, "0")}`;
+}
+
 export interface SplitShare {
   participantId: string | null; // null = the owner
   owedAmount: Paise;

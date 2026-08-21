@@ -22,6 +22,7 @@ import {
   type MemberBalance,
   type SettlementSuggestion,
 } from "@/lib/group-dashboard";
+import { toRupeeInput } from "@/lib/money";
 import type { Period } from "@/lib/period";
 import type { SplitMethod } from "@prisma/client";
 import { settlementParties } from "@/lib/settlement-parties";
@@ -450,7 +451,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
         participantId,
         participantName,
         direction: youPay ? "FROM_OWNER" : "TO_OWNER",
-        amountRupees: String(Math.round(s.amount / 100)),
+        amountRupees: toRupeeInput(s.amount),
         netPaise: netByPid.get(participantId) ?? 0,
       },
     };

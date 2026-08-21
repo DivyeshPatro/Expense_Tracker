@@ -25,7 +25,7 @@ import { useState } from "react";
 import { useUI } from "@/components/shell/ui-context";
 import { copyText } from "@/lib/clipboard";
 import { SETTLED_THRESHOLD } from "@/lib/group-dashboard";
-import { formatPaise } from "@/lib/money";
+import { formatPaise, toRupeeInput } from "@/lib/money";
 import { namedPlan, planTotal, settlementHeadline, shareSettlementText, OWNER_ID, type PlanRow } from "@/lib/settlement-plan";
 import type { GroupMemberView, GroupSuggestion } from "@/server/services/group-dashboard";
 
@@ -97,7 +97,7 @@ export function GroupBalances({
               participantId: otherId,
               participantName: o.fromId === OWNER_ID ? o.toName : o.fromName,
               direction: (net > 0 ? "TO_OWNER" : "FROM_OWNER") as "TO_OWNER" | "FROM_OWNER",
-              amountRupees: String(Math.round(Math.abs(net) / 100)),
+              amountRupees: toRupeeInput(net),
               netPaise: net,
             }
           : undefined;
@@ -120,7 +120,7 @@ export function GroupBalances({
             participantId: m.participantId!,
             participantName: m.name,
             direction: "TO_OWNER" as const,
-            amountRupees: String(Math.round(m.net / 100)),
+            amountRupees: toRupeeInput(m.net),
             netPaise: m.net,
           }
         : undefined,

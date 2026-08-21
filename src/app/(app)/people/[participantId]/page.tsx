@@ -8,7 +8,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ModuleHero } from "@/components/shell/module-hero";
 import { OpenModalButton } from "@/components/shell/buttons";
-import { formatPaise } from "@/lib/money";
+import { formatPaise, toRupeeInput } from "@/lib/money";
 import { SETTLED_THRESHOLD } from "@/lib/people";
 import { personBalance } from "@/server/services/people";
 import { requireUser } from "@/server/session";
@@ -119,7 +119,7 @@ export default async function PersonPage({ params }: { params: Promise<{ partici
             participantId: person.id,
             participantName: person.name,
             direction: owed ? "TO_OWNER" : "FROM_OWNER",
-            amountRupees: String(Math.round(Math.abs(person.net) / 100)),
+            amountRupees: toRupeeInput(person.net),
             settleNetPaise: person.net,
           }}
           className="btn-primary w-full"
