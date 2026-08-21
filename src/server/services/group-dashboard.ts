@@ -9,6 +9,7 @@ import {
   computeDetailedObligations,
   OWNER_SENTINEL,
   computeMemberBalances,
+  SETTLED_THRESHOLD,
   computeOverview,
   computeSuggestions,
   groupCategoryTotals,
@@ -243,7 +244,7 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
       amount: Number(s.amount),
       settledAt: s.settledAt.toISOString(),
     }));
-    const { youNet, youAreOwed, youOwe, totalSpend } = computeMemberBalances(
+    const { members: balances, youNet, youAreOwed, youOwe, totalSpend } = computeMemberBalances(
       expenses,
       settleRows,
       g.members.map((m) => m.participantId)
@@ -261,7 +262,15 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
       youOwe,
       youNet,
       lastActivity: overview.lastActivity,
-      settled: youAreOwed === 0 && youOwe === 0,
+      // Settled means nobody has a balance worth acting on — a question asked
+      // of each PERSON, not of a total. `youAreOwed === 0 && youOwe === 0` kept
+      // a group flagged forever over a few paise of rounding dust, and the
+      // obvious repair — |youNet| within the threshold — is worse: it would
+      // call a group settled when one member owes you ₹600 and you owe another
+      // ₹600, because those cancel. The owner's own row is excluded because it
+      // is the sum of the others (Σ member nets = youNet), so accumulated dust
+      // would otherwise re-create the very problem this removes.
+      settled: balances.every((m) => m.participantId === null || Math.abs(m.net) <= SETTLED_THRESHOLD),
     };
   });
 

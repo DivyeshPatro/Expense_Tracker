@@ -108,7 +108,10 @@ export default async function GroupDashboardPage({
             {g.youAreOwed > 0 && <span className="text-green">+{formatPaise(g.youAreOwed)} you’ll get</span>}
             {g.youAreOwed > 0 && g.youOwe > 0 && " · "}
             {g.youOwe > 0 && <span className="text-red">−{formatPaise(g.youOwe)} you’ll pay</span>}
-            {g.youAreOwed === 0 && g.youOwe === 0 && "all settled"}
+            {/* Same per-person rule the card and the settle list use: settled
+                means nobody is outside the threshold, not that the two sums
+                happen to be zero — which sub-rupee dust alone could prevent. */}
+            {others.every((m) => balanceState(m.net) === "settled") && "all settled"}
           </div>
         </StatCard>
       </div>
