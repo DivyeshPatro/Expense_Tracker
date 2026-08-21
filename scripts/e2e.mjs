@@ -39,18 +39,24 @@ try {
   ok("sign-in redirects to dashboard", true);
 
   // ── dashboard numbers ──
-  await page.waitForSelector("text=TOTAL BALANCE");
+  // The card's heading is "TOTAL BALANCE" only on a live window; any other
+  // period renders "BALANCE · <period>". Match the half that does not depend on
+  // which period the dashboard happens to open with.
+  await page.getByText(/total balance|balance ·/i).filter({ visible: true }).first().waitFor();
   const body = await page.textContent("body");
   ok("total balance ₹2,30,870", body.includes("₹2,30,870"), "sum of seeded account balances");
   ok("attention strip shows bill due", body.includes("ACT Fibernet"));
-  ok("friends owe you chip", body.includes("Friends owe you"));
+  // The dashboard names each outstanding balance now ("Karan owes you ₹…",
+  // "You owe Priya ₹…", each tagged "Pending settlement") rather than showing a
+  // single "Friends owe you" chip.
+  ok("dashboard surfaces pending settlements", /Pending settlement/.test(body) && /owes you|You owe/.test(body));
   ok("en-IN formatting", /₹\d,\d{2},\d{3}/.test(body));
   await page.screenshot({ path: `${SHOT}/01-dashboard.png`, fullPage: true });
 
   // ── add expense (≤3 interactions: amount → submit; category/account default) ──
   await page.click("text=＋ Add expense");
   await page.waitForSelector("text=AMOUNT (₹)");
-  await page.fill('input[type="number"]', "123");
+  await page.fill('input[placeholder="0"]', "123");
   await page.click('button:has-text("Add expense") >> nth=-1');
   await page.waitForSelector("text=Expense added", { timeout: 10000 });
   ok("add expense happy path with toast", true);
@@ -58,7 +64,10 @@ try {
   // ── transactions: open detail, delete + undo (Phase 1 moved delete off the
   // row and into the detail sheet, behind a confirm step) ──
   await page.goto("http://localhost:3000/transactions");
-  await page.waitForSelector("text=Today");
+  // Wait for the list itself rather than a "Today" day-heading: whether today
+  // has a heading depends on the period the page opens with, and the check here
+  // is that rows rendered at all.
+  await page.locator(".card button.w-full").first().waitFor();
   // the add-expense submit just above triggers its own async router.refresh();
   // landing this hard navigation right on top of it can catch a transitional
   // paint where the count briefly reads high — let it settle before counting
@@ -95,20 +104,27 @@ try {
 
   // ── shared: split expense + settle ──
   await page.goto("http://localhost:3000/shared");
-  await page.waitForSelector("text=YOU OWE");
+  // The hero is the "who needs to settle?" count with You'll get / You'll pay /
+  // Net beneath it; the old "YOU OWE" heading is gone.
+  await page.getByText(/You'll pay|All settled|to settle up/).first().waitFor();
   const sharedBody = await page.textContent("body");
   ok("shared shows Flat 402 group", sharedBody.includes("Flat 402"));
-  ok("shared balances render", sharedBody.includes("owes you") || sharedBody.includes("you owe"));
+  // Per-person rows read "will pay you" / "you'll pay" now.
+  ok("shared balances render", /will pay you|you'll pay|owes you|you owe/i.test(sharedBody));
   await page.screenshot({ path: `${SHOT}/03-shared.png`, fullPage: true });
 
   // add split expense ₹999 with equal split → check math note
   // ("Add split expense" no longer lives in the ⌘K palette — Phase 2 trimmed
   // that duplicate; the desktop quick-add chooser is the remaining entry point)
-  await page.click('button[aria-label="Quick add (desktop)"]');
-  await page.click('button:has-text("Split with friends")');
+  // On /shared the quick-add has a single action, so the FAB runs it directly
+  // instead of opening a chooser — and its accessible name is that action, not
+  // "<section> — quick add". The old literal "Quick add (desktop)" is gone.
+  await page.getByRole("button", { name: /Add shared expense/i }).filter({ visible: true }).first().click();
   await page.waitForSelector("text=Split with friends");
-  await page.fill('input[type="number"] >> nth=0', "999");
-  await page.waitForSelector("text=/₹333 each|₹333.* you \\+ 2 friends/");
+  await page.fill('input[placeholder="0"]', "999");
+  // The split breakdown lists a row per person now instead of a single
+  // "₹333 each" note, so assert the arithmetic rather than the old sentence.
+  await page.getByText("₹333").first().waitFor();
   ok("equal split preview shows ₹333 each (you + 2 friends)", true);
   await page.click('button:has-text("Add expense") >> nth=-1');
   await page.waitForSelector("text=Split expense added");
@@ -142,12 +158,15 @@ try {
   const cookies = await page.context().cookies();
   await mobile.context().addCookies(cookies);
   await mobile.goto("http://localhost:3000/dashboard");
-  await mobile.waitForSelector("text=TOTAL BALANCE");
+  await mobile.getByText(/total balance|balance ·/i).filter({ visible: true }).first().waitFor();
   const nav = await mobile.locator("nav").isVisible();
   ok("mobile bottom tab bar visible at 390px", nav);
-  await mobile.click('button[aria-label="Quick add"]');
-  await mobile.waitForSelector("text=Split with friends");
-  await mobile.getByRole("button", { name: "🧾 Expense" }).click();
+  // Same FAB drift as on desktop: the accessible name is "<section> — quick add"
+  // and the chooser's actions are "Add expense" / "Add income" / "Transfer
+  // money". The old literal "Quick add" and "🧾 Expense" are both gone, and the
+  // dashboard's chooser never offered "Split with friends" — that is /shared.
+  await mobile.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+  await mobile.getByRole("button", { name: /Add expense/i }).filter({ visible: true }).first().click();
   await mobile.waitForSelector("text=AMOUNT (₹)");
   ok("FAB quick-add opens bottom-sheet modal on mobile", true);
   await mobile.screenshot({ path: `${SHOT}/06-mobile.png`, fullPage: false });

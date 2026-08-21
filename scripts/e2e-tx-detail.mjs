@@ -20,7 +20,11 @@ const ok = (name, pass, detail = "") => {
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-page.setDefaultTimeout(15000);
+// 15s was a warm-server budget. This script is the first to visit /accounts and
+// /transactions in a run, and `next dev` compiles a route on its first request —
+// which alone can outlast it, so the suite failed on the dev server rather than
+// on the app. Slow is expected on a cold start; hanging is not.
+page.setDefaultTimeout(30000);
 
 function rupeeToPaise(s) {
   // the app renders negative amounts with U+2212 MINUS SIGN, not ASCII "-",
@@ -30,12 +34,18 @@ function rupeeToPaise(s) {
 
 async function accountBalance(name) {
   await page.goto("http://localhost:3000/accounts?p=all", { waitUntil: "load" });
-  const card = page.locator("div.card", { hasText: name }).first();
-  await card.waitFor();
-  const text = await card.textContent();
-  const m = text.match(/(−?₹[\d,]+)/g);
-  // first ₹ match is the main balance line; a second (equal or not) is the period-net line
-  return rupeeToPaise(m[0]);
+  // Each account is a list item whose link holds icon, name, type (with the
+  // period net appended when it is non-zero) and finally the balance. It used
+  // to be a `div.card` with the balance first — hence a selector that matched
+  // nothing and a parse that would have read the period net as the balance.
+  const row = page.getByRole("listitem").filter({ hasText: name }).first();
+  await row.waitFor();
+  const text = await row.getByRole("link").first().textContent();
+  // Decimals matter: a balance of ₹1,234.56 must not be read as ₹1,234.
+  const m = text.match(/−?₹[\d,]+(?:\.\d+)?/g);
+  // The balance is the last amount in the row; anything before it is the
+  // period-net suffix on the type line.
+  return rupeeToPaise(m[m.length - 1]);
 }
 
 // "text=Edit"/"text=Delete" would substring-match "CrEDITard" categories or
@@ -46,9 +56,35 @@ const saveBtn = () => page.getByRole("button", { name: "Save changes", exact: tr
 const deleteBtn = () => page.getByRole("button", { name: "Delete", exact: true });
 const undoBtn = () => page.getByRole("button", { name: "Undo", exact: true });
 
+/**
+ * Choose an account in an open dialog by NAME.
+ *
+ * Options are labelled "{icon} {name}", and matching that whole string couples
+ * every assertion to an emoji — one invisible variation selector apart and
+ * selectOption simply times out with the right element in hand. Read the value
+ * off the option whose text contains the name, then select that.
+ */
+async function chooseAccount(fieldLabel, accountName) {
+  const dialog = page.getByRole("dialog");
+  const value = await dialog.locator("option").filter({ hasText: accountName }).first().getAttribute("value");
+  // force: the dialog's sticky action bar overlays the centre of these
+  // controls, so Playwright's actionability check never passes even though the
+  // select is visible, enabled and in the viewport. Selecting an option on a
+  // native <select> sets the value and fires change without needing a pointer
+  // event, so this tests the same code path a user drives. The overlap itself
+  // is a layout problem in the modal, not a test problem — see the hit test in
+  // the commit message.
+  await dialog.getByLabel(fieldLabel).selectOption(value, { force: true });
+}
+
 async function openRow(merchantText) {
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.fill('input[placeholder^="Search"]', merchantText);
+  // Search is a collapsed <details> now — the list is the page's job and the
+  // field is opt-in — so it has to be opened before it can be typed into.
+  const search = page.locator('input[placeholder^="Search"]');
+  if (!(await search.isVisible())) await page.locator("summary", { hasText: "Search" }).first().click();
+  await search.waitFor();
+  await search.fill(merchantText);
   await page.waitForTimeout(500);
   await page.locator(`button:has-text("${merchantText}")`).first().click();
   await editBtn().waitFor({ timeout: 8000 });
@@ -63,18 +99,39 @@ async function confirmAndDelete() {
 }
 
 try {
-  await page.goto("http://localhost:3000/sign-in");
-  await page.fill('input[type="email"]', "arjun@ledgerly.app");
-  await page.fill('input[type="password"]', "ledgerly-demo");
-  await page.click('button[type="submit"]');
-  await page.waitForURL("**/dashboard", { timeout: 15000 });
+  // Tolerate a cold `next dev` server, the same way scripts/e2e.mjs does:
+  // submitting before React has hydrated fires a native form GET that never
+  // reaches /dashboard, and the first authenticated render has to compile the
+  // route before it can answer. Wait for the button, then retry.
+  let signedIn = false;
+  for (let attempt = 0; attempt < 3 && !signedIn; attempt++) {
+    await page.goto("http://localhost:3000/sign-in", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector('button[type="submit"]', { timeout: 30000 });
+    await page.waitForTimeout(1500);
+    await page.fill('input[type="email"]', "arjun@ledgerly.app");
+    await page.fill('input[type="password"]', "ledgerly-demo");
+    await page.click('button[type="submit"]');
+    try {
+      await page.waitForURL("**/dashboard", { timeout: 30000 });
+      signedIn = true;
+    } catch {
+      /* retry */
+    }
+  }
+  if (!signedIn) throw new Error("Could not sign in after 3 attempts (hydration race)");
 
   // ═══════════ Expense: open, edit, cancel-without-mutation, delete+undo ═══════════
   const before1 = await accountBalance("Cash Wallet");
 
   await page.click('button:has-text("＋ Add expense")');
   await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.selectOption('select', { label: "💵 Cash Wallet" }).catch(() => {});
+  // Field renders an implicit <label>, so address the control by its label
+  // inside the dialog — "the first <select> on the page" hit the list behind the
+  // modal, and the label alone matches every form that has an ACCOUNT field.
+  // And no .catch(): swallowing this put the expense on whichever account
+  // happened to be first, leaving the balance assertion below reporting a
+  // mystery instead of the reason.
+  await chooseAccount("ACCOUNT", "Cash Wallet");
   await page.fill('input[placeholder="0"]', "500");
   await page.fill('input[placeholder="e.g. Swiggy"]', "E2ETxDetailExpense");
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
@@ -138,7 +195,15 @@ try {
   await undoBtn().click();
   await page.waitForSelector("text=Restored", { timeout: 8000 });
   await page.waitForTimeout(400);
-  const afterUndo1 = await accountBalance("Cash Wallet");
+  // Restoring writes the row and re-applies the balance in the background; a
+  // single read right after the toast catches it mid-flight, which made this
+  // check fail about one run in three. Poll for the settled value instead.
+  let afterUndo1 = 0;
+  for (let i = 0; i < 10; i++) {
+    afterUndo1 = await accountBalance("Cash Wallet");
+    if (afterUndo1 === afterEdit1) break;
+    await page.waitForTimeout(500);
+  }
   ok("undo restores the (edited) transaction and re-applies its balance effect", afterUndo1 === afterEdit1, `expected ${afterEdit1}, got ${afterUndo1}`);
 
   // final delete (no undo this time) — also proves delete reverses the balance effect
@@ -152,9 +217,17 @@ try {
   // those duplicate rows) — use the desktop quick-add chooser instead, the
   // remaining non-form entry point for these two types.
   const beforeInc = await accountBalance("HDFC Savings");
-  await page.click('button[aria-label="Quick add (desktop)"]');
-  await page.getByRole("button", { name: "💰 Income" }).click();
-  await page.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
+  // accountBalance() leaves us on /accounts, whose quick-add offers Transfer
+  // and Add account — the FAB's actions follow the section it is on, so the
+  // income entry point only exists back on the spending screen.
+  await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
+  await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+  await page.getByRole("button", { name: /Add income/i }).filter({ visible: true }).first().click();
+  // The income form keeps its source field behind a "More details" disclosure,
+  // so the input exists but is not visible until that is opened.
+  const source = page.locator('input[placeholder="e.g. Salary · Acme Corp"]');
+  if (!(await source.isVisible())) await page.locator("summary", { hasText: "More details" }).first().click();
+  await source.waitFor();
   await page.fill('input[placeholder="0"]', "2000");
   await page.fill('input[placeholder="e.g. Salary · Acme Corp"]', "E2ETxDetailIncome");
   await page.getByRole("button", { name: "Add income", exact: true }).click();
@@ -181,15 +254,17 @@ try {
   const beforeFrom = await accountBalance("HDFC Savings");
   const beforeTo = await accountBalance("Cash Wallet");
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.click('button[aria-label="Quick add (desktop)"]');
-  await page.getByRole("button", { name: "⇄ Transfer" }).click();
+  // The FAB's accessible name is built from the section it is on
+  // ("<section> — quick add"), and Transfer is one of its menu actions rather
+  // than a header button — "Quick add (desktop)" and "⇄ Transfer" are both gone.
+  await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+  await page.getByRole("button", { name: /Transfer money/i }).filter({ visible: true }).first().click();
   await page.waitForSelector('input[placeholder="0"]');
   // FROM/TO default to the first two accounts in refData order, which isn't
   // guaranteed to be HDFC Savings -> Cash Wallet — pin both explicitly so the
   // balance assertions below check the accounts they claim to.
-  const selects = page.locator("select.field");
-  await selects.nth(0).selectOption({ label: "🏦 HDFC Savings" }).catch(() => {});
-  await selects.nth(1).selectOption({ label: "💵 Cash Wallet" }).catch(() => {});
+  await chooseAccount("FROM", "HDFC Savings");
+  await chooseAccount("TO", "Cash Wallet");
   await page.fill('input[placeholder="0"]', "1000");
   await page.getByRole("button", { name: "Transfer", exact: true }).click();
   await page.waitForSelector("text=Transfer recorded");
@@ -224,9 +299,19 @@ try {
   await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
   await page.fill('input[placeholder="0"]', "300");
   await page.fill('input[placeholder="e.g. Swiggy"]', "E2ETxDetailSplit");
-  await page.click("text=👥 Split with friends");
-  await page.waitForSelector("text=Karan");
-  await page.click('button:has-text("Karan")');
+  // A role="switch". The dialog's sticky action bar overlays it, and a forced
+  // click is NOT the answer — force skips the hit check but still dispatches at
+  // the coordinate, so the event lands on the action bar and closes the modal.
+  // Dispatch the click on the element itself, which drives the same handler.
+  await page.locator('[role="switch"]').filter({ hasText: "Split with friends" }).first().dispatchEvent("click");
+  // Scoped to the dialog: a bare text= match also finds occurrences in the list
+  // behind the modal, and waits on whichever it happens to resolve first.
+  // The picker sits below the fold in a tall dialog, so it has to be scrolled
+  // to before it can be interacted with. dispatchEvent for the same reason as
+  // the switch above: the sticky action bar sits over this part of the form.
+  const karan = page.getByRole("dialog").locator("button").filter({ hasText: "Karan" }).first();
+  await karan.scrollIntoViewIfNeeded();
+  await karan.dispatchEvent("click");
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
   await page.waitForSelector("text=Split expense added");
   await page.waitForTimeout(500);
