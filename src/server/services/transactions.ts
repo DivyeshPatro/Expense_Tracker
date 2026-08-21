@@ -2,7 +2,12 @@
 // updates account running balances and appends an audit row, so
 // balance = openingBalance + Σ ledger always holds (PRD §4.1 AC).
 
-import { splitByWeights, splitEqual, splitExact, type SplitShare } from "@/lib/money";
+// computeShares lives in lib/ so the expense form can call the very function
+// that produces the stored rows — the preview and the ExpenseSplit values are
+// the same call. Re-exported here because SplitInput is part of this module's
+// published input type and callers already import it from here.
+import { computeShares, type SplitInput } from "@/lib/split-shares";
+export type { SplitInput };
 import { istNoon, toYMD } from "@/lib/dates";
 import { Prisma, type GroupRole, type TxType } from "@prisma/client";
 import { prisma } from "../db";
@@ -30,14 +35,6 @@ export async function applyBalances(
   }
 }
 
-export interface SplitInput {
-  mode: "EQUAL" | "EXACT" | "PERCENT" | "RATIO";
-  participantIds: string[]; // friends included in the split (owner is always included)
-  payerParticipantId: string | null; // null ⇒ paid by owner
-  exactAmounts?: Record<string, number>; // participantId → paise (EXACT mode, friends only)
-  weights?: Record<string, number>; // participantId → weight, plus "me" for the owner (PERCENT/RATIO)
-}
-
 export interface ExpenseInput {
   amount: number; // paise
   accountId: string | null;
@@ -49,25 +46,6 @@ export interface ExpenseInput {
   isRecurring?: boolean;
   split?: SplitInput;
   groupId?: string | null; // collaboration-architecture-rfc §2/§4: creator becomes the row's own userId regardless
-}
-
-function computeShares(amount: number, split: SplitInput): SplitShare[] {
-  const ids: (string | null)[] = [null, ...split.participantIds];
-  if (split.mode === "EXACT") {
-    const others = split.participantIds.map((id) => ({ participantId: id as string | null, owedAmount: split.exactAmounts?.[id] ?? 0 }));
-    // payer absorbs remainder; when a friend paid, the owner's share is stated too
-    if (split.payerParticipantId === null) return splitExact(amount, others, null);
-    const withoutPayer = others.filter((o) => o.participantId !== split.payerParticipantId);
-    return splitExact(amount, withoutPayer, split.payerParticipantId);
-  }
-  if (split.mode === "PERCENT" || split.mode === "RATIO") {
-    const parts = [
-      { participantId: null as string | null, weight: split.weights?.["me"] ?? 0 },
-      ...split.participantIds.map((id) => ({ participantId: id as string | null, weight: split.weights?.[id] ?? 0 })),
-    ];
-    return splitByWeights(amount, parts, split.payerParticipantId);
-  }
-  return splitEqual(amount, ids, split.payerParticipantId);
 }
 
 /** Offline-sync intent metadata (offline-sync-spec §4.3). When present, the

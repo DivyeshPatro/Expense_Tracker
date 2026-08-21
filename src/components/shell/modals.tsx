@@ -35,7 +35,7 @@ import { LendingContactSheet } from "./lending-detail";
 import { LoanDetailModal } from "@/components/lending/loan-detail";
 import { useOffline } from "./offline-context";
 import { PendingDetailSheet } from "./pending-detail";
-import { buildSplitPayload, participantsForGroup, SplitEditor, type SplitEditorState } from "./split-editor";
+import { buildSplitPayload, participantsForGroup, SplitBreakdown, SplitEditor, useSplitPreview, type SplitEditorState } from "./split-editor";
 import { TransactionDetailSheet } from "./transaction-detail";
 import { useUI, type ModalPrefill } from "./ui-context";
 import { useFocusTrap } from "./use-focus-trap";
@@ -361,6 +361,13 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
   // requirement 6: do not guess, ask. Saving is blocked until they answer,
   // because the alternative (quietly saving as Personal) is the original bug.
   const mustChooseGroup = needsExplicitGroupChoice(inference, groupTouched.current);
+  // A split whose shares do not add up to the expense is refused by the server
+  // and by the database trigger behind it. Gating Save here is purely so the
+  // refusal arrives before the round trip — the breakdown already shows which
+  // way it is out. Nothing is validated twice: this reads the same preview the
+  // user is looking at.
+  const splitPreview = useSplitPreview(amtPaise, splitState, selectedIds);
+  const splitIsUnsaveable = split && !!splitPreview && (!!splitPreview.error || !splitPreview.balances);
 
   function selectGroup(id: string) {
     groupTouched.current = true;
@@ -491,7 +498,7 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
           </Field>
         )}
 
-        <SplitEditor state={splitState} amtPaise={amtPaise} participants={pickerParticipants} />
+        <SplitEditor state={splitState} participants={pickerParticipants} />
 
         {/* A rule's template carries neither splits nor a group, so repeating is
             offered only for a plain personal expense rather than silently
@@ -499,13 +506,21 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
         {!split && !groupId && <RepeatBlock state={repeat} transactionYmd={date} />}
       </AdvancedFields>
 
+      {/* Outside Advanced on purpose. The split CONTROLS can live in a
+          collapsed section — they are only touched when someone is setting a
+          split up — but what those controls produce cannot: the whole point is
+          that nobody saves a ₹2,530 dinner without seeing that one person is
+          carrying ₹843.33 of it. Rendered once, here, from the same preview
+          the Save button is gated on. */}
+      {split && <SplitBreakdown preview={splitPreview} names={selected} />}
+
       <ErrorNote error={error} />
       <SubmitButton
         busy={busy}
         // Requirement 6: an ambiguous group is asked, never guessed — and
         // requirement 4: it must not quietly fall through to Personal either,
         // so saving waits for the answer.
-        disabled={mustChooseGroup}
+        disabled={mustChooseGroup || splitIsUnsaveable}
         onClick={() =>
           run(
             () => {

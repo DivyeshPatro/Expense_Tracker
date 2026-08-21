@@ -54,7 +54,7 @@ import { AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-p
 import { GroupCategorySelect } from "./group-category-select";
 import { intentLabel, useOffline, type MutationKind } from "./offline-context";
 import { FAILURE_COPY } from "./pending-detail";
-import { buildSplitPayload, participantsForGroup, SplitEditor, type SplitEditorState } from "./split-editor";
+import { buildSplitPayload, participantsForGroup, SplitBreakdown, SplitEditor, useSplitPreview, type SplitEditorState } from "./split-editor";
 import { useUI } from "./ui-context";
 import { ensureDeviceId, getDeviceName, type OutboxIntent } from "@/lib/offline/db";
 
@@ -915,6 +915,8 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
   // Expression-aware, so the submitted value never depends on whether blur
   // fired before the tap on Save — see amountToPaise.
   const amtPaise = amountToPaise(amount);
+  // Same call as the writer's: computeSplitPreview -> computeShares.
+  const editPreview = useSplitPreview(amtPaise, splitState, selectedIds);
 
   // The repair affordance for an expense split among a group's members but
   // saved as personal: offered as a one-tap suggestion, never applied for you.
@@ -972,7 +974,12 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
       </Field>
 
-      <SplitEditor state={splitState} amtPaise={amtPaise} participants={pickerParticipants} />
+      <SplitEditor state={splitState} participants={pickerParticipants} />
+
+      {/* Same rule as the create form: the controls may sit wherever they fit,
+          the resulting shares are always on screen. Editing a split is exactly
+          when someone needs to see what it does to everyone else. */}
+      {split && <SplitBreakdown preview={editPreview} names={selected} />}
 
       {/* v2.1: the group is editable here — this is the repair path for an
           expense that was split with a group's members but saved as personal.

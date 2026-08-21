@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { normalizeName } from "@/lib/duplicate-contact";
 import { formatPaise } from "@/lib/money";
+import { computeSplitPreview, type SplitPreview } from "@/lib/split-shares";
 import { Toggle } from "./toggle";
 
 export interface SplitEditorState {
@@ -30,27 +31,25 @@ export interface SplitEditorState {
   setPayerId: (id: string | null) => void;
 }
 
-export function computeSplitInfo(
-  amtPaise: number,
-  mode: SplitEditorState["mode"],
-  selected: { id: string; name: string }[],
-  exact: Record<string, string>,
-  weights: Record<string, string>
-): string {
-  if (!selected.length) return "Select friends to split with";
-  if (mode === "EQUAL") {
-    return `${formatPaise(Math.floor(amtPaise / (selected.length + 1)))} each · you + ${selected.length} ${selected.length > 1 ? "friends" : "friend"}`;
-  }
-  if (mode === "EXACT") {
-    const sum = selected.reduce((s, p) => s + Math.round((Number(exact[p.id]) || 0) * 100), 0);
-    return `Your share: ${formatPaise(Math.max(0, amtPaise - sum))}${sum > amtPaise ? " · ⚠ splits exceed total" : ""}`;
-  }
-  const meW = Number(weights.me) || 0;
-  const friendW = selected.reduce((s, p) => s + (Number(weights[p.id]) || 0), 0);
-  const total = meW + friendW;
-  return total > 0
-    ? `Your share: ${formatPaise(Math.floor((amtPaise * meW) / total))}${mode === "PERCENT" ? ` (${meW}%)` : ` (${meW} ${meW === 1 ? "part" : "parts"})`}`
-    : "Enter a weight for each person";
+/**
+ * The split breakdown shown under the mode picker.
+ *
+ * This used to be computeSplitInfo, a second implementation of the same
+ * arithmetic that returned a single sentence about the person filling the
+ * form: "₹506 each", "Your share: ₹421.69". It could not show what anyone
+ * else owed, and its EQUAL branch modelled no remainder, so the number it
+ * printed was not always the number that got stored.
+ *
+ * It now calls computeSplitPreview, which calls computeShares — the same
+ * function the writer uses to produce the ExpenseSplit rows. The payload is
+ * built by buildSplitPayload, the same builder the form submits, so neither
+ * the inputs nor the arithmetic can differ between what is shown and what is
+ * saved.
+ */
+export function useSplitPreview(amtPaise: number, state: SplitEditorState, selectedIds: string[]) {
+  const payload = buildSplitPayload(state, selectedIds);
+  if (!payload || selectedIds.length === 0) return null;
+  return computeSplitPreview(amtPaise, payload);
 }
 
 /** The effective payer: `state.payerId` only counts if that person is
@@ -90,11 +89,9 @@ export function participantsForGroup<T extends { id: string }>(
 
 export function SplitEditor({
   state,
-  amtPaise,
   participants,
 }: {
   state: SplitEditorState;
-  amtPaise: number;
   /** v2.1: every contact, Lending ones included. `isLending` only drives a
    *  badge — it never filters. Hiding those contacts here is what produced two
    *  "Blake" records for one person. */
@@ -115,7 +112,6 @@ export function SplitEditor({
     ? participants.filter((p) => parts[p.id] || normalizeName(p.name).includes(needle))
     : participants;
   const weighted = mode === "PERCENT" || mode === "RATIO";
-  const splitInfo = computeSplitInfo(amtPaise, mode, selected, exact, weights);
   const payer = effectivePayer(payerId, selectedIds);
 
   // group-expenses-sprint: removing the last remaining participant would
@@ -278,7 +274,74 @@ export function SplitEditor({
               ))}
             </div>
           )}
-          <div className="text-xs font-semibold text-acc bg-accsoft rounded-lg px-3 py-[9px]">{splitInfo}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Who owes what, before saving.
+ *
+ * Every rupee figure here comes from computeShares — the same call that
+ * produces the ExpenseSplit rows — so this cannot show one number and store
+ * another. It is a preview, not a gate: the server re-derives and re-validates
+ * everything, and the DB trigger has the last word.
+ *
+ * A table from sm up, stacked rows below it; the amounts stay right-aligned in
+ * both so a column of figures is scannable either way.
+ *
+ * Rendered by the expense modal rather than by SplitEditor, because the split
+ * controls live inside "More details" and this must not: an expense whose
+ * shares are only visible to someone who thinks to expand a collapsed section
+ * is exactly the expense that saved ₹843.33 without anyone seeing it. The
+ * controls stay where they are; their result comes out.
+ */
+export function SplitBreakdown({ preview, names }: { preview: SplitPreview | null; names: { id: string; name: string }[] }) {
+  if (!preview) {
+    return <div className="text-xs font-semibold text-acc bg-accsoft rounded-lg px-3 py-[9px]">Select friends to split with</div>;
+  }
+  if (preview.error) {
+    return (
+      <div className="text-xs font-semibold rounded-lg px-3 py-[9px]" style={{ background: "var(--redsoft)", color: "var(--red)" }}>
+        {preview.error}
+      </div>
+    );
+  }
+  const nameOf = (id: string | null) => (id === null ? "You" : (names.find((n) => n.id === id)?.name ?? "Someone"));
+  const payerName = nameOf(preview.rows.find((r) => r.isPayer)?.participantId ?? null);
+
+  return (
+    <div className="rounded-lg border border-line2 bg-card overflow-hidden">
+      <div className="label-caps px-3 pt-2.5 pb-1">Split breakdown</div>
+      <div className="flex flex-col">
+        {preview.rows.map((r) => (
+          <div
+            key={r.participantId ?? "me"}
+            className="flex items-baseline gap-2 px-3 py-1.5 border-t border-line first:border-t-0 text-[12.5px]"
+          >
+            <span className="flex-1 min-w-0 truncate font-semibold text-ink">{nameOf(r.participantId)}</span>
+            <span className="flex-none text-[11px] text-mut2 w-[64px] sm:w-[80px] text-right">{r.method}</span>
+            <span className="flex-none w-[86px] text-right font-extrabold tabular-nums">{formatPaise(r.owedAmount)}</span>
+          </div>
+        ))}
+      </div>
+      <div
+        className="flex items-baseline gap-2 px-3 py-2 border-t-2 text-[12.5px] font-bold"
+        style={{ borderColor: "var(--line2)", color: preview.balances ? "var(--ink)" : "var(--red)" }}
+      >
+        <span className="flex-1">Split total</span>
+        <span className="flex-none tabular-nums">
+          {formatPaise(preview.total)}
+          {preview.balances ? " ✓" : ""}
+        </span>
+      </div>
+      {/* The remainder is the difference between an even division and what the
+          engine actually stored — it always lands on the payer. Saying so is
+          the difference between "₹X each" and the truth. */}
+      {preview.remainder > 0 && (
+        <div className="px-3 pb-2 text-[10.5px] text-mut2">
+          {formatPaise(preview.remainder)} rounding remainder → {payerName}
         </div>
       )}
     </div>
