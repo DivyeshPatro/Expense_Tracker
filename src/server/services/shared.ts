@@ -3,6 +3,7 @@
 
 import { cache } from "react";
 import { minimizeSettlements, type SettleTransfer } from "@/lib/settlement";
+import { settlementParties } from "@/lib/settlement-parties";
 import { prisma } from "../db";
 import { audit } from "./audit";
 import { applyBalances } from "./transactions";
@@ -80,10 +81,15 @@ export const netBalances = cache(async (userId: string): Promise<ParticipantView
       nets.set(t.paidByParticipantId, nets.get(t.paidByParticipantId)! - myShare);
     }
   }
+  // This is the OWNER's per-friend ledger: each number is what one friend owes
+  // the owner. A settlement between two other members changes what they owe
+  // each other and nothing here, so both ends are applied and the owner's own
+  // end — which has no row in this map — simply finds no target.
   for (const s of settlements) {
-    if (!nets.has(s.participantId)) continue;
-    const delta = s.direction === "TO_OWNER" ? -Number(s.amount) : Number(s.amount);
-    nets.set(s.participantId, nets.get(s.participantId)! + delta);
+    const amount = Number(s.amount);
+    const { from, to } = settlementParties(s);
+    if (from !== null && nets.has(from)) nets.set(from, nets.get(from)! - amount);
+    if (to !== null && nets.has(to)) nets.set(to, nets.get(to)! + amount);
   }
 
   return participants.map((p) => ({
@@ -234,6 +240,77 @@ export async function recordSettlement(
   });
 }
 
+/**
+ * A settlement between two group members, neither of them the owner (P0-1).
+ *
+ * minimizeSettlements has always been able to produce these edges — a group
+ * where the debts do not all run through one person needs them — and the
+ * ledger could not record them, so such a group could never be brought to
+ * zero. The plan proposed a payment the app then refused to remember.
+ *
+ * Deliberately a separate function taking no accountId. A payment between two
+ * other people moves none of the owner's money, so there is no cash leg to
+ * write; expressing that by leaving the parameter out means it cannot be
+ * written by mistake, which a runtime check would only catch after someone
+ * passed one. The row stores both parties explicitly and leaves
+ * participantId/direction null, since neither has a truthful value here.
+ */
+export async function recordMemberSettlement(
+  userId: string,
+  fromParticipantId: string,
+  toParticipantId: string,
+  amount: number,
+  method: "UPI" | "CASH" | "BANK",
+  note?: string,
+  groupId?: string
+) {
+  if (fromParticipantId === toParticipantId) throw new Error("A settlement needs two different people.");
+  await prisma.$transaction(async (db) => {
+    const people = await db.participant.findMany({
+      where: { id: { in: [fromParticipantId, toParticipantId] }, ownerId: userId },
+      select: { id: true },
+    });
+    if (people.length !== 2) throw new Error("Participant not found");
+
+    // Group scoping is stricter than the owner-directed path's inference: a
+    // payment between two members belongs to a group only when BOTH are in it,
+    // because that is the only ledger where the debt it clears exists.
+    let scopedGroupId: string | null = null;
+    if (groupId) {
+      const [group, members] = await Promise.all([
+        db.group.findUnique({ where: { id: groupId }, select: { createdById: true } }),
+        db.groupMember.findMany({ where: { groupId, participantId: { in: [fromParticipantId, toParticipantId] } }, select: { participantId: true } }),
+      ]);
+      if (group?.createdById === userId && members.length === 2) scopedGroupId = groupId;
+    } else {
+      const shared = await db.groupMember.findMany({
+        where: { participantId: { in: [fromParticipantId, toParticipantId] }, group: { createdById: userId } },
+        select: { groupId: true, participantId: true },
+      });
+      const byGroup = new Map<string, number>();
+      for (const m of shared) byGroup.set(m.groupId, (byGroup.get(m.groupId) ?? 0) + 1);
+      const both = [...byGroup.entries()].filter(([, n]) => n === 2).map(([g]) => g);
+      if (both.length === 1) scopedGroupId = both[0];
+    }
+
+    const s = await db.settlement.create({
+      data: {
+        userId,
+        participantId: null,
+        direction: null,
+        fromParticipantId,
+        toParticipantId,
+        amount,
+        method,
+        note: note || null,
+        groupId: scopedGroupId,
+        // No transactionId, and no way to pass one: see the note above.
+      },
+    });
+    await audit(db, userId, "create", "Settlement", s.id, undefined, s);
+  });
+}
+
 /** Delete a settlement (v2.0 P3). Balances are read live from the settlement
  * rows, so removing the row automatically reverses its effect — no separate
  * balance write, single source of truth. Audited like every other mutation. */
@@ -254,7 +331,9 @@ export async function deleteSettlement(userId: string, settlementId: string) {
     }
     await audit(db, userId, "delete", "Settlement", settlementId, {
       participantId: s.participantId,
-      participantName: s.participant.displayName,
+      participantName: s.participant?.displayName ?? null,
+      fromParticipantId: s.fromParticipantId,
+      toParticipantId: s.toParticipantId,
       direction: s.direction,
       amount: Number(s.amount),
       method: s.method,
@@ -268,21 +347,36 @@ export interface SettlementHistoryRow {
   ymd: string;
 }
 
-export async function settlementHistory(userId: string): Promise<{ id: string; participantName: string; direction: string; amount: number; method: string; settledAt: Date }[]> {
+export async function settlementHistory(
+  userId: string
+): Promise<{ id: string; participantName: string; direction: string | null; fromName: string | null; toName: string | null; amount: number; method: string; settledAt: Date }[]> {
   const rows = await prisma.settlement.findMany({
     where: { userId },
-    include: { participant: { select: { displayName: true } } },
+    include: {
+      participant: { select: { displayName: true } },
+      fromParticipant: { select: { displayName: true } },
+      toParticipant: { select: { displayName: true } },
+    },
     orderBy: { settledAt: "desc" },
     take: 10,
   });
-  return rows.map((s) => ({
+  return rows.map((s) => {
+    const { from, to } = settlementParties(s);
+    // null on either side means the owner; the caller renders that as "You".
+    const nameOf = (id: string | null, explicit: string | undefined) =>
+      id === null ? null : (explicit ?? s.participant?.displayName ?? "Someone");
+    return {
     id: s.id,
-    participantName: s.participant.displayName,
+    // Kept for the existing owner↔member rendering, which is unchanged.
+    participantName: s.participant?.displayName ?? s.fromParticipant?.displayName ?? s.toParticipant?.displayName ?? "Someone",
+    fromName: nameOf(from, s.fromParticipant?.displayName),
+    toName: nameOf(to, s.toParticipant?.displayName),
     direction: s.direction,
     amount: Number(s.amount),
     method: s.method,
     settledAt: s.settledAt,
-  }));
+    };
+  });
 }
 
 /** Thrown when a merge is asked to do something it cannot do safely. */
@@ -351,8 +445,16 @@ export async function mergeParticipants(userId: string, canonicalId: string, dup
     await db.expenseSplit.updateMany({ where: { participantId: duplicateId }, data: { participantId: canonicalId } });
     const loans = await db.loanEntry.findMany({ where: { participantId: duplicateId }, select: { id: true } });
     await db.loanEntry.updateMany({ where: { participantId: duplicateId }, data: { participantId: canonicalId } });
-    const setts = await db.settlement.findMany({ where: { participantId: duplicateId }, select: { id: true } });
+    // A duplicate can be named by a settlement in three places now: the legacy
+    // counterparty column, or either end of a member↔member row. All three have
+    // to be repointed, or the delete below would take a real payment with it.
+    const setts = await db.settlement.findMany({
+      where: { OR: [{ participantId: duplicateId }, { fromParticipantId: duplicateId }, { toParticipantId: duplicateId }] },
+      select: { id: true },
+    });
     await db.settlement.updateMany({ where: { participantId: duplicateId }, data: { participantId: canonicalId } });
+    await db.settlement.updateMany({ where: { fromParticipantId: duplicateId }, data: { fromParticipantId: canonicalId } });
+    await db.settlement.updateMany({ where: { toParticipantId: duplicateId }, data: { toParticipantId: canonicalId } });
     await db.transaction.updateMany({ where: { paidByParticipantId: duplicateId }, data: { paidByParticipantId: canonicalId } });
 
     // Group membership is a composite primary key, so a straight update would
@@ -380,7 +482,7 @@ export async function mergeParticipants(userId: string, canonicalId: string, dup
     const [remainingSplits, remainingLoans, remainingSetts, remainingGm, remainingPaid] = await Promise.all([
       db.expenseSplit.count({ where: { participantId: duplicateId } }),
       db.loanEntry.count({ where: { participantId: duplicateId } }),
-      db.settlement.count({ where: { participantId: duplicateId } }),
+      db.settlement.count({ where: { OR: [{ participantId: duplicateId }, { fromParticipantId: duplicateId }, { toParticipantId: duplicateId }] } }),
       db.groupMember.count({ where: { participantId: duplicateId } }),
       db.transaction.count({ where: { paidByParticipantId: duplicateId } }),
     ]);

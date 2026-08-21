@@ -289,7 +289,10 @@ export async function undoImport(userId: string, batchId: string): Promise<UndoR
       const [loanRefs, splitRefs, settleRefs, memberRefs, paidRefs] = await Promise.all([
         db.loanEntry.count({ where: { participantId: id } }),
         db.expenseSplit.count({ where: { participantId: id } }),
-        db.settlement.count({ where: { participantId: id } }),
+        // Either end counts: a member↔member settlement names its people in
+        // fromParticipantId/toParticipantId, and deleting a contact still
+        // referenced by one would orphan a real payment.
+        db.settlement.count({ where: { OR: [{ participantId: id }, { fromParticipantId: id }, { toParticipantId: id }] } }),
         db.groupMember.count({ where: { participantId: id } }),
         db.transaction.count({ where: { paidByParticipantId: id } }),
       ]);

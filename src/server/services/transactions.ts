@@ -812,11 +812,17 @@ export async function softDeleteTransaction(actingUserId: string, id: string, in
     // anything. The settlement is the record; this row only mirrors it.
     const settledBy = await db.settlement.findFirst({
       where: { transactionId: id },
-      select: { participant: { select: { displayName: true } } },
+      select: {
+        participant: { select: { displayName: true } },
+        fromParticipant: { select: { displayName: true } },
+        toParticipant: { select: { displayName: true } },
+      },
     });
     if (settledBy) {
       throw new Error(
-        `This is the money from a settlement with ${settledBy.participant.displayName}. Delete that settlement instead — it removes this automatically.`
+        `This is the money from a settlement with ${
+          settledBy.participant?.displayName ?? settledBy.fromParticipant?.displayName ?? settledBy.toParticipant?.displayName ?? "someone"
+        }. Delete that settlement instead — it removes this automatically.`
       );
     }
     const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, t, intent?.baseVersion);

@@ -230,7 +230,11 @@ export async function exportGroupStatementXlsx(userId: string, groupId: string):
   const sHead = sheet.addRow(["Settlement date", "Member", "Direction", "Amount", "Method"]);
   sHead.font = { bold: true };
   for (const s of g.settlements) {
-    sheet.addRow([toYMD(new Date(s.settledAt)), s.participantName, s.direction === "TO_OWNER" ? "Paid you" : "You paid", R(s.amount), s.method]);
+    // A payment between two members is neither "Paid you" nor "You paid" — it
+    // names both ends instead, so the statement stays readable by anyone.
+    const direction =
+      s.direction === "TO_OWNER" ? "Paid you" : s.direction === "FROM_OWNER" ? "You paid" : `${s.fromName ?? "You"} → ${s.toName ?? "You"}`;
+    sheet.addRow([toYMD(new Date(s.settledAt)), s.participantName, direction, R(s.amount), s.method]);
   }
   if (g.settlements.length === 0) sheet.addRow(["No settlements yet"]);
 

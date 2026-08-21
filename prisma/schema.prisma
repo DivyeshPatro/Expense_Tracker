@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Runtime client + pooled queries go through DATABASE_URL (Supabase's 6543
   // pgBouncer pooler in prod). Migrations/introspection use directUrl instead —
   // the 6543 transaction pooler HANGS on DDL + advisory locks, so Prisma Migrate
@@ -169,7 +169,9 @@ model Transaction {
   paidByParticipantId String? // null ⇒ paid by owner
   paidBy              Participant?     @relation("paidBy", fields: [paidByParticipantId], references: [id])
   splits              ExpenseSplit[]
-  /** Set when this row is the cash leg of a settlement (see Settlement.transaction). */
+  /**
+   * Set when this row is the cash leg of a settlement (see Settlement.transaction).
+   */
   settlement          Settlement?
   tags                TransactionTag[]
   receipts            Receipt[]
@@ -392,11 +394,13 @@ model Participant {
   email        String? // optional contact email (New Member form / future invites)
   notes        String?
 
-  splits       ExpenseSplit[]
-  paidTx       Transaction[]  @relation("paidBy")
-  groupMembers GroupMember[]
-  settlements  Settlement[]
-  loanEntries  LoanEntry[]
+  splits              ExpenseSplit[]
+  paidTx              Transaction[]  @relation("paidBy")
+  groupMembers        GroupMember[]
+  settlements         Settlement[]   @relation("SettlementCounterparty")
+  settlementsPaid     Settlement[]   @relation("SettlementFrom")
+  settlementsReceived Settlement[]   @relation("SettlementTo")
+  loanEntries         LoanEntry[]
 
   @@index([ownerId])
   // collaboration-architecture-rfc §9: hot path for "which groups is this
@@ -496,30 +500,46 @@ enum SettleDirection {
 }
 
 model Settlement {
-  id            String          @id @default(cuid())
-  userId        String // owner whose ledger this settles
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  participantId String
-  participant   Participant     @relation(fields: [participantId], references: [id], onDelete: Cascade)
-  direction     SettleDirection
-  amount        BigInt // paise
-  method        SettleMethod
-  settledAt     DateTime        @default(now())
-  note          String?
+  id                String           @id @default(cuid())
+  userId            String // owner whose ledger this settles
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // P0-1 — a settlement is an edge between two parties, and until now one of
+  // them was always the owner. participantId/direction still hold every
+  // owner-involved settlement, unchanged and not rewritten; they are null only
+  // on a member↔member row, where neither has a truthful value. Making them
+  // nullable rather than storing a convenient lie is deliberate: fifteen call
+  // sites read these two columns, and a sentinel would have made every missed
+  // one silently book a payment between two friends as a payment to the owner.
+  // Null makes the compiler find them instead.
+  participantId     String?
+  participant       Participant?     @relation("SettlementCounterparty", fields: [participantId], references: [id], onDelete: Cascade)
+  direction         SettleDirection?
+  // The two parties, null meaning the owner. Written only on member↔member
+  // rows: an owner-involved settlement keeps the original encoding so that
+  // path stays byte-for-byte what it was, and settlementParties() in
+  // lib/settlement-parties.ts derives from/to for it. One reader, both shapes.
+  fromParticipantId String?
+  fromParticipant   Participant?     @relation("SettlementFrom", fields: [fromParticipantId], references: [id], onDelete: Cascade)
+  toParticipantId   String?
+  toParticipant     Participant?     @relation("SettlementTo", fields: [toParticipantId], references: [id], onDelete: Cascade)
+  amount            BigInt // paise
+  method            SettleMethod
+  settledAt         DateTime         @default(now())
+  note              String?
   // Group Dashboard (v2.0 P3): a settlement recorded to clear a specific
   // group's balance is attributed to it, so one group's payments never leak
   // into another group that shares the same member. Null = a general (shared
   // page) settlement, counted in the global per-friend balance only.
-  groupId       String?
-  group         Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  groupId           String?
+  group             Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
   // The cash leg. Settling is real money moving — recording it only here left
   // account balances drifting from the bank and made "cash outflow" count the
   // money going out but never the money coming back. When an account is chosen
   // the settlement also writes a Transaction, and this is the link that lets
   // deleting the settlement reverse it. Null for settlements recorded without
   // an account (cash in hand), and for every row created before this existed.
-  transactionId String?         @unique
-  transaction   Transaction?    @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  transactionId     String?          @unique
+  transaction       Transaction?     @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@index([userId, settledAt(sort: Desc)])
   @@index([groupId])
@@ -628,21 +648,21 @@ enum ImportStatus {
 }
 
 model ImportBatch {
-  id            String       @id @default(cuid())
-  userId        String
-  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  source        String // "monito" | "csv" | "splitwise" | …
-  fileName      String
-  importedCount Int          @default(0)
-  skippedCount  Int          @default(0)
-  errors        Json?
+  id              String       @id @default(cuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source          String // "monito" | "csv" | "splitwise" | …
+  fileName        String
+  importedCount   Int          @default(0)
+  skippedCount    Int          @default(0)
+  errors          Json?
   // Entities this batch brought into existence, so undo can reverse them:
   // {"accounts":[id,…],"categories":[id,…]}. Only the backup-restore engine
   // creates entities — the CSV import maps onto existing ones — so this is
   // null for every CSV batch. Undo deletes these only while still unreferenced.
   createdEntities Json?
-  status        ImportStatus @default(PREVIEW)
-  createdAt     DateTime     @default(now())
+  status          ImportStatus @default(PREVIEW)
+  createdAt       DateTime     @default(now())
   // undo = soft-delete all tx where importBatchId = id, then drop createdEntities
 
   @@index([userId])
@@ -701,17 +721,17 @@ model CreditCard {
   // Plaintext by design — these drive the gallery, search and filters, and none
   // of them is sufficient to transact. last4 in the clear is standard practice:
   // it is printed on every receipt.
-  nickname  String
-  bank      String
-  network   CardNetwork
-  last4     String
-  color     String?
-  isDefault Boolean     @default(false)
+  nickname   String
+  bank       String
+  network    CardNetwork
+  last4      String
+  color      String?
+  isDefault  Boolean     @default(false)
   // Cards UX 2.0 (#84/#85): plaintext organisation metadata, same tier as
   // nickname/bank — none of it can transact. isFavorite pins a card to the top
   // of the gallery; archivedAt (non-null ⇒ archived) tucks a retired card out
   // of the way without deleting its encrypted details.
-  isFavorite Boolean   @default(false)
+  isFavorite Boolean     @default(false)
   archivedAt DateTime?
 
   // AES-256-GCM ciphertext, one column pair per field. Separate IVs make reuse

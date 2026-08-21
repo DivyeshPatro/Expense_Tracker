@@ -22,6 +22,7 @@ import {
   type SettlementSuggestion,
 } from "@/lib/group-dashboard";
 import type { Period } from "@/lib/period";
+import { settlementParties } from "@/lib/settlement-parties";
 import { prisma } from "../db";
 
 const TREND_MONTHS = 6;
@@ -74,7 +75,19 @@ export interface GroupDashboardData {
     categories: CategorySlice[];
     trend: { key: string; label: string; total: number }[];
   };
-  settlements: { id: string; participantName: string; direction: "TO_OWNER" | "FROM_OWNER"; amount: number; method: string; note: string | null; settledAt: string }[];
+  settlements: {
+    id: string;
+    participantName: string;
+    /** null on a member↔member row — read fromName/toName instead. */
+    direction: "TO_OWNER" | "FROM_OWNER" | null;
+    /** null means the owner ("You"). */
+    fromName: string | null;
+    toName: string | null;
+    amount: number;
+    method: string;
+    note: string | null;
+    settledAt: string;
+  }[];
   /** The individual obligations the expenses created — everyone who shared a
    *  bill owes the person who PAID it, including when that person is another
    *  member. Group-wide and viewer-independent, exactly like `suggestions`;
@@ -172,7 +185,7 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
     // in netBalances(), where they belong.
     prisma.settlement.findMany({
       where: { groupId: { in: ids } },
-      select: { id: true, groupId: true, participantId: true, direction: true, amount: true, settledAt: true },
+      select: { id: true, groupId: true, participantId: true, direction: true, fromParticipantId: true, toParticipantId: true, amount: true, settledAt: true },
     }),
   ]);
 
@@ -205,6 +218,8 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
       id: s.id,
       participantId: s.participantId,
       direction: s.direction,
+      fromParticipantId: s.fromParticipantId,
+      toParticipantId: s.toParticipantId,
       amount: Number(s.amount),
       settledAt: s.settledAt.toISOString(),
     }));
@@ -295,7 +310,11 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     // group itself was authorized above, so this cannot widen visibility.
     prisma.settlement.findMany({
       where: { groupId },
-      include: { participant: { select: { displayName: true } } },
+      include: {
+        participant: { select: { displayName: true } },
+        fromParticipant: { select: { displayName: true } },
+        toParticipant: { select: { displayName: true } },
+      },
       orderBy: { settledAt: "desc" },
     }),
     // The GROUP OWNER, not the viewer: `paidByParticipantId: null` always means
@@ -324,13 +343,21 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     id: s.id,
     participantId: s.participantId,
     direction: s.direction,
+    // Both encodings travel together — dropping these left a member↔member row
+    // looking like a malformed legacy one, which settlementParties correctly
+    // reads as an edge that moves nothing.
+    fromParticipantId: s.fromParticipantId,
+    toParticipantId: s.toParticipantId,
     amount: Number(s.amount),
     settledAt: s.settledAt.toISOString(),
   }));
 
   const memberIds = group.members.map((m) => m.participantId);
   const { members: balances, youNet, youAreOwed, youOwe } = computeMemberBalances(expenses, settleRows, memberIds);
-  const settledPids = new Set(settleRows.map((s) => s.participantId));
+  // Anyone who has been part of a settlement, either end of it.
+  const settledPids = new Set(
+    settleRows.flatMap((s) => [s.participantId, s.fromParticipantId ?? null, s.toParticipantId ?? null]).filter((id): id is string => id !== null)
+  );
   const detailedRows = computeDetailedObligations(expenses, settleRows, memberIds);
 
   // attach display meta; the owner ("You") card leads
@@ -461,15 +488,20 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
       categories: groupCategoryTotals(periodExpenses),
       trend,
     },
-    settlements: settlements.map((s) => ({
+    settlements: settlements.map((s) => {
+      const { from, to } = settlementParties(s);
+      return {
       id: s.id,
-      participantName: s.participant.displayName,
+      participantName: s.participant?.displayName ?? s.fromParticipant?.displayName ?? s.toParticipant?.displayName ?? "Someone",
       direction: s.direction,
+      fromName: from === null ? null : (s.fromParticipant?.displayName ?? s.participant?.displayName ?? "Someone"),
+      toName: to === null ? null : (s.toParticipant?.displayName ?? s.participant?.displayName ?? "Someone"),
       amount: Number(s.amount),
       method: s.method,
       note: s.note,
       settledAt: s.settledAt.toISOString(),
-    })),
+      };
+    }),
     detailed: detailedRows.map((d) => ({
       ...d,
       fromName: nameOfObligationSide(d.fromId),

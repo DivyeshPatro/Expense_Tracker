@@ -16,7 +16,11 @@ import { formatPaise } from "@/lib/money";
 export interface SettlementRow {
   id: string;
   participantName: string;
-  direction: "TO_OWNER" | "FROM_OWNER";
+  /** null on a member↔member row, where neither end is the owner. */
+  direction: "TO_OWNER" | "FROM_OWNER" | null;
+  /** null means the owner. */
+  fromName: string | null;
+  toName: string | null;
   amount: number;
   method: string;
   note: string | null;
@@ -85,12 +89,24 @@ function SettlementCard({ s, ownerName, canManage }: { s: SettlementRow; ownerNa
   const { showToast } = useUI();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const toOwner = s.direction === "TO_OWNER";
   // "Cara paid you" is only true for the owner. To another member it is
-  // "Cara paid Olivia Owner" — the same money, correctly attributed.
-  const line = toOwner
-    ? `${s.participantName} paid ${canManage ? "you" : ownerName}`
-    : `${canManage ? "You" : ownerName} paid ${s.participantName}`;
+  // "Cara paid Olivia Owner" — the same money, correctly attributed. And a
+  // payment between two members names both, since the owner is not in it.
+  const who = (name: string | null) => (name === null ? (canManage ? "you" : ownerName) : name);
+  // Money coming toward the owner reads green, money leaving reads red. A
+  // payment between two members moves neither way for the viewer, so it takes
+  // the neutral treatment rather than borrowing a direction it doesn't have.
+  const toOwner = s.direction === "TO_OWNER";
+  const ownerInvolved = s.direction !== null;
+  const tone = !ownerInvolved ? "var(--mut2)" : toOwner ? "var(--green)" : "var(--red)";
+  const toneSoft = !ownerInvolved ? "var(--accSoft)" : toOwner ? "var(--greenSoft)" : "var(--redSoft)";
+  const glyph = !ownerInvolved ? "⇄" : toOwner ? "↘" : "↗";
+  const line =
+    s.direction === "TO_OWNER"
+      ? `${s.participantName} paid ${canManage ? "you" : ownerName}`
+      : s.direction === "FROM_OWNER"
+        ? `${canManage ? "You" : ownerName} paid ${s.participantName}`
+        : `${who(s.fromName)} paid ${who(s.toName)}`;
 
   async function del() {
     setBusy(true);
@@ -108,10 +124,10 @@ function SettlementCard({ s, ownerName, canManage }: { s: SettlementRow; ownerNa
     <div className="flex items-center gap-2.5 py-2 border-b border-line last:border-b-0">
       <span
         className="w-8 h-8 rounded-[10px] grid place-items-center text-[13px] flex-none"
-        style={{ background: toOwner ? "var(--greenSoft)" : "var(--redSoft)" }}
+        style={{ background: toneSoft }}
         aria-hidden
       >
-        {toOwner ? "↘" : "↗"}
+        {glyph}
       </span>
       <div className="flex-1 min-w-0">
         <div className="text-[12.5px] font-semibold truncate">{line}</div>
@@ -120,7 +136,7 @@ function SettlementCard({ s, ownerName, canManage }: { s: SettlementRow; ownerNa
           {s.note ? ` · ${s.note}` : ""}
         </div>
       </div>
-      <span className="text-[13px] font-bold tabular-nums flex-none" style={{ color: toOwner ? "var(--green)" : "var(--red)" }}>
+      <span className="text-[13px] font-bold tabular-nums flex-none" style={{ color: tone }}>
         {formatPaise(s.amount)}
       </span>
       {!canManage ? null : confirming ? (
