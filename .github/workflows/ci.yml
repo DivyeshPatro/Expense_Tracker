@@ -14,6 +14,13 @@ on:
   # trigger matches the repository's actual branches.
   workflow_dispatch:
 
+# Least privilege: this workflow reads the repository and nothing else. It
+# posts no comments, uploads no artifacts and publishes nothing, so no write
+# scope is required. It runs on pull_request, including from forks — a token
+# with more than this would be handed to code from outside the repository.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same branch/PR instead of letting them
 # queue up and finish out of order.
 concurrency:

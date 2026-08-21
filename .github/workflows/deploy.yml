@@ -1,0 +1,138 @@
+name: Deploy (production)
+
+# The authoritative production deployment path.
+#
+# Vercel's Git integration used to deploy ledgerly-app on its own, in parallel
+# with CI and with nothing applying migrations — so 4f0819f went live against a
+# database that had never received 20260821093757_member_to_member_settlements,
+# and every authenticated page 500'd on a column that did not exist. Git
+# deployment for this branch is now disabled in vercel.json; production is
+# deployed only from here, and only in this order:
+#
+#     CI green  →  prisma migrate deploy  →  vercel deploy --prod
+#
+# Migrations lead the code, never trail it. Every migration in this repository's
+# history is additive, so a schema that runs ahead of the code is harmless while
+# the reverse is an outage.
+
+on:
+  # Runs only after CI has actually passed on this branch — not merely after a
+  # push. A failing test suite can no longer reach the production database.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [ledgerly-app]
+  # Manual re-run, for redeploying without a new commit.
+  workflow_dispatch:
+
+# One production deployment at a time. cancel-in-progress is deliberately FALSE:
+# the default cancel-superseded behaviour would kill a run mid-DDL and leave
+# _prisma_migrations holding a half-finished row. A queued deploy is a delay; a
+# cancelled migration is an incident. Prisma's own advisory lock is the
+# database-level backstop underneath this.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+# Least privilege. This workflow only ever reads the repository; it opens no
+# issues, writes no comments, publishes no packages. It matters more here than
+# elsewhere: a workflow_run job runs in the BASE repository with access to every
+# secret, so its token is worth denying by default.
+permissions:
+  contents: read
+
+jobs:
+  migrate-and-deploy:
+    # The whole trust boundary of this workflow.
+    #
+    # `branches:` above filters on workflow_run.head_branch, which for a PR is
+    # the SOURCE branch — and for a fork PR that name is chosen by the person
+    # opening it. This repository is public, so anyone could fork it, name a
+    # branch `ledgerly-app`, and open a PR: CI would run their code, pass
+    # (they wrote the tests), and fire workflow_run with a matching branch and
+    # a "success" conclusion. This job would then run IN THIS REPOSITORY with
+    # every secret, check out their commit, execute their npm lifecycle scripts,
+    # migrate the production database and deploy them to production.
+    #
+    # Two independent conditions close that, either of which alone is
+    # sufficient: the triggering run must come from THIS repository (never a
+    # fork), and it must have been a push (never a pull request).
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ledgerly-app') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'ledgerly-app' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    # Attach a GitHub Environment named "production" to require a reviewer, or
+    # to scope these secrets to this job alone.
+    environment: production
+    env:
+      # BOTH point at the direct 5432 connection. Prisma Migrate reads
+      # directUrl, but the datasource still validates DATABASE_URL, and pointing
+      # it at the pooler here would only invite a future step to use it for DDL.
+      DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+      DATABASE_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The exact commit CI validated — not whatever the branch tip has
+          # become while this run was queued behind another deployment.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      # Fail before touching anything if the connection is the 6543 pooler:
+      # DDL and Prisma's advisory lock hang there rather than erroring, which
+      # would stall the deploy holding a lock instead of failing it.
+      - name: Verify a direct 5432 connection
+        run: node scripts/assert-migrations-applied.mjs --connection-only
+
+      # Read-only. Puts the pending list in the log before anything is applied,
+      # so the run's own record shows what it was about to do.
+      - name: Migration status (read-only)
+        run: npx prisma migrate status
+
+      # deploy, never dev/reset/push: forward-only, no schema drift prompts, and
+      # no possibility of dropping the database.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      # Build here rather than on Vercel so a build failure never produces a
+      # deployment at all. The build runs vercel.json's buildCommand, so the
+      # migration assertion runs again — against the database this job has just
+      # migrated. If those two disagree, nothing is promoted.
+      - name: Build for production
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+        env:
+          # Set explicitly rather than trusting `vercel pull` to have written
+          # them. The build runs vercel.json's buildCommand, whose assertion
+          # must actually execute — if VERCEL_ENV were merely assumed and turned
+          # out to be absent, the one check standing between a stale schema and
+          # production would quietly do nothing.
+          VERCEL_ENV: production
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy to production
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

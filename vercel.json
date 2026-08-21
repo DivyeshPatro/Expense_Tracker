@@ -1,5 +1,11 @@
 {
   "regions": ["bom1"],
+  "buildCommand": "node scripts/assert-migrations-applied.mjs && next build",
+  "git": {
+    "deploymentEnabled": {
+      "ledgerly-app": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/daily",
