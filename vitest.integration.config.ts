@@ -7,6 +7,10 @@ import path from "path";
 export default defineConfig({
   test: {
     include: ["src/**/*.integration.test.ts"],
+    // Fails the whole run before a single test file is loaded unless the
+    // database URL is local. See scripts/vitest-local-db-guard.mjs — these
+    // tests delete and re-create rows, and .env points at production.
+    globalSetup: ["./scripts/vitest-local-db-guard.mjs"],
     exclude: ["**/node_modules/**"],
     fileParallelism: false,
     sequence: { concurrent: false },

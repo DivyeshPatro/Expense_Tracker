@@ -3,7 +3,7 @@
 // elsewhere); JSON is a complete structural dump of everything the user owns.
 
 import ExcelJS from "exceljs";
-import { toYMD } from "@/lib/dates";
+import { recordedAtTime, toYMD } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
 import { prisma } from "../db";
 import { contactStatement } from "./lending";
@@ -237,6 +237,84 @@ export async function exportGroupStatementXlsx(userId: string, groupId: string):
     sheet.addRow([toYMD(new Date(s.settledAt)), s.participantName, direction, R(s.amount), s.method]);
   }
   if (g.settlements.length === 0) sheet.addRow(["No settlements yet"]);
+
+  // ── Sheet 2: the records themselves ────────────────────────────────────────
+  // The Group sheet is a summary: it says "3 ways" and prints only YOUR share,
+  // so no other member can check their own number and an unequal split is
+  // indistinguishable from an equal one. This sheet is the evidence behind it —
+  // one row per stored ExpenseSplit and per stored Settlement, nothing derived,
+  // nothing netted. Every row reads the same way: on this date, FROM owed or
+  // paid TO this amount, for this reason.
+  const audit = book.addWorksheet("Audit trail");
+
+  // The owner is stored as null everywhere (payer, share, settlement end). The
+  // dashboard has already decided what to call them — "You" for the owner
+  // reading their own group, their real name for anyone else — so take that
+  // label rather than inventing a second rule that could disagree with the
+  // sheet above.
+  const ownerLabel = g.members.find((m) => m.participantId === null)?.name ?? "You";
+
+  const aHead = audit.addRow([
+    "Date", "Time recorded", "Type", "From (owes / pays)", "To (owed / paid)", "Amount",
+    "Group", "Details", "Category", "Expense total", "Paid by", "Basis", "Account",
+  ]);
+  aHead.font = { bold: true };
+
+  const SPLIT_BASIS: Record<string, string> = { EQUAL: "Equal", PERCENT: "Percent", EXACT: "Exact", RATIO: "Ratio", CUSTOM: "Custom" };
+  type AuditRow = { key: string; cells: (string | number)[] };
+  const rows: AuditRow[] = [];
+
+  for (const e of g.expenses) {
+    for (const sp of e.splits) {
+      // Sharing a bill creates a debt to whoever PAID it — so the person who
+      // owes is the "from" side, exactly as an obligation reads. The payer's
+      // own share is not a debt to themselves; it is labelled as such so it is
+      // never summed as one, and it is still listed because the shares only
+      // reconcile against the expense total with it present.
+      const isPayer = sp.participantId === e.paidByParticipantId;
+      rows.push({
+        key: `${e.ymd} 1`,
+        cells: [
+          // No time: an expense's occurredAt is written as istNoon(date), so a
+          // clock time here would be invented precision. Settlements carry a
+          // real recorded instant and print one.
+          e.ymd, "", isPayer ? "Own share" : "Expense share",
+          sp.name, isPayer ? sp.name : e.paidByName, R(sp.owedAmount),
+          g.name, e.merchant, e.categoryName ?? "", R(e.amount), e.paidByName,
+          SPLIT_BASIS[sp.method] ?? sp.method, "",
+        ],
+      });
+    }
+  }
+
+  for (const st of g.settlements) {
+    // Both ends, always, named. A member↔member payment is between those two
+    // members: it is never re-pointed at the owner, and the owner's own row in
+    // the sheet above is unaffected by it.
+    const when = new Date(st.settledAt);
+    const from = st.fromName ?? ownerLabel;
+    const to = st.toName ?? ownerLabel;
+    rows.push({
+      key: `${toYMD(when)} 2`,
+      cells: [
+        toYMD(when), recordedAtTime(st.settledAt), "Settlement",
+        from, to, R(st.amount),
+        g.name, st.note ?? "", "", "", "",
+        st.method, st.accountName ?? "",
+      ],
+    });
+  }
+
+  // Chronological, the way a ledger is read. Sort is stable, so an expense's
+  // shares stay together and in the order they were stored.
+  rows.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  for (const r of rows) audit.addRow(r.cells);
+  if (rows.length === 0) audit.addRow(["Nothing recorded yet"]);
+
+  for (const [c, w] of [[1, 12], [2, 8], [3, 14], [4, 18], [5, 18], [6, 14], [7, 18], [8, 26], [9, 14], [10, 14], [11, 16], [12, 12], [13, 16]] as const) {
+    audit.getColumn(c).width = w;
+  }
+  for (const c of [6, 10]) audit.getColumn(c).numFmt = "#,##0.00";
 
   sheet.getColumn(1).width = 20;
   sheet.getColumn(2).width = 26; // descriptions live here

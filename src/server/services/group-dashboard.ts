@@ -22,6 +22,7 @@ import {
   type SettlementSuggestion,
 } from "@/lib/group-dashboard";
 import type { Period } from "@/lib/period";
+import type { SplitMethod } from "@prisma/client";
 import { settlementParties } from "@/lib/settlement-parties";
 import { prisma } from "../db";
 
@@ -87,6 +88,10 @@ export interface GroupDashboardData {
     method: string;
     note: string | null;
     settledAt: string;
+    /** The account the owner's cash leg moved through, when one was recorded.
+     *  Null for a settlement taken in hand — and always null between two
+     *  members, who never move the owner's money. */
+    accountName: string | null;
   }[];
   /** The individual obligations the expenses created — everyone who shared a
    *  bill owes the person who PAID it, including when that person is another
@@ -122,6 +127,21 @@ export interface GroupExpenseListRow {
   yourShare: number;
   /** How many people it was split between, including you. */
   splitCount: number;
+  /** The share records themselves, one per person the bill was split with, as
+   *  stored — no re-derivation. `splitCount` and `yourShare` are summaries of
+   *  this list and stay for the callers that only need the summary; the export
+   *  needs the evidence, because "3 ways" cannot be checked by anyone. */
+  splits: GroupSplitLine[];
+}
+
+/** One ExpenseSplit as the statement prints it: who owed what, and on what
+ *  basis. Names resolved here, by the same rule that names the payer. */
+export interface GroupSplitLine {
+  /** null ⇒ the owner's own share, same convention as ExpenseSplit. */
+  participantId: string | null;
+  name: string;
+  owedAmount: number; // paise
+  method: SplitMethod;
 }
 
 /** A group as the Shared home lists it: enough to answer "what is this and
@@ -292,7 +312,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
         paidByParticipantId: true,
         categoryId: true,
         category: { select: { name: true, icon: true, color: true } },
-        splits: { select: { participantId: true, owedAmount: true } },
+        splits: { select: { participantId: true, owedAmount: true, method: true } },
       },
       orderBy: { occurredAt: "desc" },
     }),
@@ -314,6 +334,9 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
         participant: { select: { displayName: true } },
         fromParticipant: { select: { displayName: true } },
         toParticipant: { select: { displayName: true } },
+        // The cash leg's account, by name. The statement says where the money
+        // actually moved; the link itself is an internal id and stays here.
+        transaction: { select: { account: { select: { name: true } } } },
       },
       orderBy: { settledAt: "desc" },
     }),
@@ -453,6 +476,12 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     paidByName: nameOf(t.paidByParticipantId),
     yourShare: Number(t.splits.find((s) => s.participantId === null)?.owedAmount ?? 0),
     splitCount: t.splits.length,
+    splits: t.splits.map((s) => ({
+      participantId: s.participantId,
+      name: nameOf(s.participantId),
+      owedAmount: Number(s.owedAmount),
+      method: s.method,
+    })),
   }));
 
   // period filter for the spending charts
@@ -500,6 +529,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
       method: s.method,
       note: s.note,
       settledAt: s.settledAt.toISOString(),
+      accountName: s.transaction?.account?.name ?? null,
       };
     }),
     detailed: detailedRows.map((d) => ({
