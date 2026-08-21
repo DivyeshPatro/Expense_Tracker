@@ -292,8 +292,13 @@ export function TransactionsList({
               lib/expense-basis.ts. When nothing is split the two are equal and
               the secondary line is suppressed as noise. */}
           <div className="flex-1 min-w-0 rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="text-[10px] uppercase tracking-wide font-bold text-mut2 min-w-0 truncate" title={EXPENSE_BASIS[headline.key].hint}>
+            {/* Wraps rather than truncates. The toggle needs ~116px and this
+                tile is half the card, so on a phone the label was squeezed to
+                "O…" — the one word that says which figure is being shown. When
+                both fit they share a line; when they don't the toggle drops to
+                its own, which costs a few pixels of height and nothing else. */}
+            <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+              <div className="text-[10px] uppercase tracking-wide font-bold text-mut2" title={EXPENSE_BASIS[headline.key].hint}>
                 Out · {headline.label}
               </div>
               {/* The always-visible home for the switch on mobile: the dashboard's
