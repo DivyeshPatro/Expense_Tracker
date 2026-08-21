@@ -19,7 +19,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { currentMonthKey } from "@/lib/dates";
 import { parsePeriod } from "@/lib/period";
-import { addExpense } from "./transactions";
+import { istNoon } from "@/lib/dates";
 import { groupDashboard } from "./group-dashboard";
 import { mergeParticipants, MergeConflictError, netBalances, recordSettlement } from "./shared";
 import { lendingBalances } from "./lending";
@@ -57,11 +57,27 @@ async function reset() {
   })).id;
 }
 
-/** An expense paid by the owner, split equally with `who`. */
+/**
+ * An expense paid by the owner, split equally with `who`.
+ *
+ * Written straight to the database rather than through addExpense, because the
+ * state this suite repairs cannot be created through addExpense any more: P0-2
+ * refuses a group expense that names somebody outside the roster, and the
+ * duplicate "Blake" is by definition not on it — that is the whole defect. The
+ * rows here stand in for history recorded before the server validated this,
+ * which is exactly what a merge tool has to cope with. The split maths matches
+ * splitEqual: floor for everyone, remainder to the payer (the owner).
+ */
 async function expense(merchant: string, amount: number, who: string[], group: string | null = groupId) {
-  await addExpense(userId, {
-    amount, accountId, categoryId, merchant, date: YMD, groupId: group,
-    split: { mode: "EQUAL", participantIds: who, payerParticipantId: null },
+  const ids: (string | null)[] = [null, ...who];
+  const base = Math.floor(amount / ids.length);
+  const remainder = amount - base * ids.length;
+  await prisma.transaction.create({
+    data: {
+      userId, type: "EXPENSE", amount, accountId, categoryId, merchant,
+      occurredAt: istNoon(YMD), groupId: group, paidByParticipantId: null,
+      splits: { create: ids.map((participantId) => ({ participantId, owedAmount: base + (participantId === null ? remainder : 0) })) },
+    },
   });
   return prisma.transaction.findFirstOrThrow({ where: { userId, merchant }, include: { splits: true } });
 }
@@ -236,9 +252,14 @@ describe("consistency across Shared, Lending and Groups", () => {
   });
 
   it("repoints an expense the duplicate PAID for", async () => {
-    await addExpense(userId, {
-      amount: 30_000, accountId: null, categoryId, merchant: "Paid by dup", date: YMD, groupId,
-      split: { mode: "EQUAL", participantIds: [alex, duplicate], payerParticipantId: duplicate },
+    // Same reason as the `expense` helper: the duplicate is not on the roster,
+    // so this row could only have been recorded before P0-2 existed.
+    await prisma.transaction.create({
+      data: {
+        userId, type: "EXPENSE", amount: 30_000, accountId: null, categoryId, merchant: "Paid by dup",
+        occurredAt: istNoon(YMD), groupId, paidByParticipantId: duplicate,
+        splits: { create: [null, alex, duplicate].map((participantId) => ({ participantId, owedAmount: 10_000 })) },
+      },
     });
     await mergeParticipants(userId, canonical, duplicate);
     const tx = await prisma.transaction.findFirstOrThrow({ where: { merchant: "Paid by dup" } });

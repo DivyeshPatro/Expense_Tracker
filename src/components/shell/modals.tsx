@@ -236,9 +236,19 @@ function GroupField({
       </select>
       {mustChoose && (
         <div className="text-[11.5px] font-semibold mt-1.5 rounded-lg px-2.5 py-2" style={{ color: "var(--amber)", background: "var(--amberSoft, var(--accSoft))" }}>
-          These people are in{" "}
-          {inference.kind === "ambiguous" ? inference.candidates.map((c) => c.name).join(" and ") : "more than one group"} — pick which
-          one this expense belongs to, or choose Personal.
+          {inference.kind === "conflict" ? (
+            <>
+              Most of these people are in{" "}
+              {inference.candidates.map((c) => c.name).join(" and ")}, but not all of them — pick which group this expense
+              belongs to, remove whoever isn&apos;t in it, or choose Personal.
+            </>
+          ) : (
+            <>
+              These people are in{" "}
+              {inference.kind === "ambiguous" ? inference.candidates.map((c) => c.name).join(" and ") : "more than one group"} — pick
+              which one this expense belongs to, or choose Personal.
+            </>
+          )}
         </div>
       )}
       {!mustChoose && autoApplied && chosen && (

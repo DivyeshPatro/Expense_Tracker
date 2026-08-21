@@ -23,12 +23,23 @@ export interface GroupLike {
 }
 
 export type GroupInference =
-  /** No group contains all the selected people — a personal split. */
+  /** Nobody picked shares a group — an ordinary personal split. */
   | { kind: "none" }
   /** Exactly one group contains all of them — safe to apply. */
   | { kind: "one"; groupId: string; groupName: string }
   /** Several groups contain all of them — never guess; the caller must ask. */
-  | { kind: "ambiguous"; candidates: GroupLike[] };
+  | { kind: "ambiguous"; candidates: GroupLike[] }
+  /**
+   * A group holds most of the people picked but not all of them (P0-3).
+   *
+   * This used to be indistinguishable from "none", so the form quietly filed
+   * the expense as personal — the same silent conversion that lost four of
+   * five expenses on one trip, except triggered by one extra head at dinner
+   * rather than a collapsed Advanced section. It is reported separately now so
+   * the caller can ask, because guessing either way is wrong: the group is a
+   * real possibility and so is a genuinely personal split.
+   */
+  | { kind: "conflict"; candidates: GroupLike[]; outsiderIds: string[] };
 
 /**
  * Which group, if any, a set of split participants implies.
@@ -49,20 +60,41 @@ export function inferGroupForMembers(selectedParticipantIds: string[], groups: G
     return selected.every((id) => roster.has(id));
   });
 
-  if (candidates.length === 0) return { kind: "none" };
   if (candidates.length === 1) return { kind: "one", groupId: candidates[0].id, groupName: candidates[0].name };
-  return { kind: "ambiguous", candidates };
+  if (candidates.length > 1) return { kind: "ambiguous", candidates };
+
+  // No group holds everyone. Before calling it personal, look for a group that
+  // holds MOST of them: two or more of the people picked, with at least one
+  // left outside. That shape — a group outing with a guest — is the one worth
+  // stopping for. A single friend who happens to belong to some group is not:
+  // asking there would interrupt every ordinary two-person split.
+  const near = groups.filter((g) => {
+    const roster = new Set(g.memberIds);
+    const inside = selected.filter((id) => roster.has(id));
+    return inside.length >= 2 && inside.length < selected.length;
+  });
+  if (near.length === 0) return { kind: "none" };
+
+  // Outsiders relative to the best-covering candidate: the people who would
+  // have to be removed (or added to the group) for this to be its expense.
+  const best = near.reduce((a, b) => {
+    const cover = (g: GroupLike) => selected.filter((id) => new Set(g.memberIds).has(id)).length;
+    return cover(b) > cover(a) ? b : a;
+  });
+  const bestRoster = new Set(best.memberIds);
+  return { kind: "conflict", candidates: near, outsiderIds: selected.filter((id) => !bestRoster.has(id)) };
 }
 
 /**
  * Whether the form must stop and make the user choose before saving.
  *
- * True only when the people picked imply several groups AND the user hasn't
- * said which. Choosing "Personal (not in a group)" is itself an explicit
- * answer, so `groupChosen` covers it — this never blocks someone who has
- * actually decided, and never silently falls back to Personal for someone who
- * hasn't (which is the failure mode that lost the four expenses).
+ * True when the people picked imply several groups, or imply one group they
+ * do not all belong to, AND the user hasn't said which. Choosing "Personal
+ * (not in a group)" is itself an explicit answer, so `groupChosen` covers it —
+ * this never blocks someone who has actually decided, and never silently falls
+ * back to Personal for someone who hasn't (the failure mode that lost the four
+ * expenses).
  */
 export function needsExplicitGroupChoice(inference: GroupInference, groupChosen: boolean): boolean {
-  return inference.kind === "ambiguous" && !groupChosen;
+  return (inference.kind === "ambiguous" || inference.kind === "conflict") && !groupChosen;
 }

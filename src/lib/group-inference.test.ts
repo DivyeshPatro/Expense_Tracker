@@ -32,9 +32,16 @@ describe("inferGroupForMembers", () => {
     expect(r).toEqual({ kind: "one", groupId: "g-lake", groupName: "Lakeside" });
   });
 
-  it("infers nothing when one person is outside the group", () => {
+  it("does not claim the group when one person is outside it", () => {
+    // Superseded by P0-3, and deliberately kept rather than deleted: this used
+    // to assert { kind: "none" }, which the form read as "personal" and saved
+    // silently. The rule it was protecting — never claim a group that does not
+    // hold everyone — still holds; what changed is that the caller is now told
+    // to decide instead of being given a fallback.
     const r = inferGroupForMembers(["p-alex", "p-casey", "karan"], [LAKESIDE, FLAT]);
-    expect(r).toEqual({ kind: "none" });
+    expect(r.kind).not.toBe("one");
+    expect(r.kind).toBe("conflict");
+    expect(needsExplicitGroupChoice(r, false)).toBe(true);
   });
 
   it("refuses to guess when several groups contain everyone picked", () => {
@@ -91,5 +98,65 @@ describe("needsExplicitGroupChoice", () => {
   it("never blocks an unambiguous or empty inference", () => {
     expect(needsExplicitGroupChoice({ kind: "none" }, false)).toBe(false);
     expect(needsExplicitGroupChoice({ kind: "one", groupId: "g", groupName: "G" }, false)).toBe(false);
+  });
+});
+
+// ── P0-3: an outsider must not silently make it a personal expense ─────────
+//
+// The failure this guards is the quieter cousin of the four lost expenses:
+// four people from a trip plus one friend who isn't on it. No group contains
+// everyone, the inference returned "none", and the form filed a ₹2,530 group
+// dinner as a personal split that the group dashboard could never show.
+describe("a group outing with a guest", () => {
+  const GUEST = "p-guest";
+
+  it("reports a conflict rather than falling back to personal", () => {
+    const r = inferGroupForMembers(["p-alex", "p-casey", "p-devon", GUEST], [LAKESIDE, FLAT]);
+    expect(r.kind).toBe("conflict");
+    if (r.kind !== "conflict") throw new Error("unreachable");
+    expect(r.candidates.map((c) => c.id)).toEqual(["g-lake"]);
+    expect(r.outsiderIds).toEqual([GUEST]);
+  });
+
+  it("names every person who would have to be removed or added", () => {
+    const r = inferGroupForMembers(["p-alex", "p-casey", GUEST, "zara"], [LAKESIDE]);
+    if (r.kind !== "conflict") throw new Error(`expected conflict, got ${r.kind}`);
+    expect(r.outsiderIds.sort()).toEqual([GUEST, "zara"].sort());
+  });
+
+  it("blocks the save until the user decides", () => {
+    const r = inferGroupForMembers(["p-alex", "p-casey", "p-devon", GUEST], [LAKESIDE, FLAT]);
+    expect(needsExplicitGroupChoice(r, false)).toBe(true);
+    // and releases the moment they do — including by choosing Personal
+    expect(needsExplicitGroupChoice(r, true)).toBe(false);
+  });
+
+  it("still infers cleanly when the guest is added to the group", () => {
+    const widened = { ...LAKESIDE, memberIds: [...LAKESIDE.memberIds, GUEST] };
+    const r = inferGroupForMembers(["p-alex", "p-casey", GUEST], [widened, FLAT]);
+    expect(r.kind).toBe("one");
+  });
+
+  it("does not interrupt an ordinary two-person split", () => {
+    // One friend who happens to belong to a group, plus someone who doesn't,
+    // is not evidence of a group outing — asking here would fire on most
+    // personal splits. It takes two people from the same group to look like one.
+    const r = inferGroupForMembers(["p-alex", "p-outsider"], [LAKESIDE, FLAT]);
+    expect(r.kind).toBe("none");
+    expect(needsExplicitGroupChoice(r, false)).toBe(false);
+  });
+
+  it("keeps 'no group context' behaving exactly as before", () => {
+    expect(inferGroupForMembers([], [LAKESIDE, FLAT]).kind).toBe("none");
+    expect(inferGroupForMembers(["p-nobody", "p-nobody-else"], [LAKESIDE, FLAT]).kind).toBe("none");
+    expect(inferGroupForMembers(["p-alex", "p-casey"], []).kind).toBe("none");
+  });
+
+  it("prefers the group that covers the most of them", () => {
+    // Lakeside holds three of the four; Flat holds two. The people who must
+    // change are reported against the better fit.
+    const r = inferGroupForMembers(["p-alex", "p-blake", "p-casey", GUEST], [FLAT, LAKESIDE]);
+    if (r.kind !== "conflict") throw new Error(`expected conflict, got ${r.kind}`);
+    expect(r.outsiderIds).toEqual([GUEST]);
   });
 });

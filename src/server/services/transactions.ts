@@ -7,6 +7,7 @@ import { istNoon, toYMD } from "@/lib/dates";
 import { Prisma, type GroupRole, type TxType } from "@prisma/client";
 import { prisma } from "../db";
 import { assertCanCreateInGroup, assertCanRead, assertCanWrite, NotAuthorizedError, resolveGroupRole, roleAtLeast } from "./authorization";
+import { assertParticipantsInGroup } from "./group-membership";
 import { audit } from "./audit";
 import { checkBudgetThresholds } from "./budgets";
 
@@ -313,6 +314,13 @@ export async function addExpense(userId: string, input: ExpenseInput, intent?: I
   const paidByParticipantId = input.split?.payerParticipantId ?? null;
 
   const txId = await exactlyOnce(userId, intent, "expense.create", async (db) => {
+    // P0-2: everyone this expense names must be in the group it is filed
+    // under — checked here, inside the write transaction, because the form's
+    // own check cannot cover a replayed outbox payload, an import, or a
+    // direct call. Authorization ran above; this is about the data.
+    if (input.groupId) {
+      await assertParticipantsInGroup(db, input.groupId, [...(shares?.map((s) => s.participantId) ?? []), paidByParticipantId]);
+    }
     const t = await db.transaction.create({
       data: {
         // offline clients pre-assign the id so a replayed create is
@@ -628,6 +636,21 @@ export async function rehomeExpense(actingUserId: string, id: string, groupId: s
     // afterwards as a separate, visible edit if they want to.
     const next = await resolveGroupReassignment(db, actingUserId, old, groupId, null);
     if (next === old.groupId) return { entityId: id, moved: false };
+    // P0-2 deliberately does NOT gate re-homing on the roster.
+    //
+    // Creating or editing a group expense is data entry, and naming somebody
+    // outside the group there is a mistake worth refusing. Re-homing is the
+    // opposite: a repair applied to history, and the rows most in need of it
+    // are exactly the ones with an awkward participant — a member who has
+    // since left, or one real person who exists as two participant records
+    // with only one of them on the roster. That second case is not
+    // hypothetical; it is what the five orphaned Srisailam expenses looked
+    // like, and a roster check here would have made them unrepairable.
+    //
+    // Nothing is lost by allowing it: no financial row is rewritten, and
+    // computeMemberBalances already renders a non-member's outstanding share
+    // as "(left group)" precisely so a debt cannot vanish when the roster and
+    // the ledger disagree.
 
     const updated = await db.transaction.update({
       where: { id },
@@ -672,6 +695,15 @@ export async function updateExpense(actingUserId: string, id: string, input: Exp
     await assertCanWrite(db, actingUserId, old, newAccountId !== old.accountId ? "write-account" : "write");
     const { overridden, overriddenByDevice } = await checkOverride(db, actingUserId, old, intent?.baseVersion);
     const nextGroupId = await resolveGroupReassignment(db, actingUserId, old, input.groupId, input.categoryId);
+    // P0-2: an edit must not be able to introduce an outsider, and a row
+    // arriving in a group must be checked against THAT group's roster —
+    // nextGroupId, not the one it came from.
+    if (nextGroupId) {
+      await assertParticipantsInGroup(db, nextGroupId, [
+        ...(shares?.map((s) => s.participantId) ?? old.splits.map((s) => s.participantId)),
+        paidByParticipantId,
+      ]);
+    }
 
     await applyBalances(db, old, -1);
     if (old.splits.length) await db.expenseSplit.deleteMany({ where: { txId: id } });
