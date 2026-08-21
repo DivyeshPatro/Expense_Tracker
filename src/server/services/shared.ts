@@ -63,22 +63,34 @@ export const netBalances = cache(async (userId: string): Promise<ParticipantView
     listParticipants(userId),
     prisma.transaction.findMany({
       where: { userId, type: "EXPENSE", deletedAt: null, splits: { some: {} } },
-      select: { paidByParticipantId: true, splits: { select: { participantId: true, owedAmount: true } } },
+      select: { amount: true, paidByParticipantId: true, splits: { select: { participantId: true, owedAmount: true } } },
     }),
     prisma.settlement.findMany({ where: { userId } }),
   ]);
 
   const nets = new Map<string, number>(participants.map((p) => [p.id, 0]));
+  // Everyone's balance is what they consumed minus what they put in — the same
+  // symmetric rule computeMemberBalances uses, so the per-friend list and the
+  // group cards can no longer disagree about who owes whom.
+  //
+  // The rule this replaces credited a non-owner payer with the OWNER's share
+  // alone. On a ₹1,240 bill split five ways, the friend who fronted it consumed
+  // ₹248 and was owed ₹992, but was credited ₹248 — leaving ₹744 of other
+  // people's debt attached to them. computeMemberBalances was fixed against a
+  // Splitwise export of exactly those expenses (splitwise-reconciliation.test);
+  // this function kept the old rule, which is why a group could read SETTLED
+  // while the same four people still showed ₹248, ₹248, ₹248 and ₹744 here.
+  // Those cancel — they were one debt cycle, counted from the wrong end.
   for (const t of txs) {
-    const myShare = Number(t.splits.find((s) => s.participantId === null)?.owedAmount ?? 0);
-    if (t.paidByParticipantId === null) {
-      for (const s of t.splits) {
-        if (s.participantId && nets.has(s.participantId)) {
-          nets.set(s.participantId, nets.get(s.participantId)! + Number(s.owedAmount));
-        }
+    // the payer fronted the whole bill
+    if (t.paidByParticipantId !== null && nets.has(t.paidByParticipantId)) {
+      nets.set(t.paidByParticipantId, nets.get(t.paidByParticipantId)! - Number(t.amount));
+    }
+    // and everyone who shared it consumed their share, payer included
+    for (const s of t.splits) {
+      if (s.participantId && nets.has(s.participantId)) {
+        nets.set(s.participantId, nets.get(s.participantId)! + Number(s.owedAmount));
       }
-    } else if (nets.has(t.paidByParticipantId)) {
-      nets.set(t.paidByParticipantId, nets.get(t.paidByParticipantId)! - myShare);
     }
   }
   // This is the OWNER's per-friend ledger: each number is what one friend owes
