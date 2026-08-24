@@ -753,6 +753,33 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
   const [settleAccountId, setSettleAccountId] = useState(refData.accounts[0]?.id ?? "");
   const direction = prefill?.direction ?? "TO_OWNER";
   const name = prefill?.participantName ?? "";
+
+  // Which ledger this payment settles.
+  //
+  // A settlement with no group clears the shared-page balance but not the
+  // group's, because the group dashboard only counts settlements tagged to it —
+  // so paying back a trip debt from the Shared page left the trip still asking
+  // for the money. recordSettlement() infers the group when the answer is
+  // unambiguous, and deliberately refuses to guess when the person is in
+  // several. That refusal is correct and stays; this is the missing half — the
+  // form asks instead of leaving the payment untagged.
+  //
+  // Only groups the caller OWNS are offered, because those are the only ones
+  // recordSettlement will accept.
+  const settleParticipantId = prefill?.participantId;
+  const ownedGroups = refData.groups.filter((g) => g.role === "OWNER");
+  const groupInference = settleParticipantId
+    ? inferGroupForMembers([settleParticipantId], ownedGroups)
+    : ({ kind: "none" } as GroupInference);
+  const [settleGroupId, setSettleGroupId] = useState("");
+  const [groupAnswered, setGroupAnswered] = useState(false);
+  // Settling from inside a group already knows its ledger — nothing to ask.
+  const groupFromPrefill = prefill?.settleGroupId;
+  // Never fires for a single person unless several groups contain them:
+  // "conflict" needs two or more people picked, so this is the ambiguous case
+  // alone. When exactly one group matches, server-side inference still handles
+  // it and this form is unchanged.
+  const mustChooseGroup = !groupFromPrefill && needsExplicitGroupChoice(groupInference, groupAnswered);
   return (
     <div className="flex flex-col gap-3">
       <div className="text-[13px] text-mut bg-accsoft rounded-[9px] px-[13px] py-[11px] font-semibold">
@@ -794,6 +821,33 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
             : "Records the repayment only. No account balance changes."}
         </div>
       </Field>
+      {!groupFromPrefill && groupInference.kind === "ambiguous" && (
+        <Field label="GROUP">
+          <select
+            className="field"
+            aria-label="Group"
+            aria-invalid={mustChooseGroup || undefined}
+            value={settleGroupId}
+            onChange={(e) => {
+              setGroupAnswered(true);
+              setSettleGroupId(e.target.value);
+            }}
+            style={mustChooseGroup ? { borderColor: "var(--amber)" } : undefined}
+          >
+            <option value="">Which group is this payment for?</option>
+            {groupInference.candidates.map((g) => (
+              <option key={g.id} value={g.id}>🏠 {g.name}</option>
+            ))}
+            <option value="none">Not for a group</option>
+          </select>
+          {mustChooseGroup && (
+            <div className="text-[11.5px] font-semibold mt-1.5 rounded-lg px-2.5 py-2" style={{ color: "var(--amber)", background: "var(--amberSoft, var(--accSoft))" }}>
+              {name} is in {groupInference.candidates.map((c) => c.name).join(" and ")} — say which one this payment settles, or
+              choose Not for a group. Guessing would clear the wrong group&apos;s balance.
+            </div>
+          )}
+        </Field>
+      )}
       <Field label="NOTE (OPTIONAL)">
         <input className="field" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. UPI ref, cash in hand" />
       </Field>
@@ -801,7 +855,27 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
       <SubmitButton
         busy={busy}
         color="var(--green)"
-        onClick={() => run(() => settleAction({ participantId: prefill?.participantId, direction, amount, method, note: note.trim() || undefined, groupId: prefill?.settleGroupId, accountId: settleAccountId || undefined }), "Payment recorded")}
+        disabled={mustChooseGroup}
+        onClick={() =>
+          run(
+            () =>
+              settleAction({
+                participantId: prefill?.participantId,
+                direction,
+                amount,
+                method,
+                note: note.trim() || undefined,
+                // "none" is an explicit answer, not a missing one: send nothing
+                // so the server records a general settlement. It cannot infer
+                // its way back to a group here — inference only fires when
+                // exactly one contains this person, and this picker only
+                // appears when several do.
+                groupId: groupFromPrefill ?? (settleGroupId && settleGroupId !== "none" ? settleGroupId : undefined),
+                accountId: settleAccountId || undefined,
+              }),
+            "Payment recorded"
+          )
+        }
       >
         Record payment
       </SubmitButton>
