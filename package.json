@@ -50,6 +50,7 @@
     "e2e:shared-ia": "node scripts/db-local.mjs --shell \"tsx scripts/e2e-shared-ia.ts\"",
     "e2e:split-breakdown": "node scripts/db-local.mjs --shell \"tsx scripts/e2e-split-breakdown.ts\"",
     "e2e:settle-group-choice": "node scripts/db-local.mjs --shell \"tsx scripts/e2e-settle-group-choice.ts\"",
+    "e2e:member-settlement": "node scripts/db-local.mjs --shell \"tsx scripts/e2e-member-settlement.ts\"",
     "e2e:all": "npm run db:seed && npm run e2e && npm run e2e:tx-detail && npm run e2e:mobile-nav && npm run e2e:analytics && npm run e2e:dashboard && npm run e2e:accounts && npm run e2e:cards && npm run e2e:bills && npm run e2e:budgets && npm run e2e:activity && npm run e2e:import && npm run e2e:lending-import && npm run e2e:recurring && npm run e2e:backup-restore && npm run e2e:monito && npm run e2e:large-import && npm run e2e:perf && npm run e2e:offline && npm run e2e:collab && npm run e2e:audit-phaseA && npm run e2e:group-expenses && npm run e2e:datepicker && npm run e2e:lending && npm run e2e:lending-settlement && npm run e2e:finance-hub && npm run e2e:accessibility"
   },
   "prisma": {

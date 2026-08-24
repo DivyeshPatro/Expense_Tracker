@@ -34,6 +34,10 @@ type View = "settlement" | "receive";
 interface Row extends PlanRow {
   /** Present when you are one side, so it can be recorded. */
   settle?: { participantId: string; participantName: string; direction: "TO_OWNER" | "FROM_OWNER"; amountRupees: string; netPaise: number };
+  /** #240: present on a row between two members, which the owner can now record
+   *  too. Both ends are carried explicitly — the direction is the pair, not
+   *  something derived from who is reading the page. */
+  settleMembers?: { fromParticipantId: string; fromName: string; toParticipantId: string; toName: string; amountRupees: string };
 }
 
 export function GroupBalances({
@@ -75,7 +79,11 @@ export function GroupBalances({
 
   // THE PLAN — exactly what minimizeSettlements returned, with the owner's
   // placeholder resolved to a real name.
-  const plan: Row[] = namedPlan(suggestions, ownerName).map((r, i) => ({ ...r, settle: suggestions[i].settle }));
+  const plan: Row[] = namedPlan(suggestions, ownerName).map((r, i) => ({
+    ...r,
+    settle: suggestions[i].settle,
+    settleMembers: suggestions[i].settleMembers,
+  }));
   const headline = settlementHeadline(plan.length);
 
   // DETAILED — the obligations the expenses actually created, straight from the
@@ -85,12 +93,24 @@ export function GroupBalances({
   const detailed: Row[] = obligations
     .filter((o) => o.amount > SETTLED_THRESHOLD)
     .map((o, i) => {
-      // Settleable only where the owner is one side — that is the only shape
-      // the settlement ledger records. The prefill still uses the member's
-      // overall net, so the modal's live preview stays meaningful.
+      // Owner-involved rows record through the owner↔member path, using the
+      // member's overall net so the modal's live preview stays meaningful.
+      // Rows between two members record through the member↔member path (#240) —
+      // they used to say "settle outside the app", which left the un-minimised
+      // list with obligations the app could not act on either.
       const otherId = o.fromId === OWNER_ID ? o.toId : o.fromId;
       const involvesOwner = o.fromId === OWNER_ID || o.toId === OWNER_ID;
       const net = netOf.get(otherId) ?? 0;
+      const settleMembers =
+        canRecordSettlements && !involvesOwner
+          ? {
+              fromParticipantId: o.fromId,
+              fromName: o.fromName,
+              toParticipantId: o.toId,
+              toName: o.toName,
+              amountRupees: toRupeeInput(o.amount),
+            }
+          : undefined;
       const settle =
         canRecordSettlements && involvesOwner && Math.abs(net) > SETTLED_THRESHOLD
           ? {
@@ -101,7 +121,7 @@ export function GroupBalances({
               netPaise: net,
             }
           : undefined;
-      return { key: `d-${o.fromId}-${o.toId}-${i}`, ...o, settle };
+      return { key: `d-${o.fromId}-${o.toId}-${i}`, ...o, settle, settleMembers };
     });
 
   // Personal standing, positives only — what you would actually collect.
@@ -132,6 +152,19 @@ export function GroupBalances({
   const settled = plan.length === 0;
 
   function settle(r: Row) {
+    // A row between two members opens its own form: the owner↔member one asks
+    // for a direction and an account, neither of which exists here.
+    if (r.settleMembers) {
+      openModal("settleMembers", {
+        fromParticipantId: r.settleMembers.fromParticipantId,
+        fromParticipantName: r.settleMembers.fromName,
+        toParticipantId: r.settleMembers.toParticipantId,
+        toParticipantName: r.settleMembers.toName,
+        amountRupees: r.settleMembers.amountRupees,
+        settleGroupId: groupId,
+      });
+      return;
+    }
     if (!r.settle) return;
     openModal("settle", {
       participantId: r.settle.participantId,
@@ -244,21 +277,15 @@ export function GroupBalances({
                     <Party name={r.toName} isYou={isViewerOwner && r.toId === OWNER_ID} />
                   </div>
                   <span className="text-[13px] font-extrabold tabular-nums flex-none">{formatPaise(r.amount)}</span>
-                  {r.settle ? (
+                  {r.settle || r.settleMembers ? (
                     <button
                       onClick={() => settle(r)}
+                      aria-label={r.settleMembers ? `Settle ${r.fromName} pays ${r.toName}` : undefined}
                       className="px-2.5 min-h-[36px] rounded-lg text-[11.5px] font-bold text-white cursor-pointer border-none flex-none hover:brightness-108"
                       style={{ background: "var(--green)" }}
                     >
                       Settle
                     </button>
-                  ) : canRecordSettlements ? (
-                    // Only meaningful to the owner: it marks the rows THEY
-                    // can't record. To a member every row would say it, which
-                    // would be plainly wrong on a row they are part of.
-                    <span className="text-[10.5px] font-semibold text-mut2 flex-none" title="Between two members — settle outside the app">
-                      between them
-                    </span>
                   ) : null}
                 </div>
               ))}

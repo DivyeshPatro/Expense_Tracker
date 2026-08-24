@@ -13,6 +13,7 @@ import {
   openLoansForContactAction,
   saveBudgetAction,
   settleAction,
+  settleBetweenMembersAction,
   updateAccountCardDetailsAction,
   updateParticipantDetailsAction,
 } from "@/app/actions";
@@ -45,6 +46,7 @@ const TITLES: Record<string, string> = {
   inc: "Add income",
   tr: "Transfer money",
   settle: "Settle up",
+  settleMembers: "Record a payment",
   budget: "New budget",
   account: "New account",
   bill: "New bill",
@@ -180,6 +182,7 @@ export function Modals() {
         {modal.type === "inc" && <IncomeForm prefill={modal.prefill} />}
         {modal.type === "tr" && <TransferForm prefill={modal.prefill} />}
         {modal.type === "settle" && <SettleForm prefill={modal.prefill} />}
+        {modal.type === "settleMembers" && <MemberSettlementForm prefill={modal.prefill} />}
         {modal.type === "budget" && <BudgetForm />}
         {modal.type === "account" && <AccountForm />}
         {modal.type === "bill" && <BillForm />}
@@ -878,6 +881,102 @@ function SettleForm({ prefill }: { prefill?: ModalPrefill }) {
         }
       >
         Record payment
+      </SubmitButton>
+    </div>
+  );
+}
+
+// ─────────── Settle between two members (#240) ───────────
+
+/**
+ * A payment from one member to another, neither of them the owner.
+ *
+ * Deliberately not a mode of SettleForm. That form is built around the owner
+ * being one side: it asks TO_OWNER or FROM_OWNER, offers the account the money
+ * moved through, and previews the owner's own balance shifting. None of those
+ * mean anything here — the pair IS the direction, and the owner's position does
+ * not change at all, which is the invariant the whole member↔member model rests
+ * on. Sharing a form would have meant hiding three quarters of it and hoping
+ * nothing leaked through.
+ *
+ * So the only questions left are how it was paid and an optional note. The
+ * amount arrives from the plan and stays editable, because a real repayment is
+ * often a round number rather than the exact figure.
+ */
+function MemberSettlementForm({ prefill }: { prefill?: ModalPrefill }) {
+  const { run, busy, error } = useSubmit();
+  const [amount, setAmount] = useState(prefill?.amountRupees ?? "");
+  const [method, setMethod] = useState<"UPI" | "CASH" | "BANK">("UPI");
+  const [note, setNote] = useState("");
+
+  const fromName = prefill?.fromParticipantName ?? "";
+  const toName = prefill?.toParticipantName ?? "";
+  // Both ids and the group are required by the action; without them there is
+  // nothing to record, so the button stays disabled rather than failing later.
+  const ready = Boolean(prefill?.fromParticipantId && prefill?.toParticipantId && prefill?.settleGroupId);
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Who pays whom, stated once and unmissably. The arrow row repeats it in
+          the same order the plan showed, so the modal cannot be read backwards. */}
+      <div className="text-[13px] bg-accsoft rounded-[9px] px-[13px] py-[11px] font-semibold text-mut">
+        <span className="text-ink font-extrabold">{fromName}</span> pays <span className="text-ink font-extrabold">{toName}</span>
+      </div>
+      <div className="flex items-center gap-2 text-[12.5px] font-semibold text-mut2">
+        <span className="text-ink">{fromName}</span>
+        <span aria-label="pays" className="font-bold">
+          →
+        </span>
+        <span className="text-ink">{toName}</span>
+      </div>
+      <Field label="AMOUNT (₹)">
+        <AmountInput value={amount} onChange={setAmount} autoFocus />
+      </Field>
+      <Field label="METHOD">
+        <div className="flex gap-1.5">
+          {(["UPI", "CASH", "BANK"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMethod(m)}
+              aria-pressed={method === m}
+              className="px-[15px] py-[7px] rounded-lg text-[12.5px] font-semibold cursor-pointer border-none"
+              style={{ background: method === m ? "var(--acc)" : "var(--accSoft)", color: method === m ? "#fff" : "var(--acc)" }}
+            >
+              {m === "UPI" ? "UPI" : m === "CASH" ? "Cash" : "Bank"}
+            </button>
+          ))}
+        </div>
+      </Field>
+      {/* No ACCOUNT field, and none is coming: this money never touches one of
+          your accounts. Said plainly, because its absence is otherwise the kind
+          of thing that reads as a missing feature. */}
+      <div className="text-[11.5px] text-mut2">
+        This money moves between {fromName} and {toName}. Your own balance doesn&apos;t change, so no account is involved.
+      </div>
+      <Field label="NOTE (OPTIONAL)">
+        <input className="field" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. UPI ref, cash in hand" />
+      </Field>
+      <ErrorNote error={error} />
+      <SubmitButton
+        busy={busy}
+        color="var(--green)"
+        disabled={!ready}
+        onClick={() =>
+          run(
+            () =>
+              settleBetweenMembersAction({
+                groupId: prefill?.settleGroupId,
+                fromParticipantId: prefill?.fromParticipantId,
+                toParticipantId: prefill?.toParticipantId,
+                amount,
+                method,
+                note: note.trim() || undefined,
+              }),
+            "Payment recorded"
+          )
+        }
+      >
+        Settle payment
       </SubmitButton>
     </div>
   );

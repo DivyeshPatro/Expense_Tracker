@@ -156,6 +156,34 @@ export const settlementSchema = z.object({
   accountId: z.string().min(1).optional(),
 });
 
+/**
+ * A payment between two members, neither of them the owner (#240).
+ *
+ * Separate from settlementSchema rather than an optional extension of it,
+ * because the two shapes have nothing in common beyond an amount: there is no
+ * direction to pick (the pair IS the direction) and no account, since the
+ * owner's money never moves. groupId is required — a member↔member payment only
+ * makes sense against the ledger holding the debt it clears, and the group page
+ * is the only place it can be started from.
+ *
+ * Every field is re-checked server-side by recordMemberSettlement: both people
+ * must be the caller's own contacts, the group must be theirs, and both must be
+ * in it. This schema only rejects what is malformed before it gets that far.
+ */
+export const memberSettlementSchema = z
+  .object({
+    groupId: z.string().min(1),
+    fromParticipantId: z.string().min(1),
+    toParticipantId: z.string().min(1),
+    amount: paiseFromRupees,
+    method: z.enum(["UPI", "CASH", "BANK"]),
+    note: z.string().trim().max(200).optional(),
+  })
+  .refine((v) => v.fromParticipantId !== v.toParticipantId, {
+    message: "A settlement needs two different people.",
+    path: ["toParticipantId"],
+  });
+
 export const budgetSchema = z.object({
   categoryId: z.string().nullable(),
   limit: paiseFromRupees,

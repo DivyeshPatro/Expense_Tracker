@@ -17,7 +17,8 @@ export type ModalType =
   | "lendingEntry"
   | "lendingContact"
   | "loanDetail"
-  | "accountCardDetails";
+  | "accountCardDetails"
+  | "settleMembers";
 
 export interface ModalPrefill {
   split?: boolean;
@@ -31,6 +32,13 @@ export interface ModalPrefill {
   /** Attributes the settlement to a group (from the Group Dashboard) so it
    *  clears that group's balance, not a shared one. */
   settleGroupId?: string;
+  // #240 — a payment between two members. The pair IS the direction, so there
+  // is no TO_OWNER/FROM_OWNER here and no account: the owner's money does not
+  // move, which is exactly why this cannot reuse the fields above.
+  fromParticipantId?: string;
+  fromParticipantName?: string;
+  toParticipantId?: string;
+  toParticipantName?: string;
   transactionId?: string;
   intentId?: string;
   loanKind?: "GAVE" | "GOT"; // lending-module-phase1

@@ -46,7 +46,7 @@ import {
   setRecurringRulePaused,
   updateRecurringRule,
 } from "@/server/services/recurring";
-import { addParticipant, deleteSettlement, recordSettlement } from "@/server/services/shared";
+import { addParticipant, deleteSettlement, recordMemberSettlement, recordSettlement } from "@/server/services/shared";
 import {
   addLoanEntry,
   deleteLoanEntry,
@@ -103,6 +103,7 @@ import {
   participantSchema,
   participantDetailsSchema,
   settlementSchema,
+  memberSettlementSchema,
   transferWithIntentSchema,
   updateExpenseWithIntentSchema,
   rehomeExpenseSchema,
@@ -280,6 +281,32 @@ export async function settleAction(input: unknown): Promise<ActionResult> {
     const user = await requireUser();
     const data = settlementSchema.parse(input);
     await recordSettlement(user.id, data.participantId, data.direction, data.amount, data.method, data.note, data.groupId, data.accountId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Record a payment between two members (#240).
+ *
+ * The settlement plan has always been able to route one member straight to
+ * another — that is what makes it the shortest way to clear a group — but only
+ * rows with the owner on one side could be recorded, so the rest read "settle
+ * outside the app" and the group could never actually reach zero.
+ *
+ * Thin on purpose: recordMemberSettlement already owns every rule (both people
+ * must be the caller's contacts, the group must be theirs and hold them both,
+ * from ≠ to) and this adds none of its own. The direction is taken exactly as
+ * the plan gave it and never derived from who is viewing — A → B means A pays
+ * B, whoever is looking.
+ */
+export async function settleBetweenMembersAction(input: unknown): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const data = memberSettlementSchema.parse(input);
+    await recordMemberSettlement(user.id, data.fromParticipantId, data.toParticipantId, data.amount, data.method, data.note, data.groupId);
     refresh();
     return { ok: true };
   } catch (e) {

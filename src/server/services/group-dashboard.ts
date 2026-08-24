@@ -44,6 +44,12 @@ export interface GroupMemberView extends MemberBalance {
  *  modal needs — so the client stays dumb and there's one settle flow. */
 export interface GroupSuggestion extends SettlementSuggestion {
   settle?: { participantId: string; participantName: string; direction: "TO_OWNER" | "FROM_OWNER"; amountRupees: string; netPaise: number };
+  /** #240: the prefill for a row between two members, neither of them the
+   *  owner. Carries both ends exactly as the plan produced them — the direction
+   *  is the pair, never derived from who is reading. Owner-only, for the same
+   *  reason `settle` is: recordMemberSettlement requires both people to be the
+   *  caller's own contacts and the group to be theirs. */
+  settleMembers?: { fromParticipantId: string; fromName: string; toParticipantId: string; toName: string; amountRupees: string };
 }
 
 export interface GroupDashboardData {
@@ -435,13 +441,30 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
   // You-involved rows carry the exact settle prefill (incl. the live-preview net).
   const netByPid = new Map(members.map((m) => [m.participantId, m.net]));
   const suggestions: GroupSuggestion[] = computeSuggestions(members.map((m) => ({ participantId: m.participantId, net: m.net, name: m.name }))).map((s) => {
-    // No prefill for someone who cannot record the settlement anyway —
-    // recordSettlement() requires the participant to be the caller's own
-    // contact AND the group to be theirs, so for a member this would only ever
-    // produce an error. Withholding it here (rather than hiding a button in the
-    // client) keeps the capability decision on the server, matching how
+    // No prefill for someone who cannot record the settlement anyway — both
+    // write paths require the people to be the caller's own contacts and the
+    // group to be theirs, so for a member this would only ever produce an
+    // error. Withholding it here (rather than hiding a button in the client)
+    // keeps the capability decision on the server, matching how
     // getTransactionDetail computes canEditFields/canDelete.
-    if (!s.involvesYou || !canRecordSettlements) return s;
+    if (!canRecordSettlements) return s;
+    // #240: a row between two members is recordable now. It used to read
+    // "settle outside the app", which meant the shortest plan — the whole point
+    // of minimising — routinely contained rows the app could not act on, so a
+    // group could not be driven to zero from inside it. Both ids are real
+    // participants here precisely because the owner is on neither side.
+    if (!s.involvesYou) {
+      return {
+        ...s,
+        settleMembers: {
+          fromParticipantId: s.fromId,
+          fromName: s.fromName,
+          toParticipantId: s.toId,
+          toName: s.toName,
+          amountRupees: toRupeeInput(s.amount),
+        },
+      };
+    }
     const youPay = s.fromId === "me";
     const participantId = youPay ? s.toId : s.fromId;
     const participantName = youPay ? s.toName : s.fromName;
