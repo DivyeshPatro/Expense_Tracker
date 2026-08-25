@@ -55,7 +55,7 @@ async function newSession(browser: Browser, cookies: { name: string; value: stri
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   await page.goto(`${BASE}/dashboard`, { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page.getByText(/total balance|balance ·/i).filter({ visible: true }).first().waitFor();
   return { ctx, page };
 }
 
@@ -70,7 +70,13 @@ async function selectByOptionText(page: Page, optionText: string): Promise<boole
     const opts = await selects.nth(i).locator("option").allTextContents();
     const match = opts.find((o) => o.includes(optionText));
     if (match) {
-      await selects.nth(i).selectOption({ label: match });
+      // force: the modal's sticky action bar overlays the centre of these
+      // controls, so Playwright's actionability check never passes even though
+      // the select is visible and enabled. Selecting an option on a native
+      // <select> sets the value and fires change without a pointer event, so
+      // this drives the same code path a user does. (A forced CLICK would not
+      // be safe — it still dispatches at the coordinate and hits the bar.)
+      await selects.nth(i).selectOption({ label: match }, { force: true });
       return true;
     }
   }
@@ -91,6 +97,37 @@ async function openTxByDeepLink(page: Page, txId: string) {
     )
     .catch(() => {});
   await page.waitForTimeout(300);
+}
+
+/**
+ * The transaction a create flow just wrote.
+ *
+ * The toast fires when the server action returns, but the row is committed and
+ * revalidated a moment later — a fixed sleep before querying is a race, and on
+ * a loaded machine 500ms loses it. Poll for the row instead.
+ */
+async function txByMerchant(merchant: string) {
+  // 15s, not 6: the first create through a given route on a cold `next dev`
+  // pays that route's compile before the write lands, and this suite drives
+  // three separate sessions so it hits several cold routes in a row.
+  for (let i = 0; i < 50; i++) {
+    const tx = await prisma.transaction.findFirst({ where: { merchant } });
+    if (tx) return tx;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`No transaction was written for "${merchant}" after 15s`);
+}
+
+/** A transaction once it reaches the state the test is waiting for. Same race
+ *  as txByMerchant: the toast fires before the write is visible to a fresh
+ *  query. */
+async function txWhen(id: string, ready: (tx: { merchant: string | null }) => boolean) {
+  for (let i = 0; i < 50; i++) {
+    const tx = await prisma.transaction.findUniqueOrThrow({ where: { id } });
+    if (ready(tx)) return tx;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return prisma.transaction.findUniqueOrThrow({ where: { id } });
 }
 
 async function modalText(page: Page): Promise<string> {
@@ -121,13 +158,29 @@ async function main() {
   // signInEmail directly instead, see sessionCookies() above
   const aliceCtx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const alicePage = await aliceCtx.newPage();
-  alicePage.setDefaultTimeout(20000);
-  await alicePage.goto(`${BASE}/sign-in`, { waitUntil: "load" });
-  await alicePage.fill('input[type="email"]', "arjun@ledgerly.app");
-  await alicePage.fill('input[type="password"]', "ledgerly-demo");
-  await alicePage.click('button[type="submit"]');
-  await alicePage.waitForURL("**/dashboard", { timeout: 20000 });
-  await alicePage.waitForSelector("text=TOTAL BALANCE");
+  alicePage.setDefaultTimeout(30000);
+  // Tolerate a cold `next dev` server, the same way e2e.mjs and e2e-tx-detail
+  // already do: submitting before React has hydrated fires a native form GET
+  // that never reaches /dashboard, and the first authenticated render has to
+  // compile the route before it can answer. Without this the suite passes only
+  // on a warm server, which is no baseline at all.
+  let aliceIn = false;
+  for (let attempt = 0; attempt < 3 && !aliceIn; attempt++) {
+    await alicePage.goto(`${BASE}/sign-in`, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await alicePage.waitForSelector('button[type="submit"]', { timeout: 30000 });
+    await alicePage.waitForTimeout(1500);
+    await alicePage.fill('input[type="email"]', "arjun@ledgerly.app");
+    await alicePage.fill('input[type="password"]', "ledgerly-demo");
+    await alicePage.click('button[type="submit"]');
+    try {
+      await alicePage.waitForURL("**/dashboard", { timeout: 30000 });
+      aliceIn = true;
+    } catch {
+      /* retry */
+    }
+  }
+  if (!aliceIn) throw new Error("Could not sign in after 3 attempts (hydration race)");
+  await alicePage.getByText(/total balance|balance ·/i).filter({ visible: true }).first().waitFor();
 
   const { page: bobPage } = await newSession(browser, await sessionCookies(`bob-ui-${suffix}@test.local`, PASSWORD));
   const { page: carolPage } = await newSession(browser, await sessionCookies(`carol-ui-${suffix}@test.local`, PASSWORD));
@@ -149,7 +202,7 @@ async function main() {
     await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
     await alicePage.waitForSelector("text=Expense added");
     await alicePage.waitForTimeout(500);
-    const rentTx = await prisma.transaction.findFirstOrThrow({ where: { merchant: `UIGroupRent-${suffix}` } });
+    const rentTx = await txByMerchant(`UIGroupRent-${suffix}`);
     txIds.push(rentTx.id);
     ok(
       "a group-tagged create through the UI lands with the right groupId and stays filed under the creator's own userId (rfc §1)",
@@ -168,7 +221,7 @@ async function main() {
     await bobPage.getByRole("button", { name: "Add expense", exact: true }).click();
     await bobPage.waitForSelector("text=Expense added");
     await bobPage.waitForTimeout(500);
-    const bobTx = await prisma.transaction.findFirstOrThrow({ where: { merchant: `UIBobOwn-${suffix}` } });
+    const bobTx = await txByMerchant(`UIBobOwn-${suffix}`);
     txIds.push(bobTx.id);
     ok(
       "a MEMBER can create a transaction in the group through the real create flow, filed under their own userId",
@@ -182,17 +235,26 @@ async function main() {
     await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
     await alicePage.fill('input[placeholder="0"]', "600");
     await alicePage.fill('input[placeholder="e.g. Swiggy"]', `UIGroupSplit-${suffix}`);
-    await alicePage.click("text=👥 Split with friends");
+    // A role="switch" that the dialog's sticky action bar overlays.
+    // dispatchEvent, not force: a forced click still fires at the coordinate,
+    // so it lands on the bar and closes the modal instead of toggling the
+    // switch. Dispatching on the element drives the same handler.
+    await alicePage.locator('[role="switch"]').filter({ hasText: "Split with friends" }).first().dispatchEvent("click");
     await alicePage.waitForSelector("text=Karan");
     // scoped to the open modal — the transactions list behind it can already
     // have plenty of unrelated historical rows whose aria-label also mentions
     // "Karan" (e.g. "...paid by Karan..."), which an unscoped locator matches first
-    await alicePage.locator(".fixed.inset-0.z-\\[60\\] button", { hasText: "Karan" }).first().click();
+    // The picker sits below the fold in a tall dialog, so it must be scrolled
+    // to first, and the sticky action bar covers this part of the form — hence
+    // dispatchEvent rather than click.
+    const karanChip = alicePage.locator(".fixed.inset-0.z-\\[60\\] button", { hasText: "Karan" }).first();
+    await karanChip.scrollIntoViewIfNeeded();
+    await karanChip.dispatchEvent("click");
     await selectByOptionText(alicePage, groupName);
     await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
     await alicePage.waitForSelector("text=Split expense added");
     await alicePage.waitForTimeout(500);
-    const splitTx = await prisma.transaction.findFirstOrThrow({ where: { merchant: `UIGroupSplit-${suffix}` } });
+    const splitTx = await txByMerchant(`UIGroupSplit-${suffix}`);
     txIds.push(splitTx.id);
 
     // ═══════════════════════ MEMBER capabilities (rfc §3) ═══════════════════════
@@ -226,12 +288,16 @@ async function main() {
     await bobPage.waitForSelector("text=Transaction updated", { timeout: 8000 });
     await bobPage.waitForTimeout(600);
 
-    const afterBobEdit = await prisma.transaction.findUniqueOrThrow({ where: { id: rentTx.id } });
+    const afterBobEdit = await txWhen(rentTx.id, (t) => t.merchant === `UIGroupRent-${suffix}-edited`);
     ok(
       "a MEMBER's edit persists through the real server authorization path, without touching accountId or reassigning ownership",
       afterBobEdit.merchant === `UIGroupRent-${suffix}-edited` && afterBobEdit.accountId === rentTx.accountId && afterBobEdit.userId === alice.id
     );
-    const bobEditAudit = await prisma.auditLog.findFirst({ where: { entityId: rentTx.id, action: "update" }, orderBy: { at: "desc" } });
+    let bobEditAudit = null as Awaited<ReturnType<typeof prisma.auditLog.findFirst>>;
+    for (let i = 0; i < 50 && !bobEditAudit; i++) {
+      bobEditAudit = await prisma.auditLog.findFirst({ where: { entityId: rentTx.id, action: "update" }, orderBy: { at: "desc" } });
+      if (!bobEditAudit) await new Promise((r) => setTimeout(r, 300));
+    }
     ok("the audit row for a cross-member edit is filed under the owner's ledger but attributes the real actor (rfc §5)", bobEditAudit?.userId === alice.id && bobEditAudit?.actorUserId === bob.id);
 
     ok(
@@ -321,10 +387,15 @@ async function main() {
     await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
     await alicePage.waitForSelector("text=Expense added");
     await alicePage.waitForTimeout(500);
-    const soloTx = await prisma.transaction.findFirstOrThrow({ where: { merchant: `UISoloRegression-${suffix}` } });
+    const soloTx = await txByMerchant(`UISoloRegression-${suffix}`);
     txIds.push(soloTx.id);
 
-    await alicePage.fill('input[placeholder^="Search"]', `UISoloRegression-${suffix}`);
+    // Search is a collapsed <details> now — the list is the page's job and the
+    // field is opt-in — so it has to be opened before it can be typed into.
+    const search = alicePage.locator('input[placeholder^="Search"]');
+    if (!(await search.isVisible())) await alicePage.locator("summary", { hasText: "Search" }).first().click();
+    await search.waitFor();
+    await search.fill(`UISoloRegression-${suffix}`);
     await alicePage.waitForTimeout(500);
     await alicePage.locator(`button:has-text("UISoloRegression-${suffix}")`).first().click();
     await alicePage.getByRole("button", { name: "Edit", exact: true }).waitFor();

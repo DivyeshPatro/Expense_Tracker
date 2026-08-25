@@ -40,7 +40,7 @@ async function newDevice(browser: Browser, cookies: { name: string; value: strin
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   await page.goto(`${BASE}/dashboard`, { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page.getByText(/total balance|balance ·/i).filter({ visible: true }).first().waitFor();
   return { ctx, page };
 }
 
@@ -98,11 +98,25 @@ async function main() {
 
   const aliceBootstrap = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const aliceBootstrapPage = await aliceBootstrap.newPage();
-  await aliceBootstrapPage.goto(`${BASE}/sign-in`, { waitUntil: "load" });
-  await aliceBootstrapPage.fill('input[type="email"]', "arjun@ledgerly.app");
-  await aliceBootstrapPage.fill('input[type="password"]', "ledgerly-demo");
-  await aliceBootstrapPage.click('button[type="submit"]');
-  await aliceBootstrapPage.waitForURL("**/dashboard", { timeout: 20000 });
+  // Tolerate a cold `next dev` server, as e2e.mjs and e2e-tx-detail do:
+  // submitting before React has hydrated fires a native form GET that never
+  // reaches /dashboard. Without this the suite passes only on a warm server.
+  let bootstrapped = false;
+  for (let attempt = 0; attempt < 3 && !bootstrapped; attempt++) {
+    await aliceBootstrapPage.goto(`${BASE}/sign-in`, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await aliceBootstrapPage.waitForSelector('button[type="submit"]', { timeout: 30000 });
+    await aliceBootstrapPage.waitForTimeout(1500);
+    await aliceBootstrapPage.fill('input[type="email"]', "arjun@ledgerly.app");
+    await aliceBootstrapPage.fill('input[type="password"]', "ledgerly-demo");
+    await aliceBootstrapPage.click('button[type="submit"]');
+    try {
+      await aliceBootstrapPage.waitForURL("**/dashboard", { timeout: 30000 });
+      bootstrapped = true;
+    } catch {
+      /* retry */
+    }
+  }
+  if (!bootstrapped) throw new Error("Could not sign in after 3 attempts (hydration race)");
   const aliceCookies = await aliceBootstrap.cookies();
   await aliceBootstrap.close();
 
@@ -123,16 +137,16 @@ async function main() {
       await openTxByDeepLink(pageB, tx.id); // captures version=1 into B's local state
       await ctxB.setOffline(true);
       await pageB.getByRole("button", { name: "Edit", exact: true }).click(); // Alice IS the owner — the original EditExpenseForm, unaffected by collaboration
-      await pageB.waitForSelector('input[type="number"]');
-      await pageB.fill('input[type="number"]', "999");
+      await pageB.waitForSelector('input[placeholder="0"]');
+      await pageB.fill('input[placeholder="0"]', "999");
       await pageB.getByRole("button", { name: "Save changes", exact: true }).click();
       await pageB.waitForSelector("text=Save changes", { state: "detached" });
 
       const { ctx: ctxA, page: pageA } = await newDevice(browser, aliceCookies);
       await openTxByDeepLink(pageA, tx.id);
       await pageA.getByRole("button", { name: "Edit", exact: true }).click();
-      await pageA.waitForSelector('input[type="number"]');
-      await pageA.fill('input[type="number"]', "555");
+      await pageA.waitForSelector('input[placeholder="0"]');
+      await pageA.fill('input[placeholder="0"]', "555");
       await pageA.getByRole("button", { name: "Save changes", exact: true }).click();
       await pageA.waitForSelector("text=Transaction updated");
       await pageA.waitForTimeout(800);
@@ -174,8 +188,8 @@ async function main() {
       const { ctx: ctxAlice, page: pageAlice } = await newDevice(browser, aliceCookies);
       await openTxByDeepLink(pageAlice, tx.id);
       await pageAlice.getByRole("button", { name: "Edit", exact: true }).click();
-      await pageAlice.waitForSelector('input[type="number"]');
-      await pageAlice.fill('input[type="number"]', "555");
+      await pageAlice.waitForSelector('input[placeholder="0"]');
+      await pageAlice.fill('input[placeholder="0"]', "555");
       await pageAlice.getByRole("button", { name: "Save changes", exact: true }).click();
       await pageAlice.waitForSelector("text=Transaction updated");
       await pageAlice.waitForTimeout(800);
@@ -253,8 +267,8 @@ async function main() {
       const { ctx: ctxAlice, page: pageAlice } = await newDevice(browser, aliceCookies);
       await openTxByDeepLink(pageAlice, tx.id);
       await pageAlice.getByRole("button", { name: "Edit", exact: true }).click();
-      await pageAlice.waitForSelector('input[type="number"]');
-      await pageAlice.fill('input[type="number"]', "300");
+      await pageAlice.waitForSelector('input[placeholder="0"]');
+      await pageAlice.fill('input[placeholder="0"]', "300");
       await pageAlice.getByRole("button", { name: "Save changes", exact: true }).click();
       await pageAlice.waitForSelector("text=Transaction updated");
       await pageAlice.waitForTimeout(800);
