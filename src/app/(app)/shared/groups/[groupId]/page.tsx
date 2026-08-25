@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/shell/empty-state";
 import { ModuleActivity } from "@/components/shell/module-activity";
 import { StatCard } from "@/components/shell/stat-card";
 import { friendlyDay } from "@/lib/dates";
-import { balanceState } from "@/lib/group-dashboard";
+import { balanceState, memberRowLabel } from "@/lib/group-dashboard";
 import { formatPaise } from "@/lib/money";
 import { parsePeriod } from "@/lib/period";
 import { groupDashboard, type GroupMemberView } from "@/server/services/group-dashboard";
@@ -129,9 +129,9 @@ export default async function GroupDashboardPage({
       {/* Members / who owes whom */}
       <section className="card p-[var(--pad)] flex flex-col gap-1">
         <h2 className="text-[13.5px] font-bold m-0 mb-1.5">Members · contribution</h2>
-        <MemberRow m={you} />
+        <MemberRow m={you} viewerParticipantId={g.viewerParticipantId} />
         {others.map((m) => (
-          <MemberRow key={m.participantId} m={m} />
+          <MemberRow key={m.participantId} m={m} viewerParticipantId={g.viewerParticipantId} />
         ))}
         {g.memberCount === 0 && (
           <EmptyState
@@ -155,7 +155,7 @@ export default async function GroupDashboardPage({
         groupName={g.name}
         ownerName={g.ownerName}
         canRecordSettlements={g.canRecordSettlements}
-        isViewerOwner={g.isViewerOwner}
+        viewerParticipantId={g.viewerParticipantId}
       />
 
       {/* Insights — charts follow the global period. Below the concrete rows
@@ -213,23 +213,14 @@ export default async function GroupDashboardPage({
   );
 }
 
-function MemberRow({ m }: { m: GroupMemberView }) {
+function MemberRow({ m, viewerParticipantId }: { m: GroupMemberView; viewerParticipantId: string | null }) {
   const state = balanceState(m.net);
   const stateColor = state === "owes-you" ? "var(--green)" : state === "you-owe" ? "var(--red)" : "var(--mut2)";
-  const isYou = m.participantId === null;
+  const isOwnerRow = m.participantId === null;
+  // Who this row addresses, and how — one place, unit-tested, mutation-tested.
+  const { isSelf, label: stateLabel } = memberRowLabel(m.participantId, m.net, viewerParticipantId);
   // "Partial" — still outstanding despite past settlements (v2.0 P3, F4).
-  const partial = !isYou && state !== "settled" && m.hasSettlements;
-  const stateLabel = isYou
-    ? m.net > 0
-      ? "you'll get overall"
-      : m.net < 0
-        ? "you'll pay overall"
-        : "all settled"
-    : state === "owes-you"
-      ? "will pay you"
-      : state === "you-owe"
-        ? "you'll pay"
-        : "all settled";
+  const partial = !isSelf && balanceState(m.net) !== "settled" && m.hasSettlements;
   return (
     <div className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
       <span className="w-9 h-9 rounded-full grid place-items-center text-[13px] font-bold text-white flex-none" style={{ background: m.color }}>
@@ -238,7 +229,8 @@ function MemberRow({ m }: { m: GroupMemberView }) {
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-bold truncate flex items-center gap-1.5">
           {m.name}
-          {isYou && <span className="text-mut2 font-semibold">· owner</span>}
+          {isOwnerRow && <span className="text-mut2 font-semibold">· owner</span>}
+          {isSelf && <span className="text-[9.5px] font-bold px-1.5 py-[1px] rounded-full bg-accsoft text-acc">YOU</span>}
           {partial && (
             <span className="text-[9.5px] font-bold px-1.5 py-[1px] rounded-full" style={{ background: "var(--amberSoft)", color: "var(--amber)" }}>
               PARTIAL

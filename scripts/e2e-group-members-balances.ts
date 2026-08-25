@@ -165,7 +165,7 @@ async function main() {
     await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
     const body = await page.locator("body").innerText();
     ok("2. the primary section is the group settlement plan, with all three views",
-      body.includes("Group Settlement") && body.includes("Settlement") && body.includes("Simplify payments") && body.includes("I'll receive"));
+      body.includes("Group Settlement") && body.includes("Settlement") && body.includes("Simplify payments") && body.includes("Your position"));
     ok("2a. it states how many payments settle the whole group",
       /\d+ payments? to settle everything|All settled up/.test(body));
     // The plan must be group-wide: the owner appears by NAME, never as the

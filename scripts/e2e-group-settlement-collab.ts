@@ -155,13 +155,16 @@ async function main() {
     ok("6. the recorded settlement is reflected for members too (₹2,800, not the un-settled ₹3,300)",
       [ownerView, anaView, benView].every((v) => v.rows.some((r) => r.includes("Cara") && r.includes("2,800")) && !v.rows.some((r) => r.includes("3,300"))));
     ok("7. nobody is addressed as 'You' inside the plan", ![ownerView, anaView, benView].some((v) => /(^|\s)You\s*→|→\s*You(\s|$)/.test(v.rows.join(" "))));
-    // The "you" chip marks the OWNER's side of an arrow. Showing it to a member
-    // would label a different person as them.
+    // The "you" chip marks THE READER's own side of an arrow, whoever that is.
+    // It used to mark the OWNER's side for everybody, which labelled a
+    // different person as the reader — the defect this assertion pinned. It is
+    // inverted here deliberately, not adjusted to make a suite pass.
     // Plain substring, not \byou\b: innerText concatenates the chip onto the
     // name ("Olivia Owneryou"), so there is no word boundary to match. No name
     // in this fixture contains "you".
-    ok("7b. the 'you' chip appears only for the owner",
-      ownerView.rawRows.join(" ").includes("you") && !anaView.rawRows.join(" ").includes("you") && !benView.rawRows.join(" ").includes("you"));
+    ok("7b. the 'you' chip marks each reader's own side, and nobody else's",
+      ([[ownerView, "Olivia Owner"], [anaView, "Ana"], [benView, "Ben"]] as const).every(([v, self]) =>
+        (v.rawRows.join(" ").match(/[A-Za-z ]+?you/g) ?? []).every((c) => c.trim().endsWith(`${self}you`))));
 
     // ═══ owner identity ═══
     ok("8. the owner sees themselves as 'You · owner'", /You\s*·?\s*owner/i.test(ownerView.pageText));

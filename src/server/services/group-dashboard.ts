@@ -68,6 +68,19 @@ export interface GroupDashboardData {
   /** Is the reader the person this group is filed under? Drives every
    *  "You" vs real-name decision on the page. */
   isViewerOwner: boolean;
+  /**
+   * WHO "you" IS on this page, in the same convention `members` uses:
+   * null ⇒ the owner's own row, a participant id ⇒ that member's.
+   *
+   * Resolved here rather than re-derived per component, and deliberately NOT
+   * the same thing as `canRecordSettlements`. That flag answers "may I act?";
+   * this answers "who am I?" — conflating them is why several first-person
+   * labels were computed from a permission and quietly described the owner.
+   *
+   * In obligation space (`detailed`, `suggestions`) the owner is
+   * OWNER_SENTINEL, so a reader maps `viewerParticipantId ?? OWNER_SENTINEL`.
+   */
+  viewerParticipantId: string | null;
   /** Whether this reader can actually record a settlement here — precomputed
    *  from the same rule recordSettlement() enforces, so the UI never offers an
    *  action the write path will reject. */
@@ -252,7 +265,7 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
       amount: Number(s.amount),
       settledAt: s.settledAt.toISOString(),
     }));
-    const { members: balances, youNet, youAreOwed, youOwe, totalSpend } = computeMemberBalances(
+    const { members: balances, youAreOwed, youOwe, totalSpend } = computeMemberBalances(
       expenses,
       settleRows,
       g.members.map((m) => m.participantId)
@@ -405,7 +418,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
   }));
 
   const memberIds = group.members.map((m) => m.participantId);
-  const { members: balances, youNet, youAreOwed, youOwe } = computeMemberBalances(expenses, settleRows, memberIds);
+  const { members: balances, youAreOwed, youOwe } = computeMemberBalances(expenses, settleRows, memberIds);
   // Anyone who has been part of a settlement, either end of it.
   const settledPids = new Set(
     settleRows.flatMap((s) => [s.participantId, s.fromParticipantId ?? null, s.toParticipantId ?? null]).filter((id): id is string => id !== null)
@@ -568,6 +581,7 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     // still renders rather than showing an empty arrow target.
     ownerName,
     isViewerOwner,
+    viewerParticipantId: viewerId ?? null,
     canRecordSettlements,
     memberCount: group.members.length,
     overview: computeOverview(expenses, settleRows),

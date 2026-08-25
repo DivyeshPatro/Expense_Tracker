@@ -29,7 +29,7 @@ import { formatPaise, toRupeeInput } from "@/lib/money";
 import { namedPlan, planTotal, settlementHeadline, shareSettlementText, OWNER_ID, type PlanRow } from "@/lib/settlement-plan";
 import type { GroupMemberView, GroupSuggestion } from "@/server/services/group-dashboard";
 
-type View = "settlement" | "receive";
+type View = "settlement" | "yours";
 
 interface Row extends PlanRow {
   /** Present when you are one side, so it can be recorded. */
@@ -48,7 +48,7 @@ export function GroupBalances({
   groupName,
   ownerName,
   canRecordSettlements,
-  isViewerOwner,
+  viewerParticipantId,
 }: {
   members: GroupMemberView[];
   /** The individual obligations behind the plan, already named and group-wide:
@@ -62,13 +62,15 @@ export function GroupBalances({
    *  so for everyone else the plan is read-only — showing a Settle button that
    *  is guaranteed to error would be worse than showing none. */
   canRecordSettlements: boolean;
-  /** Whether the reader is the owner. The "you" chip marks the OWNER's side of
-   *  an arrow, which is only the reader when those are the same person —
-   *  otherwise the plan reads entirely in the third person, as it should. */
-  isViewerOwner: boolean;
+  /** Who "you" is: null ⇒ the owner, a participant id ⇒ that member. Never
+   *  derived from canRecordSettlements — that answers "may I act?", not
+   *  "who am I?", and using it as identity is what made these labels lie. */
+  viewerParticipantId: string | null;
 }) {
   const { openModal, showToast } = useUI();
   const [view, setView] = useState<View>("settlement");
+  // In obligation space the owner is OWNER_ID; members are themselves.
+  const meId = viewerParticipantId ?? OWNER_ID;
   // One settlement list, two readings of it. Simplify ON is the minimised plan
   // (what Splitwise calls "simplify debts"); OFF is the raw obligations the
   // expenses created. They were separate tabs, which made two views of the same
@@ -90,9 +92,11 @@ export function GroupBalances({
   // server. Rows can run between any two people; an obligation to a member who
   // fronted a bill stays addressed to THEM.
   const netOf = new Map(others.map((m) => [m.participantId!, m.net]));
-  const detailed: Row[] = obligations
-    .filter((o) => o.amount > SETTLED_THRESHOLD)
-    .map((o, i) => {
+  /** One obligation as a settleable row. Shared by the detailed list and by
+   *  the viewer's own two lists, so a row carries the same actions wherever it
+   *  appears and there is one place that decides what is recordable. */
+  const toRow = (prefix: string) =>
+    ((o: (typeof obligations)[number], i: number): Row => {
       // Owner-involved rows record through the owner↔member path, using the
       // member's overall net so the modal's live preview stays meaningful.
       // Rows between two members record through the member↔member path (#240) —
@@ -121,32 +125,35 @@ export function GroupBalances({
               netPaise: net,
             }
           : undefined;
-      return { key: `d-${o.fromId}-${o.toId}-${i}`, ...o, settle, settleMembers };
+      return { key: `${prefix}-${o.fromId}-${o.toId}-${i}`, ...o, settle, settleMembers };
     });
 
-  // Personal standing, positives only — what you would actually collect.
-  const receive: Row[] = others
-    .filter((m) => m.net > SETTLED_THRESHOLD)
-    .sort((a, b) => b.net - a.net)
-    .map((m) => ({
-      key: `recv-${m.participantId}`,
-      fromId: m.participantId!,
-      fromName: m.name,
-      toId: OWNER_ID,
-      toName: ownerName,
-      amount: m.net,
-      settle: canRecordSettlements
-        ? {
-            participantId: m.participantId!,
-            participantName: m.name,
-            direction: "TO_OWNER" as const,
-            amountRupees: toRupeeInput(m.net),
-            netPaise: m.net,
-          }
-        : undefined,
-    }));
+  const detailed: Row[] = obligations.filter((o) => o.amount > SETTLED_THRESHOLD).map(toRow("d"));
 
-  const shown = view === "receive" ? receive : simplify ? plan : detailed;
+  // THE VIEWER'S OWN POSITION — filtered from the same group-wide obligations,
+  // never recomputed. "I'll receive" is what is owed TO me, "I'll pay" is what
+  // I owe. Both used to be one list hardcoded to flow to the owner
+  // (`toId: OWNER_ID`), so every member read the owner's receivables under a
+  // first-person label.
+  //
+  // Because these two are complements of the same ledger, their difference is
+  // the viewer's net by construction — the identity is asserted in
+  // group-viewer-perspective.integration.test.ts rather than assumed.
+  const receive: Row[] = obligations
+    .filter((o) => o.toId === meId && o.amount > SETTLED_THRESHOLD)
+    .sort((a, b) => b.amount - a.amount)
+    .map(toRow("recv"));
+  const willPay: Row[] = obligations
+    .filter((o) => o.fromId === meId && o.amount > SETTLED_THRESHOLD)
+    .sort((a, b) => b.amount - a.amount)
+    .map(toRow("pay"));
+  const receiveTotal = planTotal(receive);
+  const payTotal = planTotal(willPay);
+
+  // Both directions in one list: an arrow already says which way the money
+  // goes, and splitting them into two tabs would make "am I up or down?" a
+  // two-tap question.
+  const shown = view === "yours" ? [...receive, ...willPay] : simplify ? plan : detailed;
   const total = planTotal(shown);
   const fewer = detailed.length - plan.length;
   const settled = plan.length === 0;
@@ -216,7 +223,7 @@ export function GroupBalances({
           <div className="flex gap-1.5 p-1 bg-accsoft rounded-[12px]" role="tablist" aria-label="Settlement view">
             {([
               ["settlement", "Settlement"],
-              ["receive", "I'll receive"],
+              ["yours", "Your position"],
             ] as const).map(([v, label]) => (
               <button
                 key={v}
@@ -251,13 +258,13 @@ export function GroupBalances({
           )}
 
           <p className="text-[11.5px] text-mut2 m-0 -mt-1">
-            {view === "receive"
-              ? "Your own standing with each person — what you would collect."
+            {view === "yours"
+              ? "What you are owed and what you owe, person by person."
               : simplify
                 ? fewer > 0
                   ? `The shortest way to settle the whole group — ${fewer} fewer ${fewer === 1 ? "payment" : "payments"} than paying each obligation separately.`
                   : "These are already the fewest payments."
-                : "Every obligation separately, including what you owe people who paid. This is the why behind the plan."}
+                : "Every obligation separately, including debts between two members. This is the why behind the plan."}
           </p>
 
           {shown.length === 0 ? (
@@ -265,16 +272,18 @@ export function GroupBalances({
               <div className="text-[24px]" aria-hidden>
                 💤
               </div>
-              <div className="text-[13px] font-bold text-ink mt-1">You don&apos;t have anything to receive.</div>
+              <div className="text-[13px] font-bold text-ink mt-1">
+                {view === "yours" ? "You're square with everyone here." : "Everyone in this group is settled up."}
+              </div>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
               {shown.map((r) => (
                 <div key={r.key} className="flex items-center gap-2 p-2.5 rounded-[11px] border border-line2 bg-side min-h-[44px]">
                   <div className="flex-1 min-w-0 text-[12.5px] font-semibold">
-                    <Party name={r.fromName} isYou={isViewerOwner && r.fromId === OWNER_ID} />
+                    <Party name={r.fromName} isYou={r.fromId === meId} />
                     <span className="text-mut2 font-bold" aria-label="pays"> → </span>
-                    <Party name={r.toName} isYou={isViewerOwner && r.toId === OWNER_ID} />
+                    <Party name={r.toName} isYou={r.toId === meId} />
                   </div>
                   <span className="text-[13px] font-extrabold tabular-nums flex-none">{formatPaise(r.amount)}</span>
                   {r.settle || r.settleMembers ? (
@@ -290,17 +299,43 @@ export function GroupBalances({
                 </div>
               ))}
 
-              <div className="flex items-center justify-between gap-2 pt-2 mt-1 border-t border-line">
-                <span className="text-[12.5px] font-semibold text-mut">
-                  {/* "to settle" belongs to the plan: it is the money that
-                      actually has to move. The detailed list is the gross of
-                      every obligation, which is a different quantity. */}
-                  {view === "receive" ? "Total you'll receive" : simplify ? "Total to settle" : "Total obligations"}
-                </span>
-                <span className="text-[14px] font-extrabold tabular-nums" style={{ color: "var(--green)" }}>
-                  {formatPaise(total)}
-                </span>
-              </div>
+              {view === "yours" ? (
+                /* Three lines, and the third is the difference of the first
+                   two — stated rather than implied, because "net" is the figure
+                   most often mistaken for the group's total. Every one of them
+                   describes the person reading the page. */
+                <div className="flex flex-col gap-1 pt-2 mt-1 border-t border-line">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12.5px] font-semibold text-mut">You&rsquo;ll receive</span>
+                    <span className="text-[13.5px] font-extrabold tabular-nums" style={{ color: "var(--green)" }}>{formatPaise(receiveTotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12.5px] font-semibold text-mut">You&rsquo;ll pay</span>
+                    <span className="text-[13.5px] font-extrabold tabular-nums" style={{ color: payTotal > 0 ? "var(--red)" : "var(--mut2)" }}>{formatPaise(payTotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-line2">
+                    <span className="text-[12.5px] font-bold text-ink">Your net</span>
+                    <span
+                      className="text-[14px] font-extrabold tabular-nums"
+                      style={{ color: receiveTotal - payTotal < 0 ? "var(--red)" : receiveTotal - payTotal > 0 ? "var(--green)" : "var(--mut2)" }}
+                    >
+                      {receiveTotal === payTotal ? "—" : `${receiveTotal - payTotal < 0 ? "−" : "+"}${formatPaise(receiveTotal - payTotal)}`}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2 pt-2 mt-1 border-t border-line">
+                  <span className="text-[12.5px] font-semibold text-mut">
+                    {/* "to settle" belongs to the plan: it is the money that
+                        actually has to move. The detailed list is the gross of
+                        every obligation, which is a different quantity. */}
+                    {simplify ? "Total to settle" : "Total obligations"}
+                  </span>
+                  <span className="text-[14px] font-extrabold tabular-nums" style={{ color: "var(--green)" }}>
+                    {formatPaise(total)}
+                  </span>
+                </div>
+              )}
 
               {/* Say why there is nothing to press, rather than leaving a
                   member wondering whether the app is broken. */}
@@ -310,7 +345,7 @@ export function GroupBalances({
                 </p>
               )}
 
-              {view !== "receive" && (
+              {view !== "yours" && (
                 <button
                   onClick={share}
                   className="btn-primary w-full min-h-[44px] mt-1 text-[12.5px] font-bold cursor-pointer"
