@@ -10,6 +10,7 @@ import {
   OWNER_SENTINEL,
   computeMemberBalances,
   SETTLED_THRESHOLD,
+  standingOf,
   computeOverview,
   computeSuggestions,
   groupCategoryTotals,
@@ -257,17 +258,29 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
       g.members.map((m) => m.participantId)
     );
     const overview = computeOverview(expenses, settleRows);
+    // Whose money the card's first-person figures describe (#238). A group can
+    // be opened by any member whose participant is linked to their account, and
+    // the card used to show them the OWNER's position under their own pronoun.
+    const isOwner = g.createdById === userId;
+    const viewerId = isOwner ? null : g.members.find((m) => m.participant.linkedUserId === userId)?.participantId;
+    const viewerNet = standingOf(balances, viewerId);
     return {
       id: g.id,
       name: g.name,
-      role: (g.createdById === userId ? "OWNER" : (g.members.find((m) => m.participant.linkedUserId === userId)?.role ?? "MEMBER")) as GroupSummary["role"],
+      role: (isOwner ? "OWNER" : (g.members.find((m) => m.participant.linkedUserId === userId)?.role ?? "MEMBER")) as GroupSummary["role"],
       memberCount: g.members.length + 1, // + you
       memberNames: g.members.map((m) => m.participant.displayName),
       expenseCount: rows.length,
       totalSpent: totalSpend,
-      youAreOwed,
-      youOwe,
-      youNet,
+      // The owner's pair stays the gross split across everyone who owes them or
+      // is owed — every member's balance IS their bilateral position with the
+      // owner, so the sum is meaningful. A member has no such per-person
+      // breakdown here (the detailed obligations are owner-centric by
+      // construction, and #238 leaves that alone), so their own net is split
+      // instead. Both keep `youAreOwed − youOwe === youNet`.
+      youAreOwed: isOwner ? youAreOwed : Math.max(viewerNet, 0),
+      youOwe: isOwner ? youOwe : Math.max(-viewerNet, 0),
+      youNet: viewerNet,
       lastActivity: overview.lastActivity,
       // Settled means nobody has a balance worth acting on — a question asked
       // of each PERSON, not of a total. `youAreOwed === 0 && youOwe === 0` kept
@@ -437,6 +450,22 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
   // so the UI can't offer an action the write path will reject.
   const canRecordSettlements = isViewerOwner;
 
+  // Whose money the page's first-person figures describe (#238).
+  //
+  // The plan, the obligations and the members list were already group-wide and
+  // identical for every viewer. The personal figures were not: they read the
+  // owner's row whoever was looking, so a member saw another person's money
+  // under their own pronoun, directly above a settlement plan that correctly
+  // said something else.
+  //
+  // null = the owner's own row; a participant id = that member's. undefined
+  // means no row at all, which the authorization above already prevents — it
+  // reads as zero rather than borrowing the owner's figure.
+  const viewerId: string | null | undefined = isViewerOwner
+    ? null
+    : group.members.find((m) => m.participant.linkedUserId === userId)?.participantId;
+  const viewerNet = standingOf(balances, viewerId);
+
   // Optimal payment plan from the same member balances (single source of truth).
   // You-involved rows carry the exact settle prefill (incl. the live-preview net).
   const netByPid = new Map(members.map((m) => [m.participantId, m.net]));
@@ -507,7 +536,9 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     color: t.category?.color ?? "var(--acc)",
     paidByParticipantId: t.paidByParticipantId,
     paidByName: nameOf(t.paidByParticipantId),
-    yourShare: Number(t.splits.find((s) => s.participantId === null)?.owedAmount ?? 0),
+    // The viewer's own share, not the owner's. Equal splits hid this — it
+    // diverges the moment one is unequal.
+    yourShare: viewerId === undefined ? 0 : Number(t.splits.find((s) => s.participantId === viewerId)?.owedAmount ?? 0),
     splitCount: t.splits.length,
     splits: t.splits.map((s) => ({
       participantId: s.participantId,
@@ -540,9 +571,11 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     canRecordSettlements,
     memberCount: group.members.length,
     overview: computeOverview(expenses, settleRows),
-    youNet,
-    youAreOwed,
-    youOwe,
+    // Same projection the group card uses — see the note by viewerId. For the
+    // owner these are byte-identical to what computeMemberBalances returned.
+    youNet: viewerNet,
+    youAreOwed: isViewerOwner ? youAreOwed : Math.max(viewerNet, 0),
+    youOwe: isViewerOwner ? youOwe : Math.max(-viewerNet, 0),
     members,
     suggestions,
     spending: {
