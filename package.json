@@ -15,6 +15,7 @@
     "db:migrate": "node scripts/db-local.mjs prisma migrate dev",
     "db:seed": "node scripts/db-local.mjs tsx prisma/seed.ts",
     "db:reset": "node scripts/db-local.mjs prisma migrate reset --force",
+    "smoke:groups": "tsx scripts/smoke-group-invariants.ts",
     "e2e": "node scripts/db-local.mjs --shell \"node scripts/e2e.mjs\"",
     "e2e:tx-detail": "node scripts/db-local.mjs --shell \"node scripts/e2e-tx-detail.mjs\"",
     "e2e:mobile-nav": "node scripts/db-local.mjs --shell \"node scripts/e2e-mobile-nav.mjs\"",
