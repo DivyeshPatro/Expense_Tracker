@@ -148,11 +148,16 @@ describe("I'll receive / I'll pay are the viewer's own", () => {
   });
 
   it("a member is on BOTH sides at once, and the two are his own", async () => {
-    // Ben owes the owner ₹100 (bill 1) and Ana ₹150 (bill 2) = ₹250 out.
-    // He fronted bill 3, so ₹20 + ₹60 + ₹70 = ₹150 is owed to him.
-    // 150 − 250 = −100, his standing. An owner-framed list could show neither.
+    // Ben's standing with each person, which is what the position states:
+    //   owner  owes 100 (bill 1), owed 20 (bill 3)  → owes 80
+    //   Ana    owes 150 (bill 2), owed 60 (bill 3)  → owes 90
+    //   Cara   owed 70 (bill 3)                     → owed 70
+    // 70 − 170 = −100, his standing. An owner-framed list could show neither
+    // side. The gross legs are ₹150 owed to him and ₹250 out, and the raw
+    // obligation list still shows them that way with Simplify off; two people
+    // who owe each other have one standing, so the position nets each pair.
     const { receive, pay, receiveTotal, payTotal } = await position(benUser);
-    expect({ receive: receiveTotal, pay: payTotal }).toEqual({ receive: rup(150), pay: rup(250) });
+    expect({ receive: receiveTotal, pay: payTotal }).toEqual({ receive: rup(70), pay: rup(170) });
     expect(receiveTotal - payTotal).toBe(STANDING.ben);
     expect(pay.map((o) => o.toId).sort()).toEqual([ana, OWNER_SENTINEL].sort());
     expect(receive.every((o) => o.toId === ben)).toBe(true);
@@ -366,12 +371,19 @@ describe("P1: the group card agrees with the page it opens", () => {
     expect(new Set(shapes).size).toBe(3);
   });
 
-  it("a member's pay side is a real figure, not max(-net, 0)", async () => {
-    // The specific shape of the old bug: Ana is owed on balance, so the
-    // discarded derivation reported youOwe = 0 for her. She does owe Cara.
-    const c = await card(anaUser);
-    expect(c.youOwe).toBeGreaterThan(0);
-    expect(c.youAreOwed).toBeGreaterThan(c.youOwe);
+  it("a member's two sides are real figures, not max(±net, 0)", async () => {
+    // Ana used to be the subject here, because the discarded derivation
+    // reported youOwe = 0 for anyone owed on balance. She can no longer tell
+    // the two apart: netted per person she is owed by all three, so her pay
+    // side is legitimately 0 and matches what the bug would have produced.
+    //
+    // Ben still separates them. The degenerate shape would give him
+    // max(net, 0) / max(-net, 0) = 0 / 100 against a standing of −₹100; his
+    // actual position is 70 / 170. Both sides real, neither derived from the net.
+    const c = await card(benUser);
+    expect({ owed: c.youAreOwed, owe: c.youOwe }).toEqual({ owed: rup(70), owe: rup(170) });
+    expect(c.youAreOwed).toBeGreaterThan(0);
+    expect(c.youNet).toBe(STANDING.ben);
   });
 });
 

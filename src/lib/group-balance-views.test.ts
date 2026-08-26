@@ -7,7 +7,16 @@
 // simplified plan must never invent or lose money.
 
 import { describe, expect, it } from "vitest";
-import { computeDetailedObligations, computeMemberBalances, computeSuggestions, OWNER_SENTINEL, SETTLED_THRESHOLD, type GroupExpenseRow } from "./group-dashboard";
+import {
+  computeDetailedObligations,
+  computeMemberBalances,
+  computeSuggestions,
+  OWNER_SENTINEL,
+  SETTLED_THRESHOLD,
+  viewerPosition,
+  viewerPositionTotals,
+  type GroupExpenseRow,
+} from "./group-dashboard";
 
 const ALEX = "p-alex";
 const BLAKE = "p-blake";
@@ -236,5 +245,101 @@ describe("detailed obligations (Simplify OFF) — the un-minimised list", () => 
     );
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.toId === OWNER_SENTINEL)).toBe(true);
+  });
+});
+
+describe("Your position nets each person, while the raw list does not", () => {
+  // Reported from a real group: the same member appeared on both sides of one
+  // position, and the totals counted them twice.
+  //
+  //     You'll receive  992      Srikant → you   992
+  //     You'll pay      992      you → Srikant   248
+  //                              you → Abhisekh  248  (+ two more)
+  //
+  // Both Srikant rows are genuine — each of them fronted a bill the other
+  // shared — but between two people that is ONE standing of 744. The raw list
+  // keeps both, because with Simplify off every row traces back to the bill
+  // that created it (pinned by "shows BOTH directions for someone who paid AND
+  // owes", above). "Where do I stand with Srikant" has a single answer, so the
+  // position collapses them.
+  const bothWays = [
+    expense("t1", 99_200, null, [[null, 0], [BLAKE, 99_200]]), // Blake owes the owner 992
+    expense("t2", 24_800, BLAKE, [[null, 24_800], [BLAKE, 0]]), // the owner owes Blake 248
+  ];
+
+  it("the raw obligations still show both legs", () => {
+    const rows = computeDetailedObligations(bothWays, [], [BLAKE]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("but the position states one figure per person", () => {
+    const rows = computeDetailedObligations(bothWays, [], [BLAKE]);
+    expect(viewerPositionTotals(rows, null)).toEqual({ receive: 74_400, pay: 0 });
+    const { receive, pay } = viewerPosition(rows, null);
+    expect(pay).toHaveLength(0);
+    expect(receive).toHaveLength(1);
+    expect(receive[0]).toMatchObject({ fromId: BLAKE, toId: OWNER_SENTINEL, amount: 74_400 });
+  });
+
+  it("receive − pay is still the viewer's standing", () => {
+    const rows = computeDetailedObligations(bothWays, [], [BLAKE]);
+    const { members } = computeMemberBalances(bothWays, [], [BLAKE]);
+    const { receive, pay } = viewerPositionTotals(rows, null);
+    // The owner's standing is the negative of the members' sum.
+    expect(receive - pay).toBe(-members.reduce((t, m) => t + (m.participantId === null ? 0 : -m.net), 0));
+  });
+
+  it("two people who owe each other the same amount leave no row", () => {
+    const even = [
+      expense("t1", 30_000, null, [[null, 0], [BLAKE, 30_000]]),
+      expense("t2", 30_000, BLAKE, [[null, 30_000], [BLAKE, 0]]),
+    ];
+    const rows = computeDetailedObligations(even, [], [BLAKE]);
+    expect(rows).toHaveLength(2);
+    expect(viewerPositionTotals(rows, null)).toEqual({ receive: 0, pay: 0 });
+    const { receive, pay } = viewerPosition(rows, null);
+    expect([...receive, ...pay]).toHaveLength(0);
+  });
+
+  it("nets from a member's point of view too, not just the owner's", () => {
+    const rows = computeDetailedObligations(bothWays, [], [BLAKE]);
+    expect(viewerPositionTotals(rows, BLAKE)).toEqual({ receive: 0, pay: 74_400 });
+    const { pay } = viewerPosition(rows, BLAKE);
+    expect(pay).toHaveLength(1);
+    expect(pay[0]).toMatchObject({ fromId: BLAKE, toId: OWNER_SENTINEL, amount: 74_400 });
+  });
+
+  it("leaves a third party's obligations alone", () => {
+    const withCasey = [...bothWays, expense("t3", 10_000, null, [[null, 0], [CASEY, 10_000]])];
+    const rows = computeDetailedObligations(withCasey, [], [BLAKE, CASEY]);
+    expect(viewerPositionTotals(rows, null)).toEqual({ receive: 84_400, pay: 0 });
+    const { receive } = viewerPosition(rows, null);
+    expect(receive.map((r) => r.fromId).sort()).toEqual([BLAKE, CASEY].sort());
+  });
+
+  it("nets before applying the threshold, so opposing dust cancels", () => {
+    // 140 each way is two rows the raw list would show; the standing is zero.
+    const dust = [
+      expense("t1", 140, null, [[null, 0], [BLAKE, 140]]),
+      expense("t2", 140, BLAKE, [[null, 140], [BLAKE, 0]]),
+    ];
+    const rows = computeDetailedObligations(dust, [], [BLAKE]);
+    expect(rows).toHaveLength(2);
+    expect(viewerPositionTotals(rows, null)).toEqual({ receive: 0, pay: 0 });
+  });
+
+  it("a netted standing under the threshold keeps its money in the totals", () => {
+    // 300 owed one way, 240 the other: a standing of 60, below SETTLED_THRESHOLD.
+    const nearlyEven = [
+      expense("t1", 300, null, [[null, 0], [BLAKE, 300]]),
+      expense("t2", 240, BLAKE, [[null, 240], [BLAKE, 0]]),
+    ];
+    const rows = computeDetailedObligations(nearlyEven, [], [BLAKE]);
+    const totals = viewerPositionTotals(rows, null);
+    expect(totals).toEqual({ receive: 60, pay: 0 });
+    expect(totals.receive).toBeLessThan(SETTLED_THRESHOLD);
+    // Not worth a row, still counted — the rule the Srisailam card broke.
+    const { receive } = viewerPosition(rows, null);
+    expect(receive).toHaveLength(0);
   });
 });
