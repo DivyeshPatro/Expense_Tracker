@@ -7,6 +7,7 @@ import { cache } from "react";
 import { currentMonthKey, monthName, shiftMonthKey, toYMD } from "@/lib/dates";
 import {
   computeDetailedObligations,
+  viewerPositionTotals,
   OWNER_SENTINEL,
   computeMemberBalances,
   SETTLED_THRESHOLD,
@@ -195,8 +196,10 @@ export interface GroupSummary {
  *
  * Deliberately two queries for ALL groups rather than calling groupDashboard()
  * per group (that would be 2N queries plus N period computations). The balances
- * come from computeMemberBalances — the same tested function the group page
- * uses — so there is exactly one implementation of group balance maths.
+ * come from computeMemberBalances and the viewer's own receive/pay from
+ * viewerPosition() over computeDetailedObligations — the same tested functions
+ * the group page uses, so there is exactly one implementation of group balance
+ * maths and the card cannot drift from the page it opens.
  */
 export const listGroupSummaries = cache(async (userId: string): Promise<GroupSummary[]> => {
   const groups = await prisma.group.findMany({
@@ -265,7 +268,7 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
       amount: Number(s.amount),
       settledAt: s.settledAt.toISOString(),
     }));
-    const { members: balances, youAreOwed, youOwe, totalSpend } = computeMemberBalances(
+    const { members: balances, totalSpend } = computeMemberBalances(
       expenses,
       settleRows,
       g.members.map((m) => m.participantId)
@@ -277,6 +280,13 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
     const isOwner = g.createdById === userId;
     const viewerId = isOwner ? null : g.members.find((m) => m.participant.linkedUserId === userId)?.participantId;
     const viewerNet = standingOf(balances, viewerId);
+    // Reuses the expenses and settlements already loaded for this group above,
+    // so the card costs no additional query — the same inputs, read the way the
+    // group detail reads them.
+    const position = viewerPositionTotals(
+      computeDetailedObligations(expenses, settleRows, g.members.map((m) => m.participantId)),
+      viewerId ?? null
+    );
     return {
       id: g.id,
       name: g.name,
@@ -285,14 +295,24 @@ export const listGroupSummaries = cache(async (userId: string): Promise<GroupSum
       memberNames: g.members.map((m) => m.participant.displayName),
       expenseCount: rows.length,
       totalSpent: totalSpend,
-      // The owner's pair stays the gross split across everyone who owes them or
-      // is owed — every member's balance IS their bilateral position with the
-      // owner, so the sum is meaningful. A member has no such per-person
-      // breakdown here (the detailed obligations are owner-centric by
-      // construction, and #238 leaves that alone), so their own net is split
-      // instead. Both keep `youAreOwed − youOwe === youNet`.
-      youAreOwed: isOwner ? youAreOwed : Math.max(viewerNet, 0),
-      youOwe: isOwner ? youOwe : Math.max(-viewerNet, 0),
+      // The same two figures the group detail shows, from the same selector
+      // over the same obligations — a card must not disagree with the page one
+      // tap behind it.
+      //
+      // These used to be derived here instead: the owner got the gross sum of
+      // the member nets, and every other viewer got max(±net, 0), justified by
+      // a claim that the detailed obligations were "owner-centric by
+      // construction". They are not — computeDetailedObligations() returns true
+      // bilateral pairs, member↔member included, and has since #240. The
+      // consequence was a card reading ₹420 / ₹290 over a page reading
+      // ₹300 / ₹170, and a member seeing "you'll pay ₹0" above a page asking
+      // them for ₹160.
+      //
+      // Net is unchanged and still comes from standingOf(): the pair and the
+      // net now agree by construction rather than by coincidence, since
+      // Σreceive − Σpay IS the viewer's standing.
+      youAreOwed: position.receive,
+      youOwe: position.pay,
       youNet: viewerNet,
       lastActivity: overview.lastActivity,
       // Settled means nobody has a balance worth acting on — a question asked
@@ -588,6 +608,13 @@ export async function groupDashboard(userId: string, groupId: string, period: Pe
     // Same projection the group card uses — see the note by viewerId. For the
     // owner these are byte-identical to what computeMemberBalances returned.
     youNet: viewerNet,
+    // The group-wide aggregate over the member nets, NOT the viewer's bilateral
+    // pair. Two readers depend on it being this: the group statement export
+    // prints it above a members table it has to reconcile with cell by cell,
+    // and group-aggregate-reconciliation pins `youAreOwed − youOwe === youNet`.
+    // The viewer's own position is a different question, answered by
+    // viewerPositionTotals() over `detailed` — which is what the page renders
+    // and the group card now mirrors.
     youAreOwed: isViewerOwner ? youAreOwed : Math.max(viewerNet, 0),
     youOwe: isViewerOwner ? youOwe : Math.max(-viewerNet, 0),
     members,

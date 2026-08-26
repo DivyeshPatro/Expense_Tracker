@@ -16,6 +16,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { parsePeriod } from "@/lib/period";
 import { groupDashboard, listGroupSummaries } from "./group-dashboard";
+import { viewerPositionTotals } from "@/lib/group-dashboard";
 import { prisma } from "../db";
 
 const EMAIL = "viewer-standing@ledgerly.app";
@@ -162,9 +163,16 @@ describe("the group card agrees with the page it opens", () => {
   it("no viewer is shown one figure on the card and another on the page", async () => {
     // Fixing only the page would have swapped a consistent-but-wrong number for
     // a contradiction between two screens.
+    //
+    // Compared against what the page RENDERS, which is no longer g.youAreOwed:
+    // that pair is the group-wide aggregate over member nets, kept for the
+    // group statement export, and the position block never showed it. The block
+    // shows the viewer's own bilateral pair, so that is what the card has to
+    // match — and did not, reading ₹420 / ₹290 over a page saying ₹300 / ₹170.
     for (const uid of [ownerId, anaUser, benUser]) {
       const [c, g] = [await card(uid), await dash(uid)];
-      expect({ uid, net: c.youNet, owed: c.youAreOwed, owe: c.youOwe }).toEqual({ uid, net: g.youNet, owed: g.youAreOwed, owe: g.youOwe });
+      const page = viewerPositionTotals(g.detailed, g.viewerParticipantId);
+      expect({ uid, net: c.youNet, owed: c.youAreOwed, owe: c.youOwe }).toEqual({ uid, net: g.youNet, owed: page.receive, owe: page.pay });
     }
   });
 });

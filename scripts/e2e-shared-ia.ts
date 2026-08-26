@@ -160,7 +160,13 @@ async function main() {
 
     // ═══════ 5. DELETE FROM THE GROUP ═══════
     await page.goto(`${BASE}/shared/groups/${tripId}?p=all`, { waitUntil: "load" });
-    await page.getByText(`ZCab-${S}`).first().click();
+    // Same guard as above: wait for the rendered page before clicking into it.
+    // P1 moved the expense list below the position and settlement sections, so
+    // the row arrives later and an unguarded click could land mid-paint.
+    await page.waitForSelector("text=Members · contribution", { timeout: 30000 });
+    const cabRow = page.getByText(`ZCab-${S}`).first();
+    await cabRow.scrollIntoViewIfNeeded();
+    await cabRow.click();
     await page.waitForSelector("text=Delete", { timeout: 20000 });
     await modal(page).getByRole("button", { name: "Delete", exact: true }).click();
     await page.waitForTimeout(600);

@@ -51,8 +51,8 @@ async function newSession(browser: Browser, email: string): Promise<{ ctx: Brows
 /** Everything the settlement card says, for one viewer. */
 async function readCard(page: Page, groupId: string) {
   await page.goto(`${BASE}/shared/groups/${groupId}?p=all`, { waitUntil: "load" });
-  await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
-  const card = page.locator("section", { hasText: "Group Settlement" }).first();
+  await page.waitForSelector("text=Settle up", { timeout: 30000 });
+  const card = page.locator("section", { hasText: "Settle up" }).first();
   const text = await card.innerText();
   const rawRows = (await card.locator("div.bg-side").allInnerTexts())
     .map((t) => t.replace(/\s+/g, " ").trim())
@@ -195,7 +195,7 @@ async function main() {
     for (const w of [360, 390, 430, 1440]) {
       await a.page.setViewportSize({ width: w, height: w >= 1440 ? 900 : 844 });
       await a.page.goto(`${BASE}/shared/groups/${group.id}?p=all`, { waitUntil: "load" });
-      await a.page.waitForSelector("text=Group Settlement", { timeout: 30000 });
+      await a.page.waitForSelector("text=Settle up", { timeout: 30000 });
       const overflow = await a.page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       const shareVisible = await a.page.getByRole("button", { name: "Share settlement" }).isVisible();
       ok(`16. ${w}px member view: no overflow, plan and Share still reachable`, !overflow && shareVisible, `overflow=${overflow}`);

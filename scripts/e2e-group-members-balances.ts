@@ -162,15 +162,15 @@ async function main() {
 
     // ═══ 2. GROUP SETTLEMENT ═══
     await page.goto(`${BASE}/shared/groups/${group.id}?p=all`, { waitUntil: "load" });
-    await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
+    await page.waitForSelector("text=Settle up", { timeout: 30000 });
     const body = await page.locator("body").innerText();
     ok("2. the primary section is the group settlement plan, with all three views",
-      body.includes("Group Settlement") && body.includes("Settlement") && body.includes("Simplify payments") && body.includes("Your position"));
+      body.includes("Settle up") && body.includes("Settlement") && body.includes("Simplify payments") && body.includes("Your position"));
     ok("2a. it states how many payments settle the whole group",
       /\d+ payments? to settle everything|All settled up/.test(body));
     // The plan must be group-wide: the owner appears by NAME, never as the
     // word "You", because this text is meant to be sent to the whole group.
-    const planText = body.slice(body.indexOf("Group Settlement"));
+    const planText = body.slice(body.indexOf("Settle up"));
     ok("2a-i. the plan names the owner instead of addressing the reader as 'You'",
       /→/.test(planText) && !/(^|\s)You\s*→/.test(planText) && !/→\s*You(\s|$)/.test(planText));
     ok("2a-ii. the plan totals what has to move", body.includes("Total to settle"));
@@ -184,7 +184,7 @@ async function main() {
     // A member who PAID for something must appear as a row you owe, not be
     // netted away into a single line.
     ok("2b-i. detailed shows BOTH directions (someone who paid appears as a row you owe)",
-      /→/.test(detailedText.slice(detailedText.indexOf("Group Settlement"))));
+      /→/.test(detailedText.slice(detailedText.indexOf("Settle up"))));
     const detailedRows = await page.locator("text=/→/").count();
     ok("2c. the plan is never longer than the detailed list", planRows <= detailedRows, `${detailedRows} detailed → ${planRows} plan`);
     await page.getByText("Simplify payments").first().click(); // toggle back ON → minimised plan
@@ -193,18 +193,24 @@ async function main() {
       /fewest payments|shortest way to settle/i.test(await page.locator("body").innerText()));
     await page.screenshot({ path: path.join(SHOT, "mb-390-settlement-plan.png"), fullPage: true });
 
-    await page.getByRole("tab", { name: "I'll receive" }).click();
-    await page.waitForTimeout(600);
-    const recv = await page.locator("body").innerText();
-    ok("2f. the receive view totals what's coming to you", recv.includes("Total you'll receive"));
+    // P1 replaced the "I'll receive" / "I'll pay" tabs with a Your position
+    // section above the plan: the two figures are always on screen, and the
+    // per-person breakdown is one <details> behind "Who with?".
+    const position = page.locator("section", { hasText: "Your position" }).first();
+    const recv = await position.innerText();
+    ok("2f. the position block states both sides and the net", /You.ll receive/.test(recv) && /You.ll pay/.test(recv) && /Your net/.test(recv));
     ok("2g. it uses plain wording (no creditor/debtor jargon)", !/creditor|debtor/i.test(recv));
-    ok("2g-i. personal accounting is not shareable to the group",
-      (await page.getByRole("button", { name: "Share settlement" }).count()) === 0);
+    await position.getByText("Who with?").click();
+    await page.waitForTimeout(400);
+    ok("2f-i. 'Who with?' opens the per-person breakdown",
+      (await position.locator("text=/→/").count()) > 0);
+    ok("2g-i. personal accounting is not shareable from the position block",
+      (await position.getByRole("button", { name: "Share settlement" }).count()) === 0);
     await page.screenshot({ path: path.join(SHOT, "mb-390-balances-receive.png"), fullPage: true });
 
     // settled group → both empty states
     await page.goto(`${BASE}/shared/groups/${settledGroup.id}?p=all`, { waitUntil: "load" });
-    await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
+    await page.waitForSelector("text=Settle up", { timeout: 30000 });
     const settledText = await page.locator("body").innerText();
     ok("2h. a settled group says so", settledText.includes("All settled up"));
     ok("2h-i. a settled group offers no empty payment card and nothing to share",
@@ -214,7 +220,7 @@ async function main() {
     for (const w of [360, 390, 430, 1440]) {
       await page.setViewportSize({ width: w, height: w >= 1440 ? 900 : 800 });
       await page.goto(`${BASE}/shared/groups/${group.id}?p=all`, { waitUntil: "load" });
-      await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
+      await page.waitForSelector("text=Settle up", { timeout: 30000 });
       const balOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       await page.goto(`${BASE}/shared?p=all`, { waitUntil: "load" });
       await page.waitForSelector("text=Groups", { timeout: 30000 });

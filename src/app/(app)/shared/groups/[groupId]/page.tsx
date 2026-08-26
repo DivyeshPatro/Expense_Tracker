@@ -78,6 +78,20 @@ export default async function GroupDashboardPage({
         </div>
       </div>
 
+      {/* Position first, then what to do about it. These were the seventh
+          block on the page, below the expense list and the member table -
+          the only actionable section, and the hardest to reach. */}
+      <GroupBalances
+        members={g.members}
+        obligations={g.detailed}
+        suggestions={g.suggestions}
+        groupId={g.id}
+        groupName={g.name}
+        ownerName={g.ownerName}
+        canRecordSettlements={g.canRecordSettlements}
+        viewerParticipantId={g.viewerParticipantId}
+      />
+
       {/* Overview */}
       <div className="flex flex-wrap gap-3.5">
         <StatCard label={`TOTAL EXPENSES`} value={formatPaise(g.overview.totalExpenseSum)}>
@@ -94,25 +108,6 @@ export default async function GroupDashboardPage({
         </StatCard>
         <StatCard label="SETTLEMENTS" value={formatPaise(g.overview.totalSettlementSum)}>
           <div className="text-[11.5px] text-mut2 mt-[5px]">{g.overview.totalSettlementCount} recorded</div>
-        </StatCard>
-        <StatCard
-          label="NET"
-          value={
-            <span style={{ color: g.youNet < 0 ? "var(--red)" : g.youNet > 0 ? "var(--green)" : "var(--mut2)" }}>
-              {g.youNet === 0 ? "—" : g.youNet < 0 ? "−" : "+"}
-              {g.youNet === 0 ? "" : formatPaise(Math.abs(g.youNet))}
-            </span>
-          }
-        >
-          <div className="text-[11.5px] text-mut2 mt-[5px]">
-            {g.youAreOwed > 0 && <span className="text-green">+{formatPaise(g.youAreOwed)} you’ll get</span>}
-            {g.youAreOwed > 0 && g.youOwe > 0 && " · "}
-            {g.youOwe > 0 && <span className="text-red">−{formatPaise(g.youOwe)} you’ll pay</span>}
-            {/* Same per-person rule the card and the settle list use: settled
-                means nobody is outside the threshold, not that the two sums
-                happen to be zero — which sub-rupee dust alone could prevent. */}
-            {others.every((m) => balanceState(m.net) === "settled") && "all settled"}
-          </div>
         </StatCard>
       </div>
 
@@ -147,16 +142,6 @@ export default async function GroupDashboardPage({
           whom"), with the detailed obligations and your personal standing
           behind it ("why"). Every list comes from the existing engine —
           per-member nets, computeGrossObligations and minimizeSettlements. */}
-      <GroupBalances
-        members={g.members}
-        obligations={g.detailed}
-        suggestions={g.suggestions}
-        groupId={g.id}
-        groupName={g.name}
-        ownerName={g.ownerName}
-        canRecordSettlements={g.canRecordSettlements}
-        viewerParticipantId={g.viewerParticipantId}
-      />
 
       {/* Insights — charts follow the global period. Below the concrete rows
           now: they explain the spend, they aren't the thing being looked for. */}

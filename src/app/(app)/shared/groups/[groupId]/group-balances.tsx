@@ -24,12 +24,11 @@
 import { useState } from "react";
 import { useUI } from "@/components/shell/ui-context";
 import { copyText } from "@/lib/clipboard";
-import { SETTLED_THRESHOLD } from "@/lib/group-dashboard";
+import { SETTLED_THRESHOLD, viewerPosition, viewerPositionTotals } from "@/lib/group-dashboard";
 import { formatPaise, toRupeeInput } from "@/lib/money";
 import { namedPlan, planTotal, settlementHeadline, shareSettlementText, OWNER_ID, type PlanRow } from "@/lib/settlement-plan";
 import type { GroupMemberView, GroupSuggestion } from "@/server/services/group-dashboard";
 
-type View = "settlement" | "yours";
 
 interface Row extends PlanRow {
   /** Present when you are one side, so it can be recorded. */
@@ -68,7 +67,6 @@ export function GroupBalances({
   viewerParticipantId: string | null;
 }) {
   const { openModal, showToast } = useUI();
-  const [view, setView] = useState<View>("settlement");
   // In obligation space the owner is OWNER_ID; members are themselves.
   const meId = viewerParticipantId ?? OWNER_ID;
   // One settlement list, two readings of it. Simplify ON is the minimised plan
@@ -139,21 +137,21 @@ export function GroupBalances({
   // Because these two are complements of the same ledger, their difference is
   // the viewer's net by construction — the identity is asserted in
   // group-viewer-perspective.integration.test.ts rather than assumed.
-  const receive: Row[] = obligations
-    .filter((o) => o.toId === meId && o.amount > SETTLED_THRESHOLD)
-    .sort((a, b) => b.amount - a.amount)
-    .map(toRow("recv"));
-  const willPay: Row[] = obligations
-    .filter((o) => o.fromId === meId && o.amount > SETTLED_THRESHOLD)
-    .sort((a, b) => b.amount - a.amount)
-    .map(toRow("pay"));
-  const receiveTotal = planTotal(receive);
-  const payTotal = planTotal(willPay);
+  //
+  // Filtered by viewerPosition(), the one selector the group CARD also uses, so
+  // the two figures on the card and the two here cannot drift apart.
+  const position = viewerPosition(obligations, viewerParticipantId ?? null);
+  const receive: Row[] = position.receive.map(toRow("recv"));
+  const willPay: Row[] = position.pay.map(toRow("pay"));
+  // Totals count every obligation, including dust the rows above omit — the
+  // same selector the group card uses, so the two surfaces state one figure.
+  // Summing the visible rows instead is what made Srisailam unreadable: money
+  // inside the threshold vanished from the pair but stayed in the net.
+  const { receive: receiveTotal, pay: payTotal } = viewerPositionTotals(obligations, viewerParticipantId ?? null);
 
-  // Both directions in one list: an arrow already says which way the money
-  // goes, and splitting them into two tabs would make "am I up or down?" a
-  // two-tap question.
-  const shown = view === "yours" ? [...receive, ...willPay] : simplify ? plan : detailed;
+  // The plan, in whichever reading is selected. The viewer's own two lists are
+  // no longer one of these: they live in their own section above.
+  const shown = simplify ? plan : detailed;
   const total = planTotal(shown);
   const fewer = detailed.length - plan.length;
   const settled = plan.length === 0;
@@ -187,7 +185,7 @@ export function GroupBalances({
     // Built from `shown`, so the message is literally the rows on screen.
     const text = shareSettlementText({
       groupName,
-      headline: view === "settlement" && !simplify ? `${shown.length} outstanding ${shown.length === 1 ? "obligation" : "obligations"}` : headline,
+      headline: !simplify ? `${shown.length} outstanding ${shown.length === 1 ? "obligation" : "obligations"}` : headline,
       rows: shown,
       total,
     });
@@ -203,43 +201,109 @@ export function GroupBalances({
     showToast((await copyText(text)) ? "Settlement copied — paste it into WhatsApp" : "Couldn't copy the settlement");
   }
 
-  return (
-    <section className="card p-[var(--pad)] flex flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <h2 className="text-[13.5px] font-bold m-0">Group Settlement</h2>
-        <span className="text-[11.5px] font-semibold text-mut2">{headline}</span>
+  /** One row of an arrow: who pays whom, how much, and the way to record it. */
+  const Row = ({ r, actionable = true }: { r: Row; actionable?: boolean }) => (
+    <div className="flex items-center gap-2 p-2.5 rounded-[11px] border border-line2 bg-side min-h-[44px]">
+      <div className="flex-1 min-w-0 text-[12.5px] font-semibold">
+        <Party name={r.fromName} isYou={r.fromId === meId} />
+        <span className="text-mut2 font-bold" aria-label="pays"> &rarr; </span>
+        <Party name={r.toName} isYou={r.toId === meId} />
       </div>
+      <span className="text-[13px] font-extrabold tabular-nums flex-none">{formatPaise(r.amount)}</span>
+      {actionable && (r.settle || r.settleMembers) ? (
+        <button
+          onClick={() => settle(r)}
+          aria-label={r.settleMembers ? `Settle ${r.fromName} pays ${r.toName}` : undefined}
+          className="px-2.5 min-h-[36px] rounded-lg text-[11.5px] font-bold text-white cursor-pointer border-none flex-none hover:brightness-108"
+          style={{ background: "var(--green)" }}
+        >
+          Settle
+        </button>
+      ) : null}
+    </div>
+  );
 
-      {settled ? (
-        <div className="text-center py-5">
-          <div className="text-[24px]" aria-hidden>
-            🎉
+  const mine = [...receive, ...willPay];
+
+  return (
+    <>
+      {/* ---------- 1. Where do I stand? ----------
+          Its own block, first, because it is the only part of the page that is
+          purely about the reader. It used to be a tab inside the settlement
+          card, more than half a page down, beside a NET stat card that stated
+          the same net from a different derivation - two "you'll get" figures
+          that could disagree. This is now the only place either is said. */}
+      <section className="card p-[var(--pad)] flex flex-col gap-2.5">
+        <h2 className="text-[13.5px] font-bold m-0">Your position</h2>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[12.5px] font-semibold text-mut">You&rsquo;ll receive</span>
+            <span className="text-[14px] font-extrabold tabular-nums" style={{ color: receiveTotal > 0 ? "var(--green)" : "var(--mut2)" }}>
+              {formatPaise(receiveTotal)}
+            </span>
           </div>
-          <div className="text-[13px] font-bold text-ink mt-1">All settled up ✓</div>
-          <div className="text-[12px] text-mut2 mt-0.5">Everyone in this group is square.</div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[12.5px] font-semibold text-mut">You&rsquo;ll pay</span>
+            <span className="text-[14px] font-extrabold tabular-nums" style={{ color: payTotal > 0 ? "var(--red)" : "var(--mut2)" }}>
+              {formatPaise(payTotal)}
+            </span>
+          </div>
+          {/* Stated, not implied: net is the figure most often mistaken for the
+              group's total, so the two lines it comes from sit directly above. */}
+          <div className="flex items-center justify-between gap-2 pt-1.5 mt-0.5 border-t border-line">
+            <span className="text-[13px] font-bold text-ink">Your net</span>
+            <span
+              className="text-[16px] font-extrabold tabular-nums"
+              style={{ color: receiveTotal - payTotal < 0 ? "var(--red)" : receiveTotal - payTotal > 0 ? "var(--green)" : "var(--mut2)" }}
+            >
+              {receiveTotal === payTotal ? "—" : `${receiveTotal - payTotal < 0 ? "−" : "+"}${formatPaise(receiveTotal - payTotal)}`}
+            </span>
+          </div>
         </div>
-      ) : (
-        <>
-          <div className="flex gap-1.5 p-1 bg-accsoft rounded-[12px]" role="tablist" aria-label="Settlement view">
-            {([
-              ["settlement", "Settlement"],
-              ["yours", "Your position"],
-            ] as const).map(([v, label]) => (
-              <button
-                key={v}
-                role="tab"
-                aria-selected={view === v}
-                onClick={() => setView(v)}
-                className={`flex-1 min-h-[44px] px-1 rounded-[9px] text-[12px] font-bold border-none cursor-pointer transition-colors ${
-                  view === v ? "bg-card text-ink shadow-sm" : "bg-transparent text-mut"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
 
-          {view === "settlement" && (
+        {mine.length > 0 && (
+          /* Who with - one tap, because it answers a different question from
+             "where do I stand", and keeping it open would push the plan off
+             the first screen. A native <details> so it is keyboard- and
+             screen-reader-operable without any wiring. */
+          <details className="group border-t border-line pt-2">
+            <summary className="list-none cursor-pointer select-none min-h-[44px] flex items-center gap-1.5 text-[12.5px] font-semibold text-mut hover:text-ink">
+              <span aria-hidden className="transition-transform group-open:rotate-90 text-[15px] leading-none">&rsaquo;</span>
+              Who with?
+            </summary>
+            <div className="flex flex-col gap-2 pt-2">
+              {/* No Settle here on purpose. This section says where you stand;
+                  Settle up below is the one actionable surface, and every row
+                  in this list also appears there (Simplify off shows every
+                  obligation). Two buttons for one payment would be two places
+                  to look for the same thing. */}
+              {mine.map((r) => (
+                <Row key={r.key} r={r} actionable={false} />
+              ))}
+            </div>
+          </details>
+        )}
+      </section>
+
+      {/* ---------- 2. What should I do? ----------
+          Directly beneath, and no longer sharing a card with the summary above.
+          This section is recommendations; nothing in it has happened yet. */}
+      <section className="card p-[var(--pad)] flex flex-col gap-3">
+        <div className="flex items-baseline justify-between gap-2 flex-wrap">
+          <h2 className="text-[13.5px] font-bold m-0">Settle up</h2>
+          <span className="text-[11.5px] font-semibold text-mut2">{headline}</span>
+        </div>
+
+        {settled ? (
+          <div className="text-center py-5">
+            <div className="text-[24px]" aria-hidden>
+              &#127881;
+            </div>
+            <div className="text-[13px] font-bold text-ink mt-1">All settled up &#10003;</div>
+            <div className="text-[12px] text-mut2 mt-0.5">Everyone in this group is square.</div>
+          </div>
+        ) : (
+          <>
             <button
               onClick={() => setSimplify((v) => !v)}
               role="switch"
@@ -255,75 +319,28 @@ export function GroupBalances({
                 <span className="absolute top-[3px] w-4 h-4 rounded-full bg-white transition-all" style={{ left: simplify ? "19px" : "3px" }} />
               </span>
             </button>
-          )}
 
-          <p className="text-[11.5px] text-mut2 m-0 -mt-1">
-            {view === "yours"
-              ? "What you are owed and what you owe, person by person."
-              : simplify
+            <p className="text-[11.5px] text-mut2 m-0 -mt-1">
+              {simplify
                 ? fewer > 0
                   ? `The shortest way to settle the whole group — ${fewer} fewer ${fewer === 1 ? "payment" : "payments"} than paying each obligation separately.`
                   : "These are already the fewest payments."
                 : "Every obligation separately, including debts between two members. This is the why behind the plan."}
-          </p>
+            </p>
 
-          {shown.length === 0 ? (
-            <div className="text-center py-5">
-              <div className="text-[24px]" aria-hidden>
-                💤
-              </div>
-              <div className="text-[13px] font-bold text-ink mt-1">
-                {view === "yours" ? "You're square with everyone here." : "Everyone in this group is settled up."}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {shown.map((r) => (
-                <div key={r.key} className="flex items-center gap-2 p-2.5 rounded-[11px] border border-line2 bg-side min-h-[44px]">
-                  <div className="flex-1 min-w-0 text-[12.5px] font-semibold">
-                    <Party name={r.fromName} isYou={r.fromId === meId} />
-                    <span className="text-mut2 font-bold" aria-label="pays"> → </span>
-                    <Party name={r.toName} isYou={r.toId === meId} />
-                  </div>
-                  <span className="text-[13px] font-extrabold tabular-nums flex-none">{formatPaise(r.amount)}</span>
-                  {r.settle || r.settleMembers ? (
-                    <button
-                      onClick={() => settle(r)}
-                      aria-label={r.settleMembers ? `Settle ${r.fromName} pays ${r.toName}` : undefined}
-                      className="px-2.5 min-h-[36px] rounded-lg text-[11.5px] font-bold text-white cursor-pointer border-none flex-none hover:brightness-108"
-                      style={{ background: "var(--green)" }}
-                    >
-                      Settle
-                    </button>
-                  ) : null}
+            {shown.length === 0 ? (
+              <div className="text-center py-5">
+                <div className="text-[24px]" aria-hidden>
+                  &#128164;
                 </div>
-              ))}
+                <div className="text-[13px] font-bold text-ink mt-1">Everyone in this group is settled up.</div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {shown.map((r) => (
+                  <Row key={r.key} r={r} />
+                ))}
 
-              {view === "yours" ? (
-                /* Three lines, and the third is the difference of the first
-                   two — stated rather than implied, because "net" is the figure
-                   most often mistaken for the group's total. Every one of them
-                   describes the person reading the page. */
-                <div className="flex flex-col gap-1 pt-2 mt-1 border-t border-line">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[12.5px] font-semibold text-mut">You&rsquo;ll receive</span>
-                    <span className="text-[13.5px] font-extrabold tabular-nums" style={{ color: "var(--green)" }}>{formatPaise(receiveTotal)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[12.5px] font-semibold text-mut">You&rsquo;ll pay</span>
-                    <span className="text-[13.5px] font-extrabold tabular-nums" style={{ color: payTotal > 0 ? "var(--red)" : "var(--mut2)" }}>{formatPaise(payTotal)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-line2">
-                    <span className="text-[12.5px] font-bold text-ink">Your net</span>
-                    <span
-                      className="text-[14px] font-extrabold tabular-nums"
-                      style={{ color: receiveTotal - payTotal < 0 ? "var(--red)" : receiveTotal - payTotal > 0 ? "var(--green)" : "var(--mut2)" }}
-                    >
-                      {receiveTotal === payTotal ? "—" : `${receiveTotal - payTotal < 0 ? "−" : "+"}${formatPaise(receiveTotal - payTotal)}`}
-                    </span>
-                  </div>
-                </div>
-              ) : (
                 <div className="flex items-center justify-between gap-2 pt-2 mt-1 border-t border-line">
                   <span className="text-[12.5px] font-semibold text-mut">
                     {/* "to settle" belongs to the plan: it is the money that
@@ -335,29 +352,24 @@ export function GroupBalances({
                     {formatPaise(total)}
                   </span>
                 </div>
-              )}
 
-              {/* Say why there is nothing to press, rather than leaving a
-                  member wondering whether the app is broken. */}
-              {!canRecordSettlements && (
-                <p className="text-[11px] text-mut2 m-0 mt-0.5">
-                  Only {ownerName} can record payments in this group. Everyone sees the same plan.
-                </p>
-              )}
+                {/* Say why there is nothing to press, rather than leaving a
+                    member wondering whether the app is broken. */}
+                {!canRecordSettlements && (
+                  <p className="text-[11px] text-mut2 m-0 mt-0.5">
+                    Only {ownerName} can record payments in this group. Everyone sees the same plan.
+                  </p>
+                )}
 
-              {view !== "yours" && (
-                <button
-                  onClick={share}
-                  className="btn-primary w-full min-h-[44px] mt-1 text-[12.5px] font-bold cursor-pointer"
-                >
+                <button onClick={share} className="btn-primary w-full min-h-[44px] mt-1 text-[12.5px] font-bold cursor-pointer">
                   Share settlement
                 </button>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </section>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </>
   );
 }
 
