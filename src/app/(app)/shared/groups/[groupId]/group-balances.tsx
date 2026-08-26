@@ -336,19 +336,24 @@ export function GroupBalances({
 
             <p className="text-[11.5px] text-mut2 m-0 -mt-1">
               {simplify
-                ? fewer > 0
-                  ? `The shortest way to settle the whole group — ${fewer} fewer ${fewer === 1 ? "payment" : "payments"} than paying each obligation separately.`
-                  : "These are already the fewest payments."
+                ? cycleOnly
+                  ? // Nothing was collapsed - there was no plan to collapse.
+                    // "8 fewer payments" directly above "no payments needed"
+                    // measures against a plan that does not exist here.
+                    "Every debt here is cancelled out by another one."
+                  : fewer > 0
+                    ? `The shortest way to settle the whole group — ${fewer} fewer ${fewer === 1 ? "payment" : "payments"} than paying each obligation separately.`
+                    : "These are already the fewest payments."
                 : "Every obligation separately, including debts between two members. This is the why behind the plan."}
             </p>
 
             {shown.length === 0 ? (
               <div className="text-center py-5">
                 <div className="text-[24px]" aria-hidden>
-                  {cycleOnly ? "&#8635;" : "&#128164;"}
+                  {cycleOnly ? "↻" : "💤"}
                 </div>
                 <div className="text-[13px] font-bold text-ink mt-1">
-                  {cycleOnly ? "No payments needed &mdash; everyone&rsquo;s net is zero." : "Everyone in this group is settled up."}
+                  {cycleOnly ? "No payments needed — everyone’s net is zero." : "Everyone in this group is settled up."}
                 </div>
                 {cycleOnly && (
                   // Never claim they are square: the money below is real, it

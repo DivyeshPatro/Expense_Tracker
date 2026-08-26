@@ -194,6 +194,12 @@ async function main() {
     ok("6a. the control is rendered even though the plan is empty", (await toggle(page).count()) === 1);
     ok("6b. Simplify ON has no payments to make", cycleOn.rows.length === 0);
     ok("6c. it does not claim everyone is square", !/Everyone in this group is settled up/i.test(cycleOn.text), cycleOn.text.split("\n").slice(0, 4).join(" | "));
+    // JSX decodes entities in TEXT, never inside an expression - "&#8635;" in
+    // a ternary is just those eight characters, and shipped as such.
+    ok("6c-i. no raw HTML entities leak into the copy",
+      !/&#\d+;|&[a-z]+;/i.test(cycleOn.text), (cycleOn.text.match(/&#?\w+;/g) ?? []).join(" ") || "none");
+    ok("6c-ii. Simplify ON does not boast about payments it did not collapse",
+      !/fewer payments?/i.test(cycleOn.text), cycleOn.text.slice(0, 120).replace(/\s+/g, " "));
     ok("6d. it says the obligations cancel out and points at the control", /cancel each other out/i.test(cycleOn.text) && /Turn off Simplify/i.test(cycleOn.text));
 
     await toggle(page).dispatchEvent("click");
