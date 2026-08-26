@@ -84,7 +84,6 @@ export function GroupBalances({
     settle: suggestions[i].settle,
     settleMembers: suggestions[i].settleMembers,
   }));
-  const headline = settlementHeadline(plan.length);
 
   // DETAILED — the obligations the expenses actually created, straight from the
   // server. Rows can run between any two people; an obligation to a member who
@@ -154,7 +153,22 @@ export function GroupBalances({
   const shown = simplify ? plan : detailed;
   const total = planTotal(shown);
   const fewer = detailed.length - plan.length;
-  const settled = plan.length === 0;
+  // Settled means there is nothing to show in EITHER reading - not just that
+  // the minimised plan came back empty. The two can disagree: settling through
+  // the owner squares everyone's net without discharging the member-to-member
+  // obligations it settled, so a group can have no plan and still carry real
+  // obligations. Gating the whole section on the plan alone hid the Simplify
+  // control exactly when it was the only way to see them, under a card that
+  // claimed everyone was square.
+  const settled = plan.length === 0 && detailed.length === 0;
+  // The plan is empty but obligations remain: a zero-sum cycle. Say so, and
+  // point at the control that reveals it, rather than repeating "all settled".
+  const cycleOnly = plan.length === 0 && detailed.length > 0;
+  // settlementHeadline(0) says "All settled up", which is not true of a
+  // group whose obligations merely cancel out. Say what is actually left.
+  const headline = cycleOnly
+    ? `${detailed.length} to settle directly`
+    : settlementHeadline(plan.length);
 
   function settle(r: Row) {
     // A row between two members opens its own form: the owner↔member one asks
@@ -331,9 +345,27 @@ export function GroupBalances({
             {shown.length === 0 ? (
               <div className="text-center py-5">
                 <div className="text-[24px]" aria-hidden>
-                  &#128164;
+                  {cycleOnly ? "&#8635;" : "&#128164;"}
                 </div>
-                <div className="text-[13px] font-bold text-ink mt-1">Everyone in this group is settled up.</div>
+                <div className="text-[13px] font-bold text-ink mt-1">
+                  {cycleOnly ? "No payments needed &mdash; everyone&rsquo;s net is zero." : "Everyone in this group is settled up."}
+                </div>
+                {cycleOnly && (
+                  // Never claim they are square: the money below is real, it
+                  // just cancels out around a loop.
+                  //
+                  // Careful with the promise. A row between two members can be
+                  // recorded; an owner-directed one here cannot, because its
+                  // Settle affordance keys off that member's net and every net
+                  // in this group is zero. A cycle settled entirely through the
+                  // owner has NO actionable rows, so this offers to show them
+                  // and only mentions settling where it is actually possible.
+                  <div className="text-[12px] text-mut2 mt-1 px-2">
+                    {detailed.length} {detailed.length === 1 ? "obligation" : "obligations"} still cancel each other out. Turn off Simplify
+                    payments to see {detailed.length === 1 ? "it" : "them"}
+                    {detailed.some((r) => r.settleMembers) ? " — the ones between two members can be settled directly." : "."}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col gap-2">
