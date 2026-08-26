@@ -248,6 +248,123 @@ describe("H — Detailed vs Fewest Payments: different lists, same maths", () =>
   });
 });
 
+describe("J — settling through whoever organised the trip", () => {
+  // The reported failure. Ana fronts a ₹400 bill the four of them share, so
+  // the owner, Ben and Cara each owe HER ₹100. Then they settle the way people
+  // actually do: the owner pays Ana what the group owes her, and Ben and Cara
+  // reimburse the owner.
+  //
+  // Charged only against the payer↔payee pair, every leg was recorded
+  // literally and none of the real debts were discharged: the owner "overpaid"
+  // Ana so she owed him ₹200 back, Ben and Cara still owed Ana, and their
+  // payments to the owner made HIM owe THEM. Five debts, every net zero, and a
+  // settlement plan that correctly offered nothing to pay — so the loop could
+  // never be cleared from inside the app.
+  const expenses = [equal("t1", A, 100, [OWNER, A, B, C])];
+  const settleThrough: GroupSettlementRow[] = [
+    { id: "s1", participantId: A, direction: "FROM_OWNER", amount: r(300), settledAt: "2026-08-18T10:00:00Z" },
+    { id: "s2", participantId: B, direction: "TO_OWNER", amount: r(100), settledAt: "2026-08-18T11:00:00Z" },
+    { id: "s3", participantId: C, direction: "TO_OWNER", amount: r(100), settledAt: "2026-08-18T12:00:00Z" },
+  ];
+
+  it("leaves nothing outstanding once everyone has paid", () => {
+    expect(computeDetailedObligations(expenses, settleThrough, [A, B, C])).toHaveLength(0);
+    expectReconciles(expenses, [A, B, C], settleThrough);
+  });
+
+  it("hands the claim to whoever paid it off, mid-way through", () => {
+    // After the owner has paid Ana but before anyone reimburses him, Ben and
+    // Cara owe HIM — he covered their share — and Ana is owed nothing.
+    const rows = computeDetailedObligations(expenses, [settleThrough[0]], [A, B, C]);
+    expect(rows.filter((x) => x.toId === A)).toHaveLength(0);
+    expect(rows.find((x) => x.fromId === B)).toMatchObject({ toId: OWNER_SENTINEL, amount: r(100) });
+    expect(rows.find((x) => x.fromId === C)).toMatchObject({ toId: OWNER_SENTINEL, amount: r(100) });
+    expectReconciles(expenses, [A, B, C], [settleThrough[0]]);
+  });
+
+  it("does not invent a debt for the organiser to be owed twice", () => {
+    // Ben reimburses; only Cara is left owing the owner.
+    const rows = computeDetailedObligations(expenses, settleThrough.slice(0, 2), [A, B, C]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ fromId: C, toId: OWNER_SENTINEL, amount: r(100) });
+  });
+
+  it("is applied in the order the payments happened, not the order they load", () => {
+    const shuffled = [settleThrough[2], settleThrough[0], settleThrough[1]];
+    expect(computeDetailedObligations(expenses, shuffled, [A, B, C])).toEqual(
+      computeDetailedObligations(expenses, settleThrough, [A, B, C])
+    );
+  });
+
+  it("a payment still clears the payer's own debt before anyone else's", () => {
+    // The owner owes Ana 100 and pays exactly that: nobody else is touched.
+    const justMine: GroupSettlementRow[] = [
+      { id: "s1", participantId: A, direction: "FROM_OWNER", amount: r(100), settledAt: "2026-08-18T10:00:00Z" },
+    ];
+    const rows = computeDetailedObligations(expenses, justMine, [A, B, C]);
+    expect(rows.filter((x) => x.fromId === OWNER_SENTINEL)).toHaveLength(0);
+    expect(rows.filter((x) => x.toId === A)).toHaveLength(2); // Ben and Cara, untouched
+    expectReconciles(expenses, [A, B, C], justMine);
+  });
+
+  it("only reverses the debt once the payee has no receivables left", () => {
+    // The owner pays Ana 500 against a group debt of 300: 100 his own, 200
+    // covering Ben and Cara, and 100 more that Ana simply holds.
+    const tooMuch: GroupSettlementRow[] = [
+      { id: "s1", participantId: A, direction: "FROM_OWNER", amount: r(400), settledAt: "2026-08-18T10:00:00Z" },
+    ];
+    const rows = computeDetailedObligations(expenses, tooMuch, [A, B, C]);
+    expect(rows.find((x) => x.fromId === A)).toMatchObject({ toId: OWNER_SENTINEL, amount: r(100) });
+    expect(rows.filter((x) => x.toId === OWNER_SENTINEL).map((x) => x.fromId).sort()).toEqual([A, B, C].sort());
+    expectReconciles(expenses, [A, B, C], tooMuch);
+  });
+
+  it("a member-to-member payment discharges the same way", () => {
+    // Ben pays Ana directly. No owner involved anywhere in the transfer.
+    const direct: GroupSettlementRow[] = [
+      { id: "s1", fromParticipantId: B, toParticipantId: A, amount: r(100), settledAt: "2026-08-18T10:00:00Z" } as GroupSettlementRow,
+    ];
+    const rows = computeDetailedObligations(expenses, direct, [A, B, C]);
+    expect(rows.some((x) => x.fromId === B)).toBe(false);
+    expect(rows.filter((x) => x.toId === A).map((x) => x.fromId).sort()).toEqual([OWNER_SENTINEL, C].sort());
+    expectReconciles(expenses, [A, B, C], direct);
+  });
+
+  it("clears the organiser completely, and shrinks what is left between members", () => {
+    // How far this goes, stated honestly. Two people front bills and everyone
+    // squares up through the owner. The owner — who was the one seeing
+    // "you'll receive ₹992 / you'll pay ₹992" — is left with nothing at all.
+    //
+    // A 3-way cycle survives between the members (A→B→C→A of ₹50), because
+    // subrogation moves a claim to whoever paid it and cannot see that three
+    // debts chase each other in a ring. Every net is still exactly zero, and
+    // each member's own position nets to zero across their counterparties, so
+    // no one is asked for money. Collapsing rings like this is a further step
+    // and is deliberately not attempted here: two-party rings are the shape
+    // the raw list is required to keep (see group-balance-views).
+    const messy = [equal("m1", A, 100, [OWNER, A, B, C]), equal("m2", B, 50, [OWNER, A, B, C])];
+    const { members } = computeMemberBalances(messy, [], [A, B, C]);
+    const viaOwner: GroupSettlementRow[] = members
+      .filter((m) => m.participantId !== null && m.net !== 0)
+      .map((m, i) => ({
+        id: `k${i}`,
+        participantId: m.participantId!,
+        direction: (m.net > 0 ? "TO_OWNER" : "FROM_OWNER") as "TO_OWNER" | "FROM_OWNER",
+        amount: Math.abs(m.net),
+        settledAt: `2026-08-19T1${i}:00:00Z`,
+      }));
+    const after = computeMemberBalances(messy, viaOwner, [A, B, C]);
+    for (const m of after.members) expect({ who: m.participantId, net: m.net }).toEqual({ who: m.participantId, net: 0 });
+
+    const rows = computeDetailedObligations(messy, viaOwner, [A, B, C]);
+    // The organiser is out of it entirely.
+    expect(rows.some((x) => x.fromId === OWNER_SENTINEL || x.toId === OWNER_SENTINEL)).toBe(false);
+    // What remains is a ring among the members, and it nets each of them to nil.
+    for (const who of [A, B, C]) expect(position(rows, who)).toBe(0);
+    expectReconciles(messy, [A, B, C], viaOwner);
+  });
+});
+
 describe("conservation across the whole group", () => {
   it("every obligation owed by someone is owed to someone — the group nets to zero", () => {
     const expenses = [

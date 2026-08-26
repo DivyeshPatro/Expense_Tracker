@@ -126,15 +126,19 @@ async function main() {
     await expense(trip, 600, pAna.id, [[null, 150], [pAna.id, 150], [pBen.id, 150], [pCara.id, 150]]);
     await expense(trip, 200, pBen.id, [[null, 20], [pAna.id, 60], [pBen.id, 50], [pCara.id, 70]]);
 
-    // ── Group 2: everyone settles THROUGH the owner. Every net lands on zero,
-    //    so the plan is empty while the obligations behind it are not — the
-    //    shape that hid the control in production.
+    // ── Group 2: a ring of debts that cancels out. Ana covers Ben, Ben covers
+    //    Cara, Cara covers Ana — every net is zero, so there is no plan, while
+    //    three real obligations remain. This is the shape that hid the control.
+    //
+    //    It used to be built by settling through the owner, which produced the
+    //    same state for a worse reason: payments were not charged against the
+    //    debts they discharged. That is fixed, and such a group now clears
+    //    completely, so the state has to be built from bills that genuinely
+    //    chase each other.
     const cycle = await makeGroup("Cycle");
-    await expense(cycle, 400, pAna.id, [[null, 100], [pAna.id, 100], [pBen.id, 100], [pCara.id, 100]]);
-    const { recordSettlement } = await import("../src/server/services/shared");
-    await recordSettlement(owner.id, pAna.id, "FROM_OWNER", rup(300), "CASH", undefined, cycle);
-    await recordSettlement(owner.id, pBen.id, "TO_OWNER", rup(100), "CASH", undefined, cycle);
-    await recordSettlement(owner.id, pCara.id, "TO_OWNER", rup(100), "CASH", undefined, cycle);
+    await expense(cycle, 100, pAna.id, [[pBen.id, 100]]);
+    await expense(cycle, 100, pBen.id, [[pCara.id, 100]]);
+    await expense(cycle, 100, pCara.id, [[pAna.id, 100]]);
 
     // ═══════ 1. THE CONTROL EXISTS, AND STARTS ON ═══════
     const { ctx: ownerCtx, page } = await newSession(browser, ownerEmail);
@@ -217,20 +221,12 @@ async function main() {
     // Member-to-member buttons carry a pair-specific accessible name, so they
     // are NOT counted by the exact-"Settle" query above. Count them separately.
     const cycleMemberBtns = await settleUp(page).getByRole("button", { name: /^Settle .+ pays .+$/ }).count();
-    ok("6f. member-to-member rows stay actionable even in a squared group",
-      cycleMemberBtns > 0, `${cycleMemberBtns} member→member buttons`);
-    ok("6f-i. owner-to-member rows there are read-only, pending the discharge fix",
-      cycleOff.settleButtons === 0, `${cycleOff.settleButtons} owner-directed buttons — the affordance keys off the member's net, which is zero here`);
-    // A cycle ALWAYS contains member-to-member obligations. If every obligation
-    // ran through the owner and every net were zero, each owner-member pair
-    // would net to nothing and there would be no rows at all — contradicting
-    // detailed.length > 0. So the viewer always has at least one row they can
-    // act on here, even though their own owner-directed rows are informational.
-    ok("6g. a cycle necessarily exposes member-to-member work, never a dead end",
-      cycleMemberBtns > 0 && cycleOff.rows.length > cycleMemberBtns,
-      `${cycleOff.rows.length} rows, ${cycleMemberBtns} actionable`);
+    ok("6f. every row in the ring can be settled", cycleMemberBtns === cycleOff.rows.length,
+      `${cycleMemberBtns} actionable of ${cycleOff.rows.length} rows`);
+    ok("6g. the ring is not a dead end — turning Simplify off gives work to do",
+      cycleOff.rows.length === 3, `${cycleOff.rows.length} rows`);
     ok("6h. the rows still state the real amounts, so nothing is concealed",
-      cycleOff.rows.every((r) => /₹/.test(r)) && cycleOff.rows.length === 5, cycleOff.rows.join(" | "));
+      cycleOff.rows.every((r) => /₹/.test(r)), cycleOff.rows.join(" | "));
   } catch (e) {
     ok("script error", false, String(e).slice(0, 300));
   } finally {

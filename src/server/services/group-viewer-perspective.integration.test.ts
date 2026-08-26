@@ -506,20 +506,20 @@ describe("dust is hidden from the rows but never from the totals", () => {
   });
 });
 
-// ── A zero net does NOT mean every obligation is discharged ──────────────────
+// ── Settling through the organiser leaves nothing behind ────────────────────
 //
-// Documented, deliberately NOT fixed here. Settling through the owner squares
-// everyone's net without discharging the member↔member obligations it
-// economically settled, so a residual zero-sum cycle survives in the
-// obligation graph. The group then reports every member at ₹0 and an empty
-// settlement plan, while the viewer's own position still shows real gross
-// figures on both sides.
+// This block used to document the opposite, as a known defect: a payment was
+// charged only against the payer↔payee pair, so settling through the owner
+// squared everyone's net without discharging the member↔member debts it had
+// actually paid off. The group reported every member at ₹0 with an empty
+// settlement plan, while the owner's own position still read ₹992 in and ₹992
+// out — a loop no one could clear from inside the app.
 //
-// Hiding that (e.g. zeroing the pair whenever |standing| <= threshold) would
-// conceal obligations that genuinely exist, so the position stays honest and
-// the mismatch is written down instead. Fixing it means changing how
-// settlements discharge obligations — a separate pass.
-describe("a squared group can still carry gross bilateral obligations", () => {
+// Payments are now charged against the debts they discharge: the payer's own
+// first, then the payee's other receivables, which the payer has covered and
+// takes over. Nothing is concealed and no net changes; the obligations simply
+// go away as they are paid.
+describe("settling through the organiser leaves nothing behind", () => {
   const CYCLE_EMAIL = "settled-cycle@ledgerly.app";
   let cycleOwner = "", cycleGroup = "";
 
@@ -560,15 +560,28 @@ describe("a squared group can still carry gross bilateral obligations", () => {
     expect(g.youNet).toBe(0);
   });
 
-  it("yet the viewer's position still reports gross obligations on both sides", async () => {
-    // THE KNOWN ISSUE. If this ever reads 0/0, check WHY before updating it:
-    // discharging the obligations properly is the fix, concealing them is not.
+  it("and the position is empty, not a pair of matching gross figures", async () => {
+    // The regression this whole change exists to prevent. If these start
+    // reporting money again, payments have stopped discharging what they pay.
     const g = (await groupDashboard(cycleOwner, cycleGroup, ALL))!;
     const totals = viewerPositionTotals(g.detailed, g.viewerParticipantId);
-    expect(totals.receive).toBeGreaterThan(0);
-    expect(totals.pay).toBeGreaterThan(0);
-    // Honest in the only sense that matters for the summary: it still nets right.
+    expect(totals).toEqual({ receive: 0, pay: 0 });
     expect(totals.receive - totals.pay).toBe(g.youNet);
+  });
+
+  it("no obligations survive at all", async () => {
+    const g = (await groupDashboard(cycleOwner, cycleGroup, ALL))!;
+    expect(g.detailed).toHaveLength(0);
+  });
+
+  it("every member sees the same empty position, not just the owner", async () => {
+    // The owner is the one who was paying and collecting, so their view is the
+    // easiest to clear; the members must land at zero too.
+    const g = (await groupDashboard(cycleOwner, cycleGroup, ALL))!;
+    for (const m of g.members) {
+      if (m.participantId === null) continue;
+      expect({ who: m.name, ...viewerPositionTotals(g.detailed, m.participantId) }).toEqual({ who: m.name, receive: 0, pay: 0 });
+    }
   });
 
   it("the group statement export keeps the group-wide aggregate, unaffected", async () => {

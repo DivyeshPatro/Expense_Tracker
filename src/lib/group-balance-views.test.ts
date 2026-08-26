@@ -230,8 +230,14 @@ describe("detailed obligations (Simplify OFF) — the un-minimised list", () => 
     const settlements = [{ id: "s1", participantId: ALEX, direction: "TO_OWNER" as const, amount: 25_000, settledAt: "2026-08-06T00:00:00Z" }];
     const rows = computeDetailedObligations(expenses, settlements, [ALEX, BLAKE]);
     expect(rows.every((r) => r.amount > 0)).toBe(true);
-    // Alex overpaid by ₹150, so the debt now runs the other way.
-    expect(rows.find((r) => r.fromId === OWNER_SENTINEL && r.toId === ALEX)!.amount).toBe(15_000);
+    // Alex handed over ₹250 against a ₹100 debt. The extra ₹150 first covers
+    // what the owner was still owed by someone else — Blake's ₹100, which
+    // becomes a debt to Alex rather than to the owner — and only the last ₹50
+    // is the owner holding Alex's money. Before payments were charged against
+    // the debts they discharge, the whole ₹150 became a reverse debt on the
+    // pair, which is what left settle-through-the-organiser groups in a loop.
+    expect(rows.find((r) => r.fromId === BLAKE && r.toId === ALEX)!.amount).toBe(10_000);
+    expect(rows.find((r) => r.fromId === OWNER_SENTINEL && r.toId === ALEX)!.amount).toBe(5_000);
     expect(rows.some((r) => r.fromId === ALEX)).toBe(false);
     const { members } = computeMemberBalances(expenses, settlements, [ALEX, BLAKE]);
     expect(position(rows, ALEX)).toBe(members.find((m) => m.participantId === ALEX)!.net);
