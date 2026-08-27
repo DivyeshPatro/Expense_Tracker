@@ -41,12 +41,39 @@ async function waitFor(fn, label, attempts = 40) {
   return null;
 }
 
-const card = (name) => page.locator("div.card").filter({ hasText: name }).first();
+// #209 also rebuilt the account card into a row: the row body is the link into
+// that account's transactions, and Rename / Archive / Delete moved behind a ⋯
+// menu because three equal-weight buttons on every card meant fifteen controls
+// across five accounts. So a row is a listitem rather than a .card, and those
+// actions do not exist in the DOM until the menu is open.
+const row = (name) => page.getByRole("listitem").filter({ hasText: name }).first();
+
+/** Opens a row's ⋯ menu and hands the row back. The menu is a <details>, so
+ *  clicking its summary toggles — check the element's own state rather than
+ *  assuming it starts closed, or a second call shuts the first one. */
+async function openRowMenu(name) {
+  const r = row(name);
+  const isOpen = await r
+    .locator("details")
+    .first()
+    .evaluate((d) => d.hasAttribute("open"))
+    .catch(() => false);
+  if (!isOpen) {
+    await r.getByLabel(`More actions for ${name}`).click();
+    await page.waitForTimeout(300);
+  }
+  return r;
+}
 const archivedCard = () => page.locator("div.card").filter({ hasText: "Archived accounts" });
 
+  // #209 moved this page's create action off the header and into the quick-add
+  // FAB. The gate below waited on the old header button, so every run timed out
+  // before its first assertion — the suite has been reporting 0/1 rather than
+  // testing anything. Wait on something the page always renders instead, and
+  // assert the action separately in its new home.
 async function gotoAccounts() {
   await page.goto(`${BASE}/accounts`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForSelector("text=Add account", { timeout: 30000 });
+  await page.getByRole("heading", { name: "Transfers" }).waitFor({ timeout: 30000 });
   await page.waitForTimeout(2500); // hydration before clicking anything
 }
 
@@ -73,11 +100,11 @@ try {
   // ── The remove button says what will actually happen ──
   ok(
     "an unreferenced account offers Delete",
-    (await card(SPARE).getByRole("button", { name: "Delete" }).count()) === 1
+    (await (await openRowMenu(SPARE)).getByRole("button", { name: "Delete" }).count()) === 1
   );
   ok(
     "an account with history offers Archive instead",
-    (await card("HDFC Savings").getByRole("button", { name: "Archive" }).count()) === 1
+    (await (await openRowMenu("HDFC Savings")).getByRole("button", { name: "Archive" }).count()) === 1
   );
 
   // ── Rename ──
@@ -85,19 +112,19 @@ try {
   // the form unopened, so confirm the input actually appeared and click again if
   // it didn't rather than waiting a fixed time and hoping.
   for (let attempt = 0; attempt < 3; attempt++) {
-    await card(SPARE).getByRole("button", { name: "Rename" }).click();
-    const opened = await card(SPARE)
-      .locator("input")
+    await (await openRowMenu(SPARE)).getByRole("button", { name: "Rename" }).click();
+    const opened = await row(SPARE)
+      .getByLabel(`Rename ${SPARE}`)
       .waitFor({ timeout: 4000 })
       .then(() => true)
       .catch(() => false);
     if (opened) break;
     await page.waitForTimeout(1000);
   }
-  // Still located by the OLD name: the card keeps rendering it until the rename
+  // Still located by the OLD name: the row keeps rendering it until the rename
   // is saved, and an input's value isn't matched by hasText.
-  await card(SPARE).locator("input").fill(`${SPARE} Renamed`);
-  await card(SPARE).getByRole("button", { name: "Save" }).click();
+  await row(SPARE).getByLabel(`Rename ${SPARE}`).fill(`${SPARE} Renamed`);
+  await row(SPARE).getByRole("button", { name: "Save" }).click();
   const renamed = await waitFor(
     () => prisma.account.findFirst({ where: { userId: user.id, name: `${SPARE} Renamed` } }),
     "the rename to save"
@@ -106,9 +133,11 @@ try {
 
   // ── Hard delete, because nothing references it ──
   await gotoAccounts();
-  await card(`${SPARE} Renamed`).getByRole("button", { name: "Delete" }).click();
+  await (await openRowMenu(`${SPARE} Renamed`)).getByRole("button", { name: "Delete" }).click();
   await page.waitForTimeout(600);
-  await card(`${SPARE} Renamed`).getByRole("button", { name: "Delete" }).click();
+  // The menu is replaced by an inline confirmation, so the second Delete is on
+  // the row itself rather than back inside the menu.
+  await row(`${SPARE} Renamed`).getByRole("button", { name: "Delete" }).click();
   const deleted = await waitFor(
     async () => ((await prisma.account.count({ where: { userId: user.id, name: `${SPARE} Renamed` } })) === 0 ? true : null),
     "the delete to save"
@@ -117,12 +146,12 @@ try {
 
   // ── Archive, because history references it ──
   await gotoAccounts();
-  await card("HDFC Savings").getByRole("button", { name: "Archive" }).click();
+  await (await openRowMenu("HDFC Savings")).getByRole("button", { name: "Archive" }).click();
   await page.waitForTimeout(600);
-  const confirmCopy = await card("HDFC Savings").innerText();
+  const confirmCopy = await row("HDFC Savings").innerText();
   ok("the archive confirmation explains why it can't be deleted", confirmCopy.includes("financial history"));
 
-  await card("HDFC Savings").getByRole("button", { name: "Archive" }).click();
+  await row("HDFC Savings").getByRole("button", { name: "Archive" }).click();
   const archived = await waitFor(
     async () => ((await prisma.account.findFirst({ where: { userId: user.id, name: "HDFC Savings" } }))?.isArchived ? true : null),
     "the archive to save"

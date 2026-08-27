@@ -72,7 +72,12 @@ const budgetAlerts = () =>
 
 async function gotoBudgets() {
   await page.goto(`${BASE}/budgets`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForSelector("text=New budget", { timeout: 30000 });
+  // #209 moved this page's create action off the header and into the quick-add
+  // FAB. The gate below waited on the old header button, so every run timed out
+  // before its first assertion — the suite has been reporting 0/1 rather than
+  // testing anything. Wait on something the page always renders instead, and
+  // assert the action separately in its new home.
+  await page.getByRole("navigation", { name: "Section views" }).waitFor({ timeout: 30000 });
   await page.waitForTimeout(2500);
 }
 
