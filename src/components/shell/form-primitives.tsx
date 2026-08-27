@@ -298,6 +298,13 @@ export function AmountInput({
   );
 }
 
+/** The modal body's horizontal/bottom padding, in px. The sticky footer cancels
+ *  it with a negative margin so it can sit flush at the panel's edge, and has
+ *  to undo that again in its own `bottom` offset — so both read it from here
+ *  rather than repeating a number that must not drift. Mirrors the `px-[22px]
+ *  pb-[22px]` on the modal body in modals.tsx. */
+const MODAL_BODY_PAD = 22;
+
 export function SubmitButton({
   busy,
   color,
@@ -319,8 +326,21 @@ export function SubmitButton({
   // background + hairline lets the form scroll under it, and it stays put when
   // the keyboard is open (the panel is sized to the visible viewport). The
   // 48px min height is a comfortable one-thumb target.
+  //
+  // `bottom` must match that negative margin, not 0. Sticky resolves the offset
+  // against the MARGIN box, which `-mb-[22px]` has already pulled 22px up, so
+  // `bottom: 0` pinned the footer 22px higher than its own place in the flow —
+  // over the last field. Every form was affected, and the shortest showed it
+  // worst: the Add friend modal painted the footer across the name input's
+  // bottom border and focus ring, with nothing to scroll to get out from under
+  // it. Cancelling the margin here leaves the footer exactly where the layout
+  // puts it (16px below the last control) while it still pins to the bottom of
+  // a form long enough to scroll.
   return (
-    <div className="sticky bottom-0 -mx-[22px] -mb-[22px] mt-1 px-[22px] pt-2.5 bg-card border-t border-line z-10" style={{ paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}>
+    <div
+      className="sticky -mx-[22px] -mb-[22px] mt-1 px-[22px] pt-2.5 bg-card border-t border-line z-10"
+      style={{ bottom: `-${MODAL_BODY_PAD}px`, paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}
+    >
       <button
         onClick={onClick}
         disabled={busy || disabled}
