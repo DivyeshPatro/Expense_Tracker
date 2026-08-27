@@ -73,6 +73,7 @@ async function openQuickAdd(page: Page, action: RegExp) {
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
+  let sawNoScroll = false;
   const email = `modal-footer-${Date.now()}@test.local`;
   await auth.api.signUpEmail({ body: { name: "Footer", email, password: PASSWORD } });
 
@@ -94,7 +95,12 @@ async function main() {
 
       const short = await measure(page);
       ok(`${w}x${h} short form: the footer clears the last field`, short !== null && short.gap >= RING, short ? `gap=${short.gap}px` : "not measured");
-      ok(`${w}x${h} short form: it is the no-scroll case, so position is all there is`, short?.scrolls === false);
+      // Whether THIS form scrolls depends on how many fields it currently has,
+      // which is a product decision that moves — Add friend gained phone and
+      // notes and stopped fitting at the smallest height. The property worth
+      // pinning is that the run covers a non-scrolling form somewhere, since
+      // that is the case with no scroll to escape the footer with.
+      if (short?.scrolls === false) sawNoScroll = true;
       await page.keyboard.press("Escape");
       await page.waitForTimeout(400);
 
@@ -112,6 +118,7 @@ async function main() {
 
       await ctx.close();
     }
+    ok("a form that does not scroll was covered — the shape the bug needed", sawNoScroll);
   } catch (e) {
     ok("script error", false, String(e).slice(0, 300));
   } finally {

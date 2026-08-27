@@ -180,6 +180,24 @@ async function main() {
     }
     ok("5. deleting from the group soft-deletes the transaction", gone.deletedAt !== null);
 
+    // ═══════ 5b. The shared friend form carries the same fields everywhere ═══════
+    // FriendForm is one component behind /shared, /people and Lending, so the
+    // phone and notes added for Lending have to appear here too — and a name
+    // on its own must still be all it takes.
+    await page.goto(`${BASE}/shared?p=all`, { waitUntil: "load" });
+    await page.waitForSelector("text=Groups", { timeout: 30000 });
+    await page.getByRole("button", { name: /Add friend/ }).first().click();
+    await page.waitForTimeout(700);
+    const friendForm = page.getByRole("dialog");
+    ok("5b. the Shared entry point offers phone and notes", (await friendForm.getByText("PHONE (OPTIONAL)").count()) === 1 && (await friendForm.getByText("NOTES (OPTIONAL)").count()) === 1);
+    const sharedFriend = `ZSharedFriend-${S}`;
+    await friendForm.locator("input.field").nth(0).fill(sharedFriend);
+    await friendForm.getByRole("button", { name: /^Add friend$/ }).click();
+    await page.waitForTimeout(1500);
+    const madeHere = await prisma.participant.findFirst({ where: { ownerId: user.id, displayName: sharedFriend } });
+    ok("5b-i. creating a friend from Shared still works with a name alone", madeHere !== null, madeHere?.id ?? "not created");
+    if (madeHere) await prisma.participant.delete({ where: { id: madeHere.id } }).catch(() => {});
+
     // ═══════ 6. SPENDING STAYS TRANSACTION-FIRST ═══════
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
     // Text-presence, not visibility: the desktop "Add expense" button is

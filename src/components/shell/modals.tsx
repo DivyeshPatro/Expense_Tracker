@@ -1632,6 +1632,13 @@ function FriendForm() {
   const { refData } = useUI();
   const { run, busy, error } = useSubmit();
   const [name, setName] = useState("");
+  // Phone and notes, because adding someone deliberately used to collect LESS
+  // than adding them halfway through a loan: NewContactInline has taken these
+  // since it was written, so the same person entered from People carried no
+  // number. Photo URL stays only on that form — it is a paste-a-link field
+  // nobody fills in from here, and this one is about reaching a person.
+  const [phone, setPhone] = useState("");
+  const [notes, setNotes] = useState("");
   const duplicates = findDuplicateContacts(name, refData.participants);
   return (
     <div className="flex flex-col gap-3">
@@ -1645,8 +1652,35 @@ function FriendForm() {
           contact, and there is no caller waiting on an id. The warning alone
           is what stops a second Blake. */}
       <DuplicateContactWarning name={name} contacts={refData.participants} />
+      <Field label="PHONE (OPTIONAL)">
+        <input className="field" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" />
+      </Field>
+      <Field label="NOTES (OPTIONAL)">
+        <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+      </Field>
       <ErrorNote error={error} />
-      <SubmitButton busy={busy} onClick={() => run(() => addParticipantAction({ displayName: name }), "Friend added")}>
+      <SubmitButton
+        busy={busy}
+        onClick={() =>
+          run(async () => {
+            // The same two calls NewContactInline makes, in the same order:
+            // creation only ever takes a name, and the optional detail is a
+            // separate update. Skipped entirely when both are blank, so a
+            // name-only add still costs one round trip.
+            const created = await addParticipantAction({ displayName: name });
+            if (!created.ok || !created.participantId) return created;
+            if (!phone.trim() && !notes.trim()) return created;
+            const details = await updateParticipantDetailsAction({
+              participantId: created.participantId,
+              phone: phone.trim() || null,
+              notes: notes.trim() || null,
+            });
+            // The contact exists either way — report a failed detail write
+            // rather than swallowing it, so nobody assumes a number was saved.
+            return details.ok ? created : details;
+          }, "Friend added")
+        }
+      >
         {duplicates.length > 0 ? "Add as a separate person" : "Add friend"}
       </SubmitButton>
     </div>

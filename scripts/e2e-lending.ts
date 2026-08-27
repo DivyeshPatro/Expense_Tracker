@@ -425,14 +425,41 @@ async function main() {
       /Friends don.t need an account/i.test(await friendDialog.innerText())
     );
 
+    // Adding someone deliberately used to collect less than adding them
+    // halfway through a loan — name only, no way to record a number.
+    ok("the form asks for a phone number", (await friendDialog.getByText("PHONE (OPTIONAL)").count()) === 1);
+    ok("the form asks for notes", (await friendDialog.getByText("NOTES (OPTIONAL)").count()) === 1);
+
     const standaloneName = `ZStandalone-${suffix}`;
-    await friendDialog.locator("input.field").first().fill(standaloneName);
+    await friendDialog.locator("input.field").nth(0).fill(standaloneName);
+    await friendDialog.locator("input.field").nth(1).fill("+91 98765 43210");
+    await friendDialog.locator("input.field").nth(2).fill("Flatmate, splits the internet bill");
     await friendDialog.getByRole("button", { name: /^Add friend$/ }).click();
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1500);
 
     const standalone = await prisma.participant.findFirst({ where: { ownerId: alice.id, displayName: standaloneName } });
     ok("creating from Lending writes one contact through the existing action", standalone !== null, standalone?.id ?? "not created");
     if (standalone) createdParticipantIds.push(standalone.id);
+    ok(
+      "the phone and notes are saved with it",
+      standalone?.phone === "+91 98765 43210" && standalone?.notes === "Flatmate, splits the internet bill",
+      `phone=${standalone?.phone ?? "null"} notes=${standalone?.notes ?? "null"}`
+    );
+
+    // …and the optional fields stay optional: a name on its own still works,
+    // and must not write empty strings over the columns.
+    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+    await page.waitForSelector("text=Contacts", { timeout: 15000 });
+    await page.getByRole("button", { name: /Add contact/ }).first().click();
+    await page.waitForTimeout(700);
+    const nameOnlyName = `ZNameOnly-${suffix}`;
+    await page.getByRole("dialog").locator("input.field").nth(0).fill(nameOnlyName);
+    await page.getByRole("dialog").getByRole("button", { name: /^Add friend$/ }).click();
+    await page.waitForTimeout(1500);
+    const nameOnly = await prisma.participant.findFirst({ where: { ownerId: alice.id, displayName: nameOnlyName } });
+    ok("a name on its own still creates a contact", nameOnly !== null, nameOnly?.id ?? "not created");
+    if (nameOnly) createdParticipantIds.push(nameOnly.id);
+    ok("it leaves phone and notes unset rather than blank", nameOnly?.phone == null && nameOnly?.notes == null, `phone=${nameOnly?.phone ?? "null"} notes=${nameOnly?.notes ?? "null"}`);
 
     // The Lending contacts list is people you have LENDING ACTIVITY with —
     // lendingBalances filters to participants with at least one entry — so a
