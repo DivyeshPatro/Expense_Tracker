@@ -81,6 +81,14 @@ async function waitForParticipantPhone(participantId: string, phone: string) {
   return prisma.participant.findUniqueOrThrow({ where: { id: participantId } });
 }
 
+/** Opens the context-aware quick-add sheet. The mobile FAB and the desktop
+ *  one share the same aria-label but are shown at different breakpoints, so
+ *  click whichever is actually visible. */
+async function quickAdd(page: Page) {
+  await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(500);
+}
+
 async function main() {
   const suffix = randomUUID().slice(0, 8);
   const browser = await chromium.launch({ headless: true });
@@ -93,6 +101,7 @@ async function main() {
   const hdfc = await prisma.account.findFirstOrThrow({ where: { userId: alice.id, name: "HDFC Savings" } });
 
   const entryIds: string[] = [];
+  const createdParticipantIds: string[] = [];
 
   try {
     await page.goto(`${BASE}/sign-in`, { waitUntil: "load" });
@@ -389,6 +398,99 @@ async function main() {
     ok("mobile: viewing a contact's ledger opens the modal sheet", (await page.locator(".fixed.inset-0.z-\\[60\\]").count()) === 1);
     await page.setViewportSize({ width: 1280, height: 900 });
 
+    // ══════════════ 16. Standalone "Add contact" — without starting a loan ══════════════
+    // A contact could only be created part-way through recording a loan. That
+    // path works and is untouched; this is the other half — adding someone you
+    // have not lent to yet. Both open the SAME friend modal /people uses.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+    await page.waitForSelector("text=Contacts", { timeout: 15000 });
+
+    ok("the Contacts list offers Add contact", await page.getByRole("button", { name: /Add contact/ }).first().isVisible());
+
+    // The quick-add sheet is a labelled dialog; scope to it so these do not
+    // match the Contacts list button of the same name behind it. Each row
+    // renders its icon in a span, so the button's accessible name carries the
+    // emoji too — match on a substring, not the bare label.
+    await quickAdd(page);
+    const addSheet = page.getByRole("dialog", { name: "Lending" });
+    ok("the Lending FAB offers Add contact alongside the two loan actions", await addSheet.getByRole("button", { name: /Add contact/ }).isVisible());
+    ok("it did not replace the loan actions", await addSheet.getByRole("button", { name: /You gave money/ }).isVisible());
+
+    await addSheet.getByRole("button", { name: /Add contact/ }).click();
+    await page.waitForTimeout(700);
+    const friendDialog = page.getByRole("dialog");
+    ok(
+      "it opens the existing friend form, not a second contact form",
+      /Friends don.t need an account/i.test(await friendDialog.innerText())
+    );
+
+    const standaloneName = `ZStandalone-${suffix}`;
+    await friendDialog.locator("input.field").first().fill(standaloneName);
+    await friendDialog.getByRole("button", { name: /^Add friend$/ }).click();
+    await page.waitForTimeout(1200);
+
+    const standalone = await prisma.participant.findFirst({ where: { ownerId: alice.id, displayName: standaloneName } });
+    ok("creating from Lending writes one contact through the existing action", standalone !== null, standalone?.id ?? "not created");
+    if (standalone) createdParticipantIds.push(standalone.id);
+
+    // The Lending contacts list is people you have LENDING ACTIVITY with —
+    // lendingBalances filters to participants with at least one entry — so a
+    // brand-new contact is intentionally not listed yet. What matters is that
+    // the loan form can reach them immediately, which is the reason to add one.
+    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+    await page.waitForSelector("text=Contacts", { timeout: 15000 });
+    await quickAdd(page);
+    await page.getByRole("dialog", { name: "Lending" }).getByRole("button", { name: /You gave money/ }).click();
+    await page.waitForTimeout(900);
+    const pickerOptions = await page.getByRole("dialog").locator("select").first().locator("option").allInnerTexts();
+    ok("the new contact is immediately offered by the loan form", pickerOptions.includes(standaloneName), pickerOptions.join(" / "));
+    await page.getByRole("dialog").getByRole("button", { name: "Close" }).click().catch(() => page.keyboard.press("Escape"));
+    await page.waitForTimeout(400);
+
+    // ══════════════ 17. Loan form → "+ New Contact" → auto-selected → saved ══════════════
+    // Previously uncovered end to end, and the flow the standalone button
+    // deliberately does NOT replace.
+    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+    await quickAdd(page);
+    await page.getByRole("dialog", { name: "Lending" }).getByRole("button", { name: /You gave money/ }).click();
+    await page.waitForTimeout(900);
+
+    const loanDialog = page.getByRole("dialog");
+    await loanDialog.locator("select").first().selectOption({ label: "+ New Contact" });
+    await page.waitForTimeout(600);
+    ok("choosing + New Contact swaps in the inline contact form", /New contact/.test(await loanDialog.innerText()));
+
+    const inlineName = `ZInline-${suffix}`;
+    await loanDialog.locator("input.field").first().fill(inlineName);
+    await loanDialog.getByRole("button", { name: /Create & continue/ }).click();
+    await page.waitForTimeout(1200);
+
+    const inlineContact = await prisma.participant.findFirst({ where: { ownerId: alice.id, displayName: inlineName } });
+    ok("the inline form creates the contact", inlineContact !== null, inlineContact?.id ?? "not created");
+    if (inlineContact) createdParticipantIds.push(inlineContact.id);
+
+    const selectedLabel = await loanDialog.locator("select").first().locator("option:checked").innerText();
+    ok("it returns to the loan form with the new contact already selected", selectedLabel.trim() === inlineName, selectedLabel);
+
+    await loanDialog.getByLabel("AMOUNT (₹)").fill("450").catch(async () => {
+      await loanDialog.locator('input[inputmode="decimal"], input[placeholder="0"]').first().fill("450");
+    });
+    await loanDialog.getByRole("button", { name: /Record You Gave/ }).click();
+    await page.waitForTimeout(2000);
+
+    const inlineEntry = inlineContact
+      ? await prisma.loanEntry.findFirst({ where: { userId: alice.id, participantId: inlineContact.id }, orderBy: { createdAt: "desc" } })
+      : null;
+    ok("the loan saves against the contact just created", inlineEntry !== null && Number(inlineEntry.amount) === 45000, inlineEntry ? String(Number(inlineEntry.amount)) : "no entry");
+    if (inlineEntry) entryIds.push(inlineEntry.id);
+
+    // …and only now does that person appear in the Lending contacts list.
+    await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+    await page.waitForSelector("text=Contacts", { timeout: 15000 });
+    ok("a contact with lending activity appears in the Contacts list", (await page.locator("body").innerText()).includes(inlineName));
+    await page.setViewportSize({ width: 1280, height: 900 });
+
     // ══════════════ 13. Card Vault fields exist on Account (Phase 1 schema scope) ══════════════
     const cardAccount = await prisma.account.findFirstOrThrow({ where: { userId: alice.id, type: "CREDIT_CARD" } });
     await prisma.account.update({ where: { id: cardAccount.id }, data: { cardNetwork: "Visa", cardLast4: "4242", statementDay: 3, dueDay: 18 } });
@@ -402,6 +504,8 @@ async function main() {
     ok("script error", false, String(e).slice(0, 800));
     await page.screenshot({ path: "e2e-output/lending-error.png", fullPage: true }).catch(() => {});
   } finally {
+    await prisma.loanEntry.deleteMany({ where: { participantId: { in: createdParticipantIds } } }).catch(() => {});
+    await prisma.participant.deleteMany({ where: { id: { in: createdParticipantIds } } }).catch(() => {});
     await prisma.loanEntry.deleteMany({ where: { id: { in: entryIds } } });
     await prisma.auditLog.deleteMany({ where: { entityId: { in: entryIds } } });
     await prisma.intent.deleteMany({ where: { entityId: { in: entryIds } } });

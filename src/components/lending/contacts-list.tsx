@@ -11,6 +11,7 @@ import { friendlyDay } from "@/lib/dates";
 import { formatPaise } from "@/lib/money";
 import type { LendingParticipantView } from "@/server/services/lending";
 import { EmptyState } from "@/components/shell/empty-state";
+import { OpenModalButton } from "@/components/shell/buttons";
 import { CONTACT_SORTS, DEFAULT_CONTACT_SORT, parseContactSort, sortLendingContacts, type ContactSort } from "@/lib/loan-sort";
 
 function matches(c: LendingParticipantView, needle: string): boolean {
@@ -77,7 +78,17 @@ export function LendingContactsList({
 
   return (
     <section className="card flex-[1_1_320px] p-[var(--pad)] flex flex-col gap-[13px]">
-      <h2 className="text-[13.5px] font-bold m-0">Contacts</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-[13.5px] font-bold m-0">Contacts</h2>
+        {/* The list you scan for a person is also where you notice one is
+            missing. Opens the same friend modal as /people and /shared. */}
+        <OpenModalButton
+          type="friend"
+          className="text-[12px] font-bold text-acc bg-transparent border-none cursor-pointer min-h-[44px] px-1 -mr-1 hover:brightness-110"
+        >
+          &#65291; Add contact
+        </OpenModalButton>
+      </div>
       {contacts.length > 0 && (
         <div className="flex gap-1.5">
           <input
@@ -101,7 +112,17 @@ export function LendingContactsList({
         </div>
       )}
       {contacts.length === 0 && (
-        <EmptyState icon="🤝" title="You haven't started lending yet" detail='Tap "You Gave" to record your first loan.' compact />
+        <EmptyState
+          icon="🤝"
+          title="You haven't started lending yet"
+          detail='Record what you gave or got, or add the people first.'
+          compact
+          action={
+            <OpenModalButton type="friend" className="btn-primary min-h-[44px] text-[12.5px] font-bold cursor-pointer">
+              &#65291; Add contact
+            </OpenModalButton>
+          }
+        />
       )}
       {contacts.length > 0 && filtered.length === 0 && <EmptyState icon="🔎" title={`No contacts match “${q}”`} compact />}
       {filtered.map((c) => {

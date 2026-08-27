@@ -465,6 +465,12 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
       actions: [
         { icon: "💸", label: "You gave money", run: () => openModal("lendingEntry", { loanKind: "GAVE" }) },
         { icon: "💰", label: "You got money", run: () => openModal("lendingEntry", { loanKind: "GOT" }) },
+        // A contact could only be created part-way through recording a loan,
+        // via "+ New Contact" in that form's picker. That still works and is
+        // the right path mid-flow; this is for the other half of the job —
+        // adding someone you have not lent to yet. Same modal /people and
+        // /shared already use, so there is one contact form in the app.
+        { icon: "👤", label: "Add contact", run: () => openModal("friend") },
       ],
     };
   if (at("/shared")) return { label: "Add shared expense", actions: [{ icon: "👥", label: "Add shared expense", run: () => openModal("exp", { split: true }) }] };

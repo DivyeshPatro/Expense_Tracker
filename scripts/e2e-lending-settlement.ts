@@ -253,7 +253,10 @@ async function main() {
     // similar), so a bare name-regex match could hit the Reminders panel's
     // row instead of the Contacts List's — scope to the Contacts card
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
-    const contactsSection = page.getByRole("heading", { name: "Contacts", exact: true }).locator("xpath=..");
+    // Scope to the Contacts CARD, not to the heading's parent element: the
+    // heading now shares a row with an "Add contact" action, so its parent is
+    // that row rather than the card holding the contact list.
+    const contactsSection = page.locator("section.card").filter({ has: page.getByRole("heading", { name: "Contacts", exact: true }) });
     const loanRow = contactsSection.getByRole("button", { name: /Rohan/ }).first();
     await loanRow.click();
     await page.waitForSelector("text=+ You Gave");
