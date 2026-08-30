@@ -400,11 +400,19 @@ async function main() {
     await alicePage.locator(`button:has-text("UISoloRegression-${suffix}")`).first().click();
     await alicePage.getByRole("button", { name: "Edit", exact: true }).waitFor();
     await alicePage.getByRole("button", { name: "Edit", exact: true }).click();
-    await alicePage.waitForSelector('input[placeholder="0"]');
-    const soloEditSelectCount = await alicePage.locator(".fixed.inset-0.z-\\[60\\] select").count();
+    // An owner's solo Debit edit opens the full-screen composer. The property
+    // under test is unchanged — the owner gets the FULL editor, where the
+    // non-owner's is deliberately narrowed with the account read-only — it is
+    // just expressed as chips rather than two <select>s now.
+    const soloComposer = alicePage.locator("div[data-composer]");
+    await soloComposer.waitFor({ timeout: 15000 });
+    const accountChip = soloComposer.getByRole("button", { name: /^Payment method:|^Choose a payment method$/ });
+    const categoryChip = soloComposer.getByRole("button", { name: /^Category:|^Choose a category$/ });
     ok(
-      "a solo transaction's owner still gets the original, fully-functional edit form (account + category both live selects) — untouched by the collaboration UI cutover",
-      soloEditSelectCount === 2
+      "a solo transaction's owner still gets the fully-functional editor — account and category both live and changeable — where a non-owner's is narrowed",
+      (await accountChip.count()) === 1 && (await categoryChip.count()) === 1
+        && (await accountChip.isEnabled()) && (await categoryChip.isEnabled()),
+      `account=${await accountChip.count()} category=${await categoryChip.count()}`
     );
     await alicePage.getByRole("button", { name: "Cancel", exact: true }).click();
   } catch (e) {

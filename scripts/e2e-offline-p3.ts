@@ -21,7 +21,7 @@ async function signIn(page: Page) {
   await page.fill('input[type="password"]', "ledgerly-demo");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 20000 });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page.waitForSelector("text=/TOTAL BALANCE|BALANCE ·/");
 }
 
 /** A fresh context (own IndexedDB → own device identity) authenticated by
@@ -34,7 +34,7 @@ async function newDevice(browser: Browser, cookies: Cookie[]): Promise<{ ctx: Br
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page.waitForSelector("text=/TOTAL BALANCE|BALANCE ·/");
   return { ctx, page };
 }
 

@@ -55,6 +55,7 @@ import { GroupCategorySelect } from "./group-category-select";
 import { intentLabel, useOffline, type MutationKind } from "./offline-context";
 import { FAILURE_COPY } from "./pending-detail";
 import { buildSplitPayload, participantsForGroup, SplitBreakdown, SplitEditor, useSplitPreview, type SplitEditorState } from "./split-editor";
+import { TransactionComposer } from "./transaction-composer";
 import { useUI } from "./ui-context";
 import { ensureDeviceId, getDeviceName, type OutboxIntent } from "@/lib/offline/db";
 
@@ -175,6 +176,26 @@ export function TransactionDetailSheet({ transactionId }: { transactionId: strin
     // a different, deliberately-simpler form — see CollaborativeEditForm's
     // own comment for exactly which fields and why
     if (!detail.isOwner) return <CollaborativeEditForm detail={detail} onCancel={() => setEditing(false)} />;
+    // The full-screen composer is the owner's Debit/Credit editor, so creating
+    // and editing are one screen rather than two systems.
+    //
+    // Three cases stay on the classic forms, each for a capability the composer
+    // does not carry rather than for taste:
+    //   • TRANSFER — two accounts and no category or split; a different shape
+    //     of transaction, edited by a different service.
+    //   • a NON-OWNER's edit — handled above; deliberately a narrower form with
+    //     the account read-only and the amount locked behind a split.
+    //   • anything with a PENDING unsynced change — that form prefills from the
+    //     queued payload so a second edit builds on the first, and
+    //     enqueueMutation coalesces both into one intent. Routing it through a
+    //     screen that hydrates from server state would quietly discard the edit
+    //     still sitting in the outbox.
+    // The conflict, override and offline machinery is NOT reimplemented here:
+    // it lives in the outbox and in the recovery cards above, and an edit that
+    // goes through enqueueMutation inherits all of it unchanged.
+    if (!queued && (detail.type === "EXPENSE" || detail.type === "INCOME")) {
+      return <TransactionComposer edit={detail} onCancel={() => setEditing(false)} />;
+    }
     if (detail.type === "EXPENSE") return <EditExpenseForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
     if (detail.type === "INCOME") return <EditIncomeForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;
     return <EditTransferForm detail={detail} prefill={prefill} onCancel={() => setEditing(false)} />;

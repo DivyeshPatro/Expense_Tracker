@@ -64,7 +64,7 @@ try {
   await page.fill('input[type="password"]', "ledgerly-demo");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page.waitForSelector("text=/TOTAL BALANCE|BALANCE ·/");
 
   // ═══════════ universal write-behind: instant even while ONLINE, and not gated by network latency ═══════════
   const cdp = await context.newCDPSession(page);

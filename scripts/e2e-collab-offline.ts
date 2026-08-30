@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { auth } from "../src/server/auth";
 import { prisma } from "../src/server/db";
+import { saveComposer, typeAmount } from "./composer-drive";
 import { createGroup, deleteGroup, removeGroupMember } from "../src/server/services/groups";
 
 const BASE = "http://localhost:3000";
@@ -136,18 +137,17 @@ async function main() {
       const { ctx: ctxB, page: pageB } = await newDevice(browser, aliceCookies);
       await openTxByDeepLink(pageB, tx.id); // captures version=1 into B's local state
       await ctxB.setOffline(true);
-      await pageB.getByRole("button", { name: "Edit", exact: true }).click(); // Alice IS the owner — the original EditExpenseForm, unaffected by collaboration
-      await pageB.waitForSelector('input[placeholder="0"]');
-      await pageB.fill('input[placeholder="0"]', "999");
-      await pageB.getByRole("button", { name: "Save changes", exact: true }).click();
-      await pageB.waitForSelector("text=Save changes", { state: "detached" });
+      // Alice IS the owner, so her edit opens the composer. The write path is
+      // the same outbox either way, which is the whole point of this test.
+      await pageB.getByRole("button", { name: "Edit", exact: true }).click();
+      await typeAmount(pageB, "999");
+      await saveComposer(pageB);
 
       const { ctx: ctxA, page: pageA } = await newDevice(browser, aliceCookies);
       await openTxByDeepLink(pageA, tx.id);
       await pageA.getByRole("button", { name: "Edit", exact: true }).click();
-      await pageA.waitForSelector('input[placeholder="0"]');
-      await pageA.fill('input[placeholder="0"]', "555");
-      await pageA.getByRole("button", { name: "Save changes", exact: true }).click();
+      await typeAmount(pageA, "555");
+      await saveComposer(pageA);
       await pageA.waitForSelector("text=Transaction updated");
       await pageA.waitForTimeout(800);
 
@@ -188,9 +188,8 @@ async function main() {
       const { ctx: ctxAlice, page: pageAlice } = await newDevice(browser, aliceCookies);
       await openTxByDeepLink(pageAlice, tx.id);
       await pageAlice.getByRole("button", { name: "Edit", exact: true }).click();
-      await pageAlice.waitForSelector('input[placeholder="0"]');
-      await pageAlice.fill('input[placeholder="0"]', "555");
-      await pageAlice.getByRole("button", { name: "Save changes", exact: true }).click();
+      await typeAmount(pageAlice, "555");
+      await saveComposer(pageAlice);
       await pageAlice.waitForSelector("text=Transaction updated");
       await pageAlice.waitForTimeout(800);
       await ctxAlice.close();
@@ -267,9 +266,8 @@ async function main() {
       const { ctx: ctxAlice, page: pageAlice } = await newDevice(browser, aliceCookies);
       await openTxByDeepLink(pageAlice, tx.id);
       await pageAlice.getByRole("button", { name: "Edit", exact: true }).click();
-      await pageAlice.waitForSelector('input[placeholder="0"]');
-      await pageAlice.fill('input[placeholder="0"]', "300");
-      await pageAlice.getByRole("button", { name: "Save changes", exact: true }).click();
+      await typeAmount(pageAlice, "300");
+      await saveComposer(pageAlice);
       await pageAlice.waitForSelector("text=Transaction updated");
       await pageAlice.waitForTimeout(800);
       await ctxAlice.close();

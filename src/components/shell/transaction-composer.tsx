@@ -20,6 +20,7 @@
 //   • merchant is optional and the server names a blank one "Expense"/"Income".
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useUI } from "./ui-context";
 import { useOffline } from "./offline-context";
@@ -35,7 +36,8 @@ import {
   useSplitPreview,
   type SplitEditorState,
 } from "./split-editor";
-import { addExpenseAction, listGroupCategoriesAction } from "@/app/actions";
+import { addExpenseAction, listGroupCategoriesAction, updateExpenseAction } from "@/app/actions";
+import type { TransactionDetail } from "@/server/services/transactions";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import { friendlyDay, todayYMD } from "@/lib/dates";
 import { amountToPaise, evaluateAmount, looksLikeExpression, partialAmount, pressAmountKey } from "@/lib/expression";
@@ -64,19 +66,42 @@ function displayDigits(raw: string): string {
   return !looksLikeExpression(raw) && raw.endsWith(".") ? `${rupees}.` : rupees;
 }
 
-export function TransactionComposer() {
-  const { refData, closeModal } = useUI();
-  const { createViaOutbox } = useOffline();
+/**
+ * Create and edit are the same screen.
+ *
+ * `edit` switches the mode: every control, the keypad, the arithmetic, the
+ * split editor and the breakdown are shared, and only the persistence call at
+ * the end differs. Nothing about how a transaction is written was moved or
+ * reimplemented — an edit goes through exactly the calls EditExpenseForm and
+ * EditIncomeForm already made.
+ *
+ * NOT every edit comes here. The routing lives in TransactionDetail and is
+ * deliberately narrow: a non-owner's edit, a transfer, and any row with a
+ * pending unsynced change all stay on the classic forms, because those depend
+ * on machinery this screen does not carry (a narrower field set with the
+ * account locked, transfer's two accounts, and prefilling from the queued
+ * payload respectively).
+ */
+export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDetail; onCancel?: () => void } = {}) {
+  const { refData, closeModal, showToast } = useUI();
+  const { createViaOutbox, enqueueMutation } = useOffline();
   const router = useRouter();
+  const isEdit = !!edit;
 
   // Debit first and selected: most entries are money going out, so the common
-  // case should need no tap. Credit is still the existing income path.
-  const [kind, setKind] = useState<Kind>("EXPENSE");
-  const [groupId, setGroupId] = useState("");
-  const [entry, setEntry] = useState("");
-  const [notes, setNotes] = useState("");
-  const [merchant, setMerchant] = useState("");
-  const [date, setDate] = useState(todayYMD());
+  // case should need no tap. Credit is still the existing income path. An edit
+  // opens on whatever the row already is, and cannot change it — the data layer
+  // has no Debit↔Credit conversion (separate services, separate schemas), so
+  // offering one would be inventing a mutation nothing implements.
+  const [kind, setKind] = useState<Kind>(edit?.type === "INCOME" ? "INCOME" : "EXPENSE");
+  const [groupId, setGroupId] = useState(edit?.groupId ?? "");
+  // The amount starts as the stored figure in plain rupees, so the keypad can
+  // extend it: "1000" is already a valid expression, and tapping + 250 makes
+  // it "1000+250" without any special case.
+  const [entry, setEntry] = useState(edit ? String(edit.amount / 100) : "");
+  const [notes, setNotes] = useState(edit?.notes ?? "");
+  const [merchant, setMerchant] = useState(edit?.merchant ?? "");
+  const [date, setDate] = useState(edit?.ymd ?? todayYMD());
   // No category until the reader picks one. `expenseCategories` is ordered by
   // name, so seeding index 0 meant every new expense arrived pre-labelled with
   // whatever sorts first in that person's list — "Bike" on a real account,
@@ -84,7 +109,8 @@ export function TransactionComposer() {
   // and was nobody's. Both schemas take `categoryId: z.string().nullable()`,
   // and addExpense() fills a blank one from the merchant rule when it can, so
   // empty is a value the write path already understands.
-  const [categoryId, setCategoryId] = useState("");
+  // An edit shows what is actually stored, including nothing at all.
+  const [categoryId, setCategoryId] = useState(edit?.categoryId ?? "");
 
   // group-expenses-sprint §10: categories are namespaced — Category.userId for
   // personal, Category.groupId for a group — and a group expense is labelled
@@ -97,42 +123,90 @@ export function TransactionComposer() {
   // group is a tag, exactly as it is in the classic income form.
   const [groupCategories, setGroupCategories] = useState<{ id: string; name: string; icon: string }[]>([]);
   const inGroupExpense = kind === "EXPENSE" && !!groupId;
+  // Whether the list for the CURRENT scope has actually arrived. Without this,
+  // editing a group expense wiped its category: the group's list is fetched, so
+  // for a frame or two `categories` is empty, and the "clear what does not
+  // belong" effect below would fire against a list that had simply not loaded.
+  const [groupCatsFor, setGroupCatsFor] = useState<string | null>(null);
   useEffect(() => {
     if (!inGroupExpense) {
       setGroupCategories([]);
+      setGroupCatsFor(null);
       return;
     }
     let cancelled = false;
     void listGroupCategoriesAction(groupId).then((cats) => {
       if (cancelled) return;
       setGroupCategories(cats.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "📦" })));
+      setGroupCatsFor(groupId);
     });
     return () => {
       cancelled = true;
     };
   }, [groupId, inGroupExpense]);
+  const catsReady = !inGroupExpense || groupCatsFor === groupId;
 
   const categories = kind === "INCOME" ? refData.incomeCategories : inGroupExpense ? groupCategories : refData.expenseCategories;
 
   // The classic form's split state, unchanged in shape, so SplitEditor and
   // buildSplitPayload work here exactly as they do there. Nothing about how a
   // split is computed or stored is reimplemented.
-  const [split, setSplit] = useState(false);
-  const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">("EQUAL");
-  const [parts, setParts] = useState<Record<string, boolean>>({});
-  const [exact, setExact] = useState<Record<string, string>>({});
+  //
+  // Hydrated from the stored rows exactly as EditExpenseForm does it, including
+  // the OWNER's row under "me" — dropping that is what used to hand the owner's
+  // share to the payer on a save that changed nothing.
+  //
+  // PERCENT/RATIO keep only the resulting paise, not the weights that produced
+  // them, so a split created either way reopens as EXACT with today's amounts.
+  // That is the existing, deliberate behaviour: accurate, rather than guessing
+  // at weights that would be wrong unless re-entered.
+  const [split, setSplit] = useState((edit?.splits.length ?? 0) > 0);
+  const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">(
+    edit && edit.splits.length > 0 ? (edit.splits[0].method === "EQUAL" ? "EQUAL" : "EXACT") : "EQUAL"
+  );
+  const [parts, setParts] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries((edit?.splits ?? []).filter((s) => s.participantId).map((s) => [s.participantId as string, true]))
+  );
+  const [exact, setExact] = useState<Record<string, string>>(() =>
+    Object.fromEntries((edit?.splits ?? []).map((s) => [s.participantId ?? "me", String(s.owedAmount / 100)]))
+  );
   const [weights, setWeights] = useState<Record<string, string>>({});
-  const [payerId, setPayerId] = useState<string | null>(null);
-  const [accountId, setAccountId] = useState(() => refData.accounts[0]?.id ?? "");
+  const [payerId, setPayerId] = useState<string | null>(edit?.paidByParticipantId ?? null);
+  const [accountId, setAccountId] = useState(edit?.accountId ?? refData.accounts[0]?.id ?? "");
   const [picker, setPicker] = useState<Picker>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   // Not state: the guard has to hold synchronously, because a swipe that lands
   // twice in one tick would otherwise queue the transaction twice.
   const submitting = useRef(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // An edit is opened FROM the transaction sheet, which is itself a dialog. Left
+  // as a child of it, this screen would be a dialog inside a dialog: it covers
+  // the sheet visually, but the sheet's own controls stay in the accessibility
+  // tree and reachable by keyboard behind it. So an edit portals to the body and
+  // marks every other open dialog inert while it is up — the sheet is still
+  // there, untouched, when this closes.
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => setPortalReady(true), []);
+  useEffect(() => {
+    if (!isEdit || !portalReady) return;
+    const others = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).filter(
+      (d) => !d.contains(rootRef.current) && !d.hasAttribute("inert")
+    );
+    others.forEach((d) => d.setAttribute("inert", ""));
+    return () => others.forEach((d) => d.removeAttribute("inert"));
+  }, [isEdit, portalReady]);
 
   const paise = amountToPaise(entry || "0");
-  const category = categories.find((c) => c.id === categoryId);
+  // While a group's list is in flight, an edit still names the category it was
+  // saved with — resolved server-side on the detail, so it is correct even for
+  // a namespace this reader has no copy of.
+  const category =
+    categories.find((c) => c.id === categoryId) ??
+    (edit && categoryId && categoryId === edit.categoryId && edit.categoryName
+      ? { id: edit.categoryId, name: edit.categoryName, icon: edit.categoryIcon ?? "📦" }
+      : undefined);
   const account = refData.accounts.find((a) => a.id === accountId);
   const group = refData.groups.find((g) => g.id === groupId);
 
@@ -155,8 +229,9 @@ export function TransactionComposer() {
   // on the new list's first entry would put a category they never selected on
   // the transaction — the same bug as seeding one, arrived at sideways.
   useEffect(() => {
+    if (!catsReady) return; // the group's list is still on its way
     if (categoryId && !categories.some((c) => c.id === categoryId)) setCategoryId("");
-  }, [categories, categoryId]);
+  }, [categories, categoryId, catsReady]);
 
   // Any edit clears a complaint about the previous attempt.
   useEffect(() => setError(null), [entry, kind, groupId, accountId, split, mode, parts]);
@@ -219,7 +294,46 @@ export function TransactionComposer() {
       groupId: groupId || null,
     };
     let res;
-    if (kind === "INCOME") {
+    if (edit) {
+      // Exactly the calls the classic edit forms make, in the same order and
+      // with the same guards — only the surface collecting the values changed.
+      //
+      // `amount` goes as the raw entry string on purpose: paiseFromRupees in
+      // the schema resolves it through the same parser, so an expression typed
+      // here is evaluated once, server-side, into the one paise representation
+      // that already exists. Nothing stores the expression.
+      if (kind === "INCOME") {
+        res = await enqueueMutation(
+          "income.update",
+          edit.id,
+          { amount: entry, accountId, categoryId: categoryId || null, merchant, date, notes: notes || undefined },
+          edit.version
+        );
+      } else if (split) {
+        // A split touches other participants' balances, so it needs the
+        // server's validation — the same restriction creating one has.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          submitting.current = false;
+          setError("Split expenses need internet — try again when you're back online.");
+          return false;
+        }
+        const deviceId = await ensureDeviceId().catch(() => crypto.randomUUID());
+        const deviceName = await getDeviceName().catch(() => undefined);
+        res = await updateExpenseAction({
+          id: edit.id,
+          ...shared,
+          accountId: accountId || null,
+          split: buildSplitPayload(splitState, selectedIds),
+          // baseVersion is what lets checkOverride see this edit at all.
+          intent: { intentId: crypto.randomUUID(), deviceId, deviceName, clientTs: new Date().toISOString(), baseVersion: edit.version },
+        });
+      } else {
+        // Through the outbox, which is where conflict detection, override
+        // reporting and offline queueing live — so they are preserved here by
+        // using the same path, not by reimplementing any of it.
+        res = await enqueueMutation("expense.update", edit.id, { ...shared, accountId: accountId || null, split: buildSplitPayload(splitState, selectedIds) }, edit.version);
+      }
+    } else if (kind === "INCOME") {
       // incomeSchema has no split — a group credit is tagged to the group, as
       // it is in the classic income form.
       res = await createViaOutbox("income.create", { ...shared, accountId });
@@ -250,10 +364,16 @@ export function TransactionComposer() {
       return false;
     }
     setDone(true);
+    // An edit says so in a toast the way the classic form did, rather than
+    // relying on a wash that reads as "added".
+    if (edit) showToast("Transaction updated");
     // Long enough to read, short enough not to be in the way. The dashboard is
     // refreshed underneath while the wash is up, so it has the new row by the
     // time it is visible again.
-    router.refresh();
+    //
+    // A queued (offline) save changed nothing server-side yet, so refreshing
+    // would fire a doomed RSC fetch — the same rule useSubmit follows.
+    if (!("queued" in res && res.queued)) router.refresh();
     window.setTimeout(closeModal, 900);
     return true;
   }
@@ -272,8 +392,12 @@ export function TransactionComposer() {
     { key: "payment" as const, icon: "💳", what: "Payment method", label: account?.name ?? "Payment", unset: !account },
   ];
 
-  return (
-    <div className="fixed inset-0 z-[70] bg-bg flex flex-col" style={{ animation: "composerIn .22s ease" }}>
+  const screen = (
+    // Deliberately NOT role="dialog": this is a screen, the modal layer
+    // already owns that role, and claiming it here would make every existing
+    // `getByRole("dialog")` in the app and its suites ambiguous. The focus
+    // problem an edit really has is solved by the portal and inert above.
+    <div ref={rootRef} aria-label={isEdit ? "Edit transaction" : "New transaction"} className="fixed inset-0 z-[70] bg-bg flex flex-col" style={{ animation: "composerIn .22s ease" }}>
       <style>{`
         @keyframes composerIn { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
         @keyframes washIn { from { opacity: 0 } to { opacity: 1 } }
@@ -286,8 +410,8 @@ export function TransactionComposer() {
         {/* ── close + type ─────────────────────────────────────────────── */}
         <div className="flex items-center gap-2 flex-none">
           <button
-            onClick={closeModal}
-            aria-label="Close"
+            onClick={() => (onCancel ? onCancel() : closeModal())}
+            aria-label={isEdit ? "Cancel" : "Close"}
             className="w-11 h-11 -ml-2 rounded-full grid place-items-center text-mut bg-transparent border-none cursor-pointer hover:bg-accsoft hover:text-ink text-[17px]"
           >
             ✕
@@ -299,7 +423,12 @@ export function TransactionComposer() {
                 { value: "INCOME", label: "Credit", glyph: "↙" },
               ]}
               value={kind}
-              onChange={(v) => setKind(v as Kind)}
+              // An edit cannot change the type. updateExpense and updateIncome
+              // are separate services over separate schemas, with different
+              // account rules and no split on the income side — there is no
+              // conversion in the data layer, so offering one here would be a
+              // control that either lies or corrupts.
+              onChange={isEdit ? undefined : (v) => setKind(v as Kind)}
               tint={kind === "INCOME" ? "var(--green)" : "var(--red)"}
             />
           </div>
@@ -431,7 +560,7 @@ export function TransactionComposer() {
           ))}
         </div>
 
-        <SwipeToConfirm onComplete={commit} label={`Swipe to add ${kind === "INCOME" ? "credit" : "debit"}`} />
+        <SwipeToConfirm onComplete={commit} label={isEdit ? "Swipe to save changes" : `Swipe to add ${kind === "INCOME" ? "credit" : "debit"}`} />
       </div>
 
       {picker && (
@@ -469,6 +598,10 @@ export function TransactionComposer() {
       )}
     </div>
   );
+
+  // A create already renders at the top of the modal layer; only an edit has a
+  // sheet underneath it to get out of.
+  return isEdit && portalReady ? createPortal(screen, document.body) : screen;
 }
 
 /** Pill selector — the shape both the type and the personal/group choice take. */
@@ -481,7 +614,9 @@ function Segmented({
 }: {
   options: { value: string; label: string; glyph?: string }[];
   value: string;
-  onChange: (v: string) => void;
+  /** Omitted when the choice is fixed — the buttons then read as a statement
+   *  of what this transaction IS, rather than a control that does nothing. */
+  onChange?: (v: string) => void;
   tint?: string;
   small?: boolean;
 }) {
@@ -492,9 +627,13 @@ function Segmented({
         return (
           <button
             key={o.value}
-            onClick={() => onChange(o.value)}
+            onClick={() => onChange?.(o.value)}
             aria-pressed={on}
-            className={`inline-flex items-center gap-1.5 rounded-full border-none cursor-pointer font-bold transition-colors ${
+            disabled={!onChange}
+            title={!onChange && !on ? "A saved transaction can't change between Debit and Credit" : undefined}
+            className={`inline-flex items-center gap-1.5 rounded-full border-none font-bold transition-colors ${
+              onChange ? "cursor-pointer" : "cursor-default"
+            } ${!onChange && !on ? "opacity-40" : ""} ${
               small ? "px-3 min-h-[32px] text-[11.5px]" : "px-4 min-h-[38px] text-[13px]"
             }`}
             style={{ background: on ? "var(--card)" : "transparent", color: on ? "var(--ink)" : "var(--mut2)" }}

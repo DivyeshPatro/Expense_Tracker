@@ -43,7 +43,9 @@ async function session(browser: Browser) {
 }
 
 const composer = (page: Page) => page.locator("div[data-composer]");
-const sheet = (page: Page) => page.getByRole("dialog");
+// The topmost sheet: an owner's edit opens the composer over the transaction
+// sheet, which stays mounted (inert) underneath.
+const sheet = (page: Page) => page.getByRole("dialog").last();
 
 async function openComposer(page: Page) {
   await page.goto(`${BASE}/dashboard`, { waitUntil: "load" });
@@ -221,13 +223,18 @@ async function main() {
         before.map.OWNER === 30000 && before.map[M1] === 40000 && before.map[M2] === 30000 && before.map[M3] === 20000, before.show);
 
       await openDetail(page, m2);
-      await sheet(page).getByRole("button", { name: "Edit", exact: true }).click();
-      await page.waitForTimeout(1400);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await composer(page).waitFor({ timeout: 15000 });
+      await page.waitForTimeout(700);
+      await composer(page).getByRole("button", { name: /people ·/ }).click();
+      await page.waitForTimeout(800);
       const editForm = (await sheet(page).innerText()).replace(/\s+/g, " ");
       ok("2c. the edit form shows your own share", /You\b/.test(editForm) && !/You\s+Exact\s+₹0\b/.test(editForm),
         (editForm.match(/Split breakdown.{0,90}/) ?? [""])[0]);
-      await sheet(page).getByRole("button", { name: /^Save|^Update/ }).first().click();
-      await page.waitForTimeout(3200);
+      await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
+      await page.waitForTimeout(400);
+      await swipe(page);
+      await page.waitForTimeout(1500);
 
       const after = await waitFor(async () => {
         const t = await prisma.transaction.findUnique({ where: { id: before.tx.id }, include: { splits: { include: { participant: true } } } });
@@ -445,12 +452,13 @@ async function main() {
 
       // It must read back correctly in the edit form's group picker.
       await openDetail(page, gm);
-      await sheet(page).getByRole("button", { name: "Edit", exact: true }).click();
-      await page.waitForTimeout(1400);
-      const selected = await sheet(page).locator("select").nth(1).evaluate((e) => (e as HTMLSelectElement).selectedOptions[0]?.textContent ?? "");
-      ok("6g. the edit form shows that category as the current one", selected.includes(pick.name), `"${selected.trim()}"`);
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(400);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await composer(page).waitFor({ timeout: 15000 });
+      await page.waitForTimeout(700);
+      const selected = await composer(page).getByRole("button", { name: /^Category:|^Choose a category$/ }).innerText();
+      ok("6g. the edit composer shows that category as the current one", selected.includes(pick.name), `"${selected.replace(/\s+/g, " ").trim()}"`);
+      await composer(page).getByRole("button", { name: "Cancel" }).click();
+      await page.waitForTimeout(500);
     }
 
     // Personal stays personal.

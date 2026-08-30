@@ -54,6 +54,37 @@ const editBtn = () => page.getByRole("button", { name: "Edit", exact: true });
 const cancelBtn = () => page.getByRole("button", { name: "Cancel", exact: true });
 const saveBtn = () => page.getByRole("button", { name: "Save changes", exact: true });
 const deleteBtn = () => page.getByRole("button", { name: "Delete", exact: true });
+
+// An owner's Debit/Credit edit opens the full-screen composer now; a TRANSFER
+// edit still opens the classic form, so the helpers below are used only where
+// the type is an expense or an income. The composer has no text input for the
+// amount by design - it is a keypad - so an amount is cleared and tapped in.
+const composer = () => page.locator("div[data-composer]");
+const KEY_ARIA = { ".": "Decimal point", "00": "Double zero" };
+async function typeComposerAmount(rupees) {
+  await composer().waitFor({ timeout: 15000 });
+  await composer().getByRole("button", { name: "Clear amount" }).click();
+  await page.waitForTimeout(80);
+  for (const ch of String(rupees)) {
+    await composer().getByRole("button", { name: KEY_ARIA[ch] ?? ch, exact: true }).click();
+    await page.waitForTimeout(60);
+  }
+}
+/** Drag the confirm handle the whole way, which is how the composer saves. */
+async function composerSave() {
+  const track = composer().locator("div[role='slider']");
+  const box = await track.boundingBox();
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(900);
+}
 const undoBtn = () => page.getByRole("button", { name: "Undo", exact: true });
 
 /**
@@ -148,8 +179,7 @@ try {
 
   // ── edit: change amount, cancel without saving ──
   await editBtn().click();
-  await page.waitForSelector('input[placeholder="0"]');
-  await page.fill('input[placeholder="0"]', "999");
+  await typeComposerAmount("999");
   await cancelBtn().click();
   await editBtn().waitFor({ timeout: 5000 }); // back in read-only mode (Edit button visible again)
   // scoped to the modal panel, not the whole page — the transaction list
@@ -166,9 +196,8 @@ try {
   // ── edit: actually change amount, save ──
   await openRow("E2ETxDetailExpense");
   await editBtn().click();
-  await page.waitForSelector('input[placeholder="0"]');
-  await page.fill('input[placeholder="0"]', "750");
-  await saveBtn().click();
+  await typeComposerAmount("750");
+  await composerSave();
   await page.waitForSelector("text=Transaction updated", { timeout: 8000 });
   await page.waitForTimeout(500);
 
@@ -223,23 +252,27 @@ try {
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
   await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
   await page.getByRole("button", { name: /Add income/i }).filter({ visible: true }).first().click();
-  // The income form keeps its source field behind a "More details" disclosure,
-  // so the input exists but is not visible until that is opened.
-  const source = page.locator('input[placeholder="e.g. Salary · Acme Corp"]');
-  if (!(await source.isVisible())) await page.locator("summary", { hasText: "More details" }).first().click();
-  await source.waitFor();
-  await page.fill('input[placeholder="0"]', "2000");
-  await page.fill('input[placeholder="e.g. Salary · Acme Corp"]', "E2ETxDetailIncome");
-  await page.getByRole("button", { name: "Add income", exact: true }).click();
-  await page.waitForSelector("text=Income added");
+  // The FAB opens the composer, which starts on Debit - Credit is one tap, the
+  // amount is the keypad, and the description lives behind the merchant line.
+  await composer().waitFor({ timeout: 15000 });
+  await composer().getByRole("button", { name: /Credit/ }).click();
+  await page.waitForTimeout(400);
+  await typeComposerAmount("2000");
+  await composer().getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(500);
+  await page.getByRole("dialog").last().locator("input").first().fill("E2ETxDetailIncome");
+  await page.getByRole("dialog").last().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
+  await composerSave();
+  await page.waitForSelector("text=Credit added, text=Income added", { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(900);
   await page.waitForTimeout(500);
   const afterAddInc = await accountBalance("HDFC Savings");
 
   await openRow("E2ETxDetailIncome");
   await editBtn().click();
-  await page.waitForSelector('input[placeholder="0"]');
-  await page.fill('input[placeholder="0"]', "3000");
-  await saveBtn().click();
+  await typeComposerAmount("3000");
+  await composerSave();
   await page.waitForSelector("text=Transaction updated");
   await page.waitForTimeout(500);
   const afterEditInc = await accountBalance("HDFC Savings");
@@ -321,14 +354,24 @@ try {
   ok("split expense detail shows the split breakdown", splitDetailBody.includes("Split") && splitDetailBody.includes("Karan"));
 
   await editBtn().click();
-  await page.getByRole("button", { name: "Exact amounts", exact: true }).click();
-  await page.waitForTimeout(200);
-  // exact input for Karan should be pre-filled from the original equal share (₹150)
-  const exactInput = page.locator('input[placeholder="0"]').last();
+  // The split lives behind the composer's group line, and the per-person
+  // inputs are the split sheet's own number fields.
+  await composer().waitFor({ timeout: 15000 });
+  await composer().getByRole("button", { name: /people ·/ }).click();
+  await page.waitForTimeout(700);
+  const splitSheet = page.getByRole("dialog").last();
+  await splitSheet.getByRole("button", { name: "Exact amounts", exact: true }).click();
+  await page.waitForTimeout(300);
+  // Karan's exact input is pre-filled from the original equal share (₹150).
+  const exactInput = splitSheet.locator("input[type='number']").last();
   const prefilled = await exactInput.inputValue();
   ok("switching an existing split to Exact mode pre-fills the current owed amount", Number(prefilled) === 150, `got "${prefilled}"`);
   await exactInput.fill("200");
-  await saveBtn().click();
+  await exactInput.blur();
+  await page.waitForTimeout(250);
+  await splitSheet.getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
+  await composerSave();
   await page.waitForSelector("text=Transaction updated");
   await page.waitForTimeout(500);
 

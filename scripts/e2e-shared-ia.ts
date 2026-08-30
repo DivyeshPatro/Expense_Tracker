@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { prisma } from "../src/server/db";
+import { saveComposer, typeAmount } from "./composer-drive";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3000";
 const S = randomUUID().slice(0, 6);
@@ -128,10 +129,12 @@ async function main() {
     ok("3b. the sheet offers view/edit/duplicate/delete, not per-row buttons", sheet.includes("Duplicate"));
     await page.screenshot({ path: path.join(SHOT, "ia-390-expense-sheet.png") });
 
+    // The owner's Debit edit opens the full-screen composer: the amount is a
+    // keypad and the save is a swipe. The point of the check is unchanged —
+    // a shared expense is editable straight from the group.
     await modal(page).getByRole("button", { name: "Edit", exact: true }).click();
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]', { timeout: 20000 });
-    await page.fill('input[placeholder="0"]', "600");
-    await modal(page).getByRole("button", { name: "Save changes", exact: true }).click();
+    await typeAmount(page, "600");
+    await saveComposer(page);
     await page.waitForSelector("text=Transaction updated", { timeout: 30000 });
     ok("3c. a shared expense is editable directly from the group", true);
 
