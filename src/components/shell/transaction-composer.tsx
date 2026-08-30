@@ -26,8 +26,16 @@ import { useOffline } from "./offline-context";
 import { BottomSheet } from "./bottom-sheet";
 import { MerchantInput } from "./merchant-input";
 import { DateField } from "./date-field";
-import { SplitEditor, buildSplitPayload, participantsForGroup, useSplitPreview, type SplitEditorState } from "./split-editor";
-import { addExpenseAction } from "@/app/actions";
+import {
+  SplitBreakdown,
+  SplitEditor,
+  buildSplitPayload,
+  participantsForGroup,
+  splitInputProblem,
+  useSplitPreview,
+  type SplitEditorState,
+} from "./split-editor";
+import { addExpenseAction, listGroupCategoriesAction } from "@/app/actions";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import { friendlyDay, todayYMD } from "@/lib/dates";
 import { amountToPaise } from "@/lib/expression";
@@ -60,8 +68,35 @@ export function TransactionComposer() {
   const [notes, setNotes] = useState("");
   const [merchant, setMerchant] = useState("");
   const [date, setDate] = useState(todayYMD());
-  const categories = kind === "INCOME" ? refData.incomeCategories : refData.expenseCategories;
   const [categoryId, setCategoryId] = useState(() => refData.expenseCategories[0]?.id ?? "");
+
+  // group-expenses-sprint §10: categories are namespaced — Category.userId for
+  // personal, Category.groupId for a group — and a group expense is labelled
+  // from the group's own list, never a member's personal one. The classic form
+  // has always done this through GroupCategorySelect; this reads the same
+  // action so there is one loader, not two.
+  //
+  // Group INCOME deliberately stays on the personal list: a group's namespace
+  // is EXPENSE-only (GROUP_DEFAULT_CATEGORIES), and a Credit filed against a
+  // group is a tag, exactly as it is in the classic income form.
+  const [groupCategories, setGroupCategories] = useState<{ id: string; name: string; icon: string }[]>([]);
+  const inGroupExpense = kind === "EXPENSE" && !!groupId;
+  useEffect(() => {
+    if (!inGroupExpense) {
+      setGroupCategories([]);
+      return;
+    }
+    let cancelled = false;
+    void listGroupCategoriesAction(groupId).then((cats) => {
+      if (cancelled) return;
+      setGroupCategories(cats.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name, icon: c.icon ?? "📦" })));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, inGroupExpense]);
+
+  const categories = kind === "INCOME" ? refData.incomeCategories : inGroupExpense ? groupCategories : refData.expenseCategories;
 
   // The classic form's split state, unchanged in shape, so SplitEditor and
   // buildSplitPayload work here exactly as they do there. Nothing about how a
@@ -94,8 +129,11 @@ export function TransactionComposer() {
   // stored, because both go through computeShares.
   const preview = useSplitPreview(paise, splitState, selectedIds);
 
-  // Switching type swaps the category list, so a selection from the other list
-  // would be silently invalid. Land on the new list's first entry instead.
+  // Switching type — or moving between Personal and a group — swaps the
+  // category list, so a selection from the other one would be silently invalid:
+  // a personal category on a group expense classifies it in a namespace the
+  // group cannot see, and the group's own page then reports spending under a
+  // category none of its members have. Land on the new list's first entry.
   useEffect(() => {
     if (!categories.some((c) => c.id === categoryId)) setCategoryId(categories[0]?.id ?? "");
   }, [categories, categoryId]);
@@ -136,6 +174,11 @@ export function TransactionComposer() {
       // the shares do not add up, saving would store a split that does not.
       if (preview?.error) return preview.error;
       if (preview && !preview.balances) return "The shares don't add up to the amount yet";
+      // The preview is content with a zero weight and the schema is not, so
+      // this is the one rule it cannot answer for. Said here rather than as a
+      // server rejection nobody can act on.
+      const inputProblem = splitInputProblem(splitState, selectedIds);
+      if (inputProblem) return inputProblem;
     }
     return null;
   }
@@ -612,6 +655,18 @@ function PickerSheet({
               picker (Equal / Percentage / Custom / Ratio), per-person inputs,
               Paid by, and the breakdown — all of it, unmodified. */}
           <SplitEditor state={splitState} participants={participants} amountPaise={amountPaise} />
+          {/* What those controls actually produce, from the SAME preview the
+              swipe is gated on and the writer stores — never a second sum.
+              Without it the composer was the one create surface where a share
+              could be wrong and nothing on screen would say so: the classic
+              form has shown this table since a ₹2,530 dinner saved ₹843.33
+              against somebody with no figure anywhere on the page. */}
+          {splitState.split && (
+            <SplitBreakdown
+              preview={preview}
+              names={participants.filter((p) => splitState.parts[p.id]).map((p) => ({ id: p.id, name: p.name }))}
+            />
+          )}
           {preview && !preview.balances && !preview.error && (
             <div role="alert" className="text-[12px] font-semibold px-3 py-2 rounded-lg" style={{ background: "var(--redSoft)", color: "var(--red)" }}>
               These shares don&apos;t add up to the amount yet.

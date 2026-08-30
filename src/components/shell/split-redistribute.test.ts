@@ -184,3 +184,75 @@ describe("redistributing when one share is edited", () => {
     expect(p.rows.find((r) => r.participantId === A)!.isPayer).toBe(true);
   });
 });
+
+// ── entering a distribution field by field ────────────────────────────────
+//
+// Redistribution across EVERY other field made sequential entry impossible:
+// each number quietly rewrote the ones before it, so 40 / 30 / 20 / 10 typed
+// in that order landed on 36.81 / 31.52 / 21.67 / 10 — three of the reader's
+// four numbers replaced without a word.
+//
+// `touched` is the fix and it is UI-only: fields the reader has set are left
+// alone, and only the ones nobody has claimed absorb the difference.
+describe("percentages entered one at a time", () => {
+  const ids = [A, B, C];
+  const start = { me: "25", [A]: "25", [B]: "25", [C]: "25" };
+
+  it("40 / 30 / 20 typed in order arrives at 40 / 30 / 20 / 10", () => {
+    const touched = new Set<string>();
+    let weights: Record<string, string> = { ...start };
+    const enter = (key: string, value: string) => {
+      const st = state({ mode: "PERCENT", weights });
+      weights = { ...redistributeOnEdit(rup(1000), st, ids, key, value, touched)!.weights! };
+      touched.add(key);
+    };
+
+    enter("me", "40");
+    expect(weights).toEqual({ me: "40", [A]: "20", [B]: "20", [C]: "20" });
+    enter(A, "30");
+    expect(weights).toEqual({ me: "40", [A]: "30", [B]: "15", [C]: "15" });
+    enter(B, "20");
+    expect(weights).toEqual({ me: "40", [A]: "30", [B]: "20", [C]: "10" });
+    // The one nobody claimed took the balance, and it comes to 100.
+    expect(["me", A, B, C].reduce((t, k) => t + Number(weights[k]), 0)).toBe(100);
+  });
+
+  it("a claimed field is never rewritten to make room", () => {
+    const touched = new Set([A]);
+    const st = state({ mode: "PERCENT", weights: { me: "25", [A]: "40", [B]: "20", [C]: "15" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, "me", "50", touched)!.weights!;
+    expect(out[A]).toBe("40"); // untouched by the redistribution, because it was touched by the reader
+    expect(Number(out[B]) + Number(out[C])).toBeCloseTo(10, 2);
+  });
+
+  it("when everyone is spoken for, nothing moves and the total is allowed to overshoot", () => {
+    // 60 / 30 / 20 in the audit's example. Silently fixing one of these would
+    // be changing a number the reader deliberately entered.
+    const touched = new Set(["me", A, B, C]);
+    const st = state({ mode: "PERCENT", weights: { me: "25", [A]: "30", [B]: "20", [C]: "25" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, "me", "60", touched)!.weights!;
+    expect(out).toEqual({ me: "60", [A]: "30", [B]: "20", [C]: "25" });
+    // splitInputProblem is what tells the reader; see split-member-add.test.ts.
+    expect(["me", A, B, C].reduce((t, k) => t + Number(out[k]), 0)).toBeGreaterThan(100);
+  });
+
+  it("an over-allocation leaves the free fields alone rather than going negative", () => {
+    const touched = new Set([A]);
+    const st = state({ mode: "PERCENT", weights: { me: "25", [A]: "90", [B]: "20", [C]: "15" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, "me", "50", touched)!.weights!;
+    expect(out.me).toBe("50");
+    expect(out[A]).toBe("90");
+    expect(Number(out[B])).toBeGreaterThanOrEqual(0);
+    expect(Number(out[C])).toBeGreaterThanOrEqual(0);
+  });
+
+  it("no touched fields is the original behaviour, unchanged", () => {
+    const st = state({ mode: "PERCENT", weights: start });
+    const withOut = redistributeOnEdit(rup(1000), st, ids, A, "50")!.weights!;
+    const withEmpty = redistributeOnEdit(rup(1000), st, ids, A, "50", new Set())!.weights!;
+    expect(withOut).toEqual(withEmpty);
+    // The rounding drift lands on the largest share, which is why "me" carries
+    // the extra two hundredths rather than it being lost.
+    expect(withOut).toEqual({ me: "16.68", [A]: "50", [B]: "16.66", [C]: "16.66" });
+  });
+});

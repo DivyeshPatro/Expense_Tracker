@@ -685,12 +685,19 @@ function CollaborativeEditForm({ detail, onCancel }: { detail: TransactionDetail
     // PERCENT/RATIO weights can't be losslessly rebuilt from owedAmount alone
     // — same EXACT fallback EditExpenseForm uses when reopening one of these
     const mode: "EQUAL" | "EXACT" = detail.splits[0]?.method === "EQUAL" ? "EQUAL" : "EXACT";
+    // The owner's own row travels as "me", the key computeShares reads when a
+    // friend paid. participantIds stays friends-only — the owner has no
+    // participant row — but omitting their AMOUNT re-sent the split as though
+    // they had taken no part in it, and handed their share to the payer.
+    const owner = detail.splits.find((s) => !s.participantId);
     return {
       mode,
       participantIds: friends.map((s) => s.participantId as string),
       payerParticipantId: detail.paidByParticipantId,
       exactAmounts:
-        mode === "EXACT" ? Object.fromEntries(friends.map((s) => [s.participantId as string, s.owedAmount])) : undefined,
+        mode === "EXACT"
+          ? { me: owner?.owedAmount ?? 0, ...Object.fromEntries(friends.map((s) => [s.participantId as string, s.owedAmount])) }
+          : undefined,
     };
   }
 
@@ -899,8 +906,16 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
   const [parts, setParts] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(detail.splits.filter((s) => s.participantId).map((s) => [s.participantId as string, true]))
   );
+  // The OWNER's stored row is hydrated too, under "me".
+  //
+  // Filtering it out was a quiet way to lose money. computeShares reads that
+  // key when a friend paid, so reopening a friend-paid split and pressing Save
+  // without touching anything sent no owner share at all: a ₹1,200 bill stored
+  // as You ₹300 / Karan ₹300 / Priya ₹200 / Rohan ₹400 came back as You ₹0 and
+  // Rohan ₹700 — the payer charged for a share that was never theirs. Every
+  // row the transaction has is now read back, exactly as it was written.
   const [exact, setExact] = useState<Record<string, string>>(() =>
-    Object.fromEntries(detail.splits.filter((s) => s.participantId).map((s) => [s.participantId as string, String(s.owedAmount / 100)]))
+    Object.fromEntries(detail.splits.map((s) => [s.participantId ?? "me", String(s.owedAmount / 100)]))
   );
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [payerId, setPayerId] = useState<string | null>(detail.paidByParticipantId);
@@ -974,7 +989,12 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
         <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
       </Field>
 
-      <SplitEditor state={splitState} participants={pickerParticipants} />
+      {/* The amount is what lets the editor show the owner's own share and
+          carry a distribution between modes. Without it the "You" row is not
+          rendered at all, so a friend-paid exact split could be edited by
+          someone who could not see — let alone correct — what they themselves
+          were down for. */}
+      <SplitEditor state={splitState} participants={pickerParticipants} amountPaise={amtPaise} />
 
       {/* Same rule as the create form: the controls may sit wherever they fit,
           the resulting shares are always on screen. Editing a split is exactly

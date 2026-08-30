@@ -119,6 +119,19 @@ export function SplitEditor({
   const weighted = mode === "PERCENT" || mode === "RATIO";
   const payer = effectivePayer(payerId, selectedIds);
 
+  // Which fields the reader has set themselves, so redistribution can leave
+  // those alone and move only the ones nobody has claimed. Interaction state
+  // and nothing more: it is never submitted, never stored, and dies with this
+  // component — closing the sheet, or opening a different transaction, starts
+  // a reader with a clean slate rather than one inherited from another split.
+  const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set());
+  const claim = (key: string) => setTouched((t) => new Set(t).add(key));
+  // A mode change re-expresses every number in different units, so which of
+  // them a reader had chosen no longer means anything.
+  const resetTouched = () => setTouched(new Set());
+
+  const problem = splitInputProblem(state, selectedIds);
+
   // group-expenses-sprint: removing the last remaining participant would
   // leave a "split" with nobody to split with (the server requires at least
   // one — splitSchema's participantIds.min(1)) — block it here instead of
@@ -128,11 +141,46 @@ export function SplitEditor({
     if (turningOff && selected.length <= 1) return;
     setParts((s) => ({ ...s, [id]: !turningOff }));
     if (turningOff && payerId === id) setPayerId(null); // the removed person can't stay the payer
+    // Who is in the split changes what a share MEANS, so nobody's number is
+    // spoken for any more — the seeding below rebalances everyone, and holding
+    // stale claims against a distribution that just moved would leave a split
+    // that cannot add up.
+    resetTouched();
+    if (turningOff) return;
+    // Joining: give them a real share rather than a blank the server refuses.
+    const seed = seedForNewMember(amountPaise, state, [...selectedIds, id], id);
+    if (seed?.exact) setExact(() => seed.exact!);
+    if (seed?.weights) setWeights(() => seed.weights!);
+  }
+
+  /** Who paid changes what the engine derives, so the distribution on screen is
+   *  written down before the switch and read back after it.
+   *
+   *  EXACT is the mode that needs it. The owner's share is DERIVED when they
+   *  paid and STATED when a friend did, so moving between the two without
+   *  recording it first left the "me" key at nothing — and the engine duly gave
+   *  the owner ₹0 and handed their share to whoever was now named as payer.
+   *  Seeding from the current preview is the same call a mode switch makes, so
+   *  no second version of the arithmetic exists. */
+  function changePayer(next: string | null) {
+    if (mode === "EXACT" && amountPaise !== undefined && amountPaise > 0) {
+      const snapshot = seedForMode(amountPaise, state, selectedIds, "EXACT");
+      if (snapshot?.exact) setExact(() => snapshot.exact!);
+    }
+    setPayerId(next);
   }
 
   return (
     <div className="border-t border-line pt-3">
-      <button onClick={() => setSplit(!split)} role="switch" aria-checked={split} className="flex items-center justify-between cursor-pointer w-full bg-transparent border-none p-0">
+      <button
+        onClick={() => {
+          if (split) resetTouched(); // turning it off discards the numbers with it
+          setSplit(!split);
+        }}
+        role="switch"
+        aria-checked={split}
+        className="flex items-center justify-between cursor-pointer w-full bg-transparent border-none p-0"
+      >
         <span className="text-[13px] font-bold text-ink">👥 Split with friends</span>
         <Toggle on={split} />
       </button>
@@ -141,7 +189,7 @@ export function SplitEditor({
           {selected.length > 0 && (
             <div>
               <div className="label-caps mb-1.5">Paid by</div>
-              <select className="field" aria-label="Paid by" value={payer ?? ""} onChange={(e) => setPayerId(e.target.value || null)}>
+              <select className="field" aria-label="Paid by" value={payer ?? ""} onChange={(e) => changePayer(e.target.value || null)}>
                 <option value="">Me</option>
                 {selected.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
@@ -231,6 +279,7 @@ export function SplitEditor({
                   const seed = amountPaise === undefined ? null : seedForMode(amountPaise, state, selectedIds, m);
                   if (seed?.exact) setExact(() => seed.exact!);
                   if (seed?.weights) setWeights(() => seed.weights!);
+                  resetTouched();
                   setMode(m);
                 }}
                 className="px-[13px] py-1.5 rounded-lg text-xs font-semibold cursor-pointer border-none"
@@ -321,8 +370,9 @@ export function SplitEditor({
                   value={weights.me ?? ""}
                   onChange={(e) => setWeights((s) => ({ ...s, me: e.target.value }))}
                   onBlur={(e) => {
+                    claim("me");
                     if (amountPaise === undefined) return;
-                    const next = redistributeOnEdit(amountPaise, state, selectedIds, "me", e.target.value);
+                    const next = redistributeOnEdit(amountPaise, state, selectedIds, "me", e.target.value, touched);
                     if (next?.weights) setWeights(() => next.weights!);
                   }}
                   placeholder={mode === "PERCENT" ? "%" : "parts"}
@@ -338,8 +388,9 @@ export function SplitEditor({
                     value={weights[p.id] ?? ""}
                     onChange={(e) => setWeights((s) => ({ ...s, [p.id]: e.target.value }))}
                     onBlur={(e) => {
+                      claim(p.id);
                       if (amountPaise === undefined) return;
-                      const next = redistributeOnEdit(amountPaise, state, selectedIds, p.id, e.target.value);
+                      const next = redistributeOnEdit(amountPaise, state, selectedIds, p.id, e.target.value, touched);
                       if (next?.weights) setWeights(() => next.weights!);
                     }}
                     placeholder={mode === "PERCENT" ? "%" : "parts"}
@@ -347,6 +398,14 @@ export function SplitEditor({
                   />
                 </div>
               ))}
+            </div>
+          )}
+          {/* Said here, before the save, rather than by the server afterwards.
+              The preview is content with a zero weight — the shares still total
+              the amount — so nothing else on this screen would object. */}
+          {problem && (
+            <div role="alert" className="text-[12px] font-semibold px-3 py-2 rounded-lg" style={{ background: "var(--redSoft)", color: "var(--red)" }}>
+              {problem}
             </div>
           )}
         </div>
@@ -466,9 +525,14 @@ export function seedForMode(
   const owed = new Map(preview.rows.map((r) => [r.participantId ?? "me", r.owedAmount]));
 
   if (next === "EXACT") {
-    // EXACT carries friends only — computeShares derives the owner's share and
-    // hands the remainder to the payer. Seeding "me" here would double-count.
-    const exact: Record<string, string> = {};
+    // "me" is seeded alongside the friends, from the same preview row.
+    //
+    // It is only CONSUMED when a friend paid — when the owner pays, splitExact
+    // derives their share as the balance and ignores this key — but writing it
+    // either way is what lets the distribution survive a change of payer.
+    // Leaving it out was how a stated ₹300 share silently became ₹0, and the
+    // payer was charged for it, the moment somebody else was named as payer.
+    const exact: Record<string, string> = { me: clean((owed.get("me") ?? 0) / 100) };
     for (const id of selectedIds) exact[id] = clean((owed.get(id) ?? 0) / 100);
     return { exact };
   }
@@ -482,12 +546,35 @@ export function seedForMode(
     return { weights };
   }
 
-  // RATIO: reduce the paise by their common divisor so 250/250/500 reads
-  // 1/1/2 rather than 250/250/500, and never as 1.0000001.
-  const divisor = amounts.reduce((a, b) => gcd(a, b), 0) || 1;
+  // RATIO: the smallest whole-number ratio that still describes this split.
+  //
+  // Reducing the PAISE by their common divisor only works when the shares
+  // happen to share one. ₹1,000 three ways is 33333 / 33334 / 33333 — the odd
+  // paise the payer absorbs makes those coprime — so the reduction did nothing
+  // and the boxes read "33333 parts". Measured: adding a member to that split
+  // stored ₹0.11 / ₹749.81 / ₹250.00 / ₹0.08 for a bill everyone meant to share.
+  //
+  // So the denominator is searched for instead of derived: the first one that
+  // reproduces every share to within a rupee wins. ₹1,000 three ways becomes
+  // 1 / 1 / 1, 500/300/200 stays 5 / 3 / 2, and the engine re-derives the
+  // exact paise from whichever ratio comes back, as it does for any weights.
   const weights: Record<string, string> = {};
-  keys.forEach((k, i) => { weights[k] = String(Math.round(amounts[i] / divisor)); });
-  return { weights };
+  const settle = (parts: number[]) => {
+    keys.forEach((k, i) => { weights[k] = String(parts[i]); });
+    return { weights };
+  };
+  for (let d = 1; d <= 200; d++) {
+    const parts = amounts.map((a) => Math.round((a * d) / amountPaise));
+    const sum = parts.reduce((x, y) => x + y, 0);
+    if (sum <= 0) continue;
+    // Nobody with a real share may round down to no parts at all.
+    if (amounts.some((a, i) => a > 0 && parts[i] === 0)) continue;
+    const worst = Math.max(...amounts.map((a, i) => Math.abs((amountPaise * parts[i]) / sum - a)));
+    if (worst <= 100) return settle(parts);
+  }
+  // Nothing small describes it — fall back to the exact paise, reduced.
+  const divisor = amounts.reduce((a, b) => gcd(a, b), 0) || 1;
+  return settle(amounts.map((a) => Math.round(a / divisor)));
 }
 
 /**
@@ -531,13 +618,27 @@ function spread(keys: string[], current: number[], target: number): number[] {
  *   • RATIO — weights are relative by definition. Changing 1/1/2 to 2/1/2 is
  *     already meaningful and the engine still totals exactly, so touching the
  *     other numbers would be the surprising thing. Left alone deliberately.
+ *
+ * `touched` names the fields the reader has set THEMSELVES this session. Only
+ * the ones they have not are asked to absorb the difference, so entering a
+ * distribution field by field arrives where it was aimed: 40 / 30 / 20 / 10
+ * typed in that order stays 40 / 30 / 20 / 10, instead of each entry quietly
+ * rewriting the ones before it (measured: it landed on 36.81 / 31.52 / 21.67 /
+ * 10). When every other field is spoken for, nothing is rewritten and the
+ * total is allowed to exceed 100 — splitInputProblem() says so out loud rather
+ * than one of the reader's own numbers being changed to hide it.
+ *
+ * An empty `touched` is the original behaviour: everyone else absorbs.
  */
+const NOTHING_TOUCHED: ReadonlySet<string> = new Set<string>();
+
 export function redistributeOnEdit(
   amountPaise: number,
   state: SplitEditorState,
   selectedIds: string[],
   editedKey: string,
-  rawValue: string
+  rawValue: string,
+  touched: ReadonlySet<string> = NOTHING_TOUCHED
 ): { exact?: Record<string, string>; weights?: Record<string, string> } | null {
   if (state.mode === "EQUAL" || state.mode === "RATIO") return null;
   if (selectedIds.length === 0) return null;
@@ -557,7 +658,9 @@ export function redistributeOnEdit(
     if (editedKey === "me") {
       const target = Math.max(0, amountPaise - editedPaise);
       const parts = spread(selectedIds, selectedIds.map((id) => toPaise(state.exact[id])), target);
-      const exact: Record<string, string> = { ...state.exact };
+      // Written down as well as scaled into: when a friend pays it is this key
+      // the engine reads, and the two representations must not disagree.
+      const exact: Record<string, string> = { ...state.exact, me: clean(edited) };
       selectedIds.forEach((id, i) => { exact[id] = String(Number((parts[i] / 100).toFixed(2))); });
       return { exact };
     }
@@ -578,11 +681,103 @@ export function redistributeOnEdit(
   const keys = ["me", ...selectedIds];
   const others = keys.filter((k) => k !== editedKey);
   // Hundredths of a percent, so 33.33 stays 33.33 rather than 33.329999.
+  const bp = (k: string) => Math.round((Number(state.weights[k]) || 0) * 100);
   const editedBp = Math.round(Math.min(edited, 100) * 100);
-  const parts = spread(others, others.map((k) => Math.round((Number(state.weights[k]) || 0) * 100)), 10000 - editedBp);
   const weights: Record<string, string> = { ...state.weights, [editedKey]: rawValue };
-  others.forEach((k, i) => { weights[k] = String(Number((parts[i] / 100).toFixed(2))); });
+
+  const free = others.filter((k) => !touched.has(k));
+  const spokenFor = others.filter((k) => touched.has(k)).reduce((t, k) => t + bp(k), 0);
+  const pool = 10000 - editedBp - spokenFor;
+  // Nothing left to absorb it, or nobody free to: leave every other number as
+  // the reader left it. splitInputProblem() reports the overflow.
+  if (free.length === 0 || pool < 0) return { weights };
+
+  const parts = spread(free, free.map(bp), pool);
+  free.forEach((k, i) => { weights[k] = String(Number((parts[i] / 100).toFixed(2))); });
   return { weights };
+}
+
+/**
+ * What a member joining an existing split starts on.
+ *
+ * An added member used to start blank, which `buildSplitPayload` turned into a
+ * weight of 0 — and `splitSchema` refuses that, so the reader reached a split
+ * that looked finished, showed no complaint, and was rejected by the server on
+ * save with "Number must be greater than 0". Nothing on screen said which
+ * person it meant.
+ *
+ * The rule is one rule in three units: the newcomer takes an EQUAL share of
+ * what is currently being divided, and the existing redistribution puts the
+ * rest back in proportion.
+ *
+ *   • PERCENT — 100 ÷ heads, everyone else scaled into what is left.
+ *   • RATIO   — the mean of the current weights, so relative standing between
+ *               the people already there is untouched. Whole numbers, minimum
+ *               one part: a ratio of zero is not a share.
+ *   • EXACT   — the amount ÷ heads, taken from the other FRIENDS, which is the
+ *               same rule editing any other exact field already follows and
+ *               leaves the owner's share where it was.
+ *
+ * No new arithmetic: PERCENT and EXACT hand off to redistributeOnEdit, and
+ * every stored share still comes from the engine.
+ */
+export function seedForNewMember(
+  amountPaise: number | undefined,
+  state: SplitEditorState,
+  selectedIds: string[],
+  newId: string
+): { exact?: Record<string, string>; weights?: Record<string, string> } | null {
+  if (state.mode === "EQUAL" || !selectedIds.includes(newId)) return null;
+  const heads = selectedIds.length + 1; // the friends, plus the owner
+
+  if (state.mode === "RATIO") {
+    const current = ["me", ...selectedIds.filter((id) => id !== newId)].map((k) => Number(state.weights[k]) || 0);
+    const sum = current.reduce((a, b) => a + b, 0);
+    const share = current.length > 0 && sum > 0 ? Math.max(1, Math.round(sum / current.length)) : 1;
+    return { weights: { ...state.weights, [newId]: String(share) } };
+  }
+
+  if (state.mode === "PERCENT") {
+    const share = clean(100 / heads);
+    // A fresh redistribution: joining changes what everyone gets, so this is
+    // the one edit that is allowed to move numbers the reader typed.
+    return redistributeOnEdit(amountPaise ?? 0, state, selectedIds, newId, share) ?? { weights: { ...state.weights, [newId]: share } };
+  }
+
+  if (amountPaise === undefined || amountPaise <= 0) return null;
+  const share = clean(amountPaise / heads / 100);
+  return redistributeOnEdit(amountPaise, state, selectedIds, newId, share) ?? { exact: { ...state.exact, [newId]: share } };
+}
+
+/**
+ * The reason this split cannot be saved yet, in the reader's words.
+ *
+ * `computeSplitPreview` is about arithmetic and answers happily here: a
+ * participant weighted 0 simply gets ₹0 and the shares still total the amount,
+ * so `balances` is true and `error` is null. The server disagrees —
+ * `splitSchema.weights` is `positive()` — and the gap between those two is a
+ * screen that looks finished and a save that fails.
+ *
+ * This closes that gap without moving where the rules live: the schema is
+ * still the authority, and this only says the same thing early, by name.
+ */
+export function splitInputProblem(state: SplitEditorState, selectedIds: string[]): string | null {
+  if (!state.split || selectedIds.length === 0) return null;
+  if (state.mode !== "PERCENT" && state.mode !== "RATIO") return null;
+
+  const keys = ["me", ...selectedIds];
+  if (keys.some((k) => !(Number(state.weights[k]) > 0))) {
+    return state.mode === "PERCENT"
+      ? "Everyone in the split needs a percentage above 0."
+      : "Everyone in the split needs at least one part.";
+  }
+  if (state.mode === "PERCENT") {
+    const total = keys.reduce((t, k) => t + (Number(state.weights[k]) || 0), 0);
+    // A hundredth of a percent of slack: the redistribution works in basis
+    // points and 33.33 × 3 is allowed to be 99.99.
+    if (total > 100.005) return `These add up to ${clean(total)}% — that is ${clean(total - 100)}% too much.`;
+  }
+  return null;
 }
 
 export function buildSplitPayload(state: SplitEditorState, selectedIds: string[]) {

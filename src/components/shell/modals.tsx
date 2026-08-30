@@ -508,7 +508,11 @@ function ExpenseForm({ prefill }: { prefill?: ModalPrefill }) {
           </Field>
         )}
 
-        <SplitEditor state={splitState} participants={pickerParticipants} />
+        {/* Same reason the edit form passes it: without the amount the editor
+            cannot render the owner's own share, so an exact split a friend paid
+            had no way to state what the person filling the form was down for —
+            and the engine, reading nothing, gave them nothing. */}
+        <SplitEditor state={splitState} participants={pickerParticipants} amountPaise={amtPaise} />
 
         {/* A rule's template carries neither splits nor a group, so repeating is
             offered only for a plain personal expense rather than silently
