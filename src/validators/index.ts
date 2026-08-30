@@ -65,6 +65,8 @@ export const splitSchema = z.object({
   mode: z.enum(["EQUAL", "EXACT", "PERCENT", "RATIO"]),
   participantIds: z.array(z.string().min(1)).min(1, "Pick at least one friend to split with"),
   payerParticipantId: z.string().nullable(),
+  // Keyed by participantId, plus "me" for the owner's own stated share, which
+  // is read only when a friend paid (the owner's share is derived otherwise).
   exactAmounts: z.record(z.string(), z.number().int().nonnegative()).optional(),
   // Keyed by participantId, plus "me" for the owner's own weight — used by PERCENT/RATIO.
   weights: z.record(z.string(), z.number().positive()).optional(),

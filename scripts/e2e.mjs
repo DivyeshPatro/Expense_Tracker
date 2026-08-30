@@ -53,7 +53,11 @@ try {
   ok("en-IN formatting", /₹\d,\d{2},\d{3}/.test(body));
   await page.screenshot({ path: `${SHOT}/01-dashboard.png`, fullPage: true });
 
-  // ── add expense (≤3 interactions: amount → submit; category/account default) ──
+  // ── add expense ──
+  // The desktop header button deliberately still opens the CLASSIC form: it is
+  // the entry point for splits, paid-by, the date picker and the offline flows,
+  // none of which the composer carries. The composer is the FAB's "+ Add", and
+  // is driven from the mobile section below.
   await page.click("text=＋ Add expense");
   await page.waitForSelector("text=AMOUNT (₹)");
   await page.fill('input[placeholder="0"]', "123");
@@ -167,8 +171,8 @@ try {
   // dashboard's chooser never offered "Split with friends" — that is /shared.
   await mobile.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
   await mobile.getByRole("button", { name: /Add expense/i }).filter({ visible: true }).first().click();
-  await mobile.waitForSelector("text=AMOUNT (₹)");
-  ok("FAB quick-add opens bottom-sheet modal on mobile", true);
+  await mobile.locator("div[data-composer]").waitFor({ timeout: 15000 });
+  ok("FAB quick-add opens the full-screen composer on mobile", true);
   await mobile.screenshot({ path: `${SHOT}/06-mobile.png`, fullPage: false });
   await mobile.close();
 } catch (e) {

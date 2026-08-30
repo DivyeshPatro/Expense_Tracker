@@ -218,3 +218,95 @@ describe("computeSplitPreview", () => {
     expect(asEqual.total).toBe(rup(2530));
   });
 });
+
+// ── The owner is a participant whoever paid ─────────────────────────────────
+//
+// EXACT used to drop the owner entirely when a friend paid. ₹1,000 between the
+// owner, Karan and Priya, paid by Karan, stored `priya=333.33, karan=666.67`
+// and no owner row at all — so the owner consumed nothing of an expense they
+// shared, and Karan carried a share he never agreed to. Group balances were
+// wrong by the owner's share.
+//
+// EQUAL, PERCENT and RATIO all included the owner in that case; EXACT was the
+// only mode that did not, which is what marked it as a bug rather than a rule.
+describe("EXACT keeps the owner in the split when a friend pays", () => {
+  const K = "karan", P = "priya";
+  const ids = [K, P];
+
+  it("the owner gets the share they stated", () => {
+    const rows = computeShares(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: K,
+      exactAmounts: { me: rup(333.33), [K]: rup(333.33), [P]: rup(333.33) },
+    });
+    const owner = rows.find((r) => r.participantId === null);
+    expect(owner).toBeDefined();
+    expect(owner!.owedAmount).toBe(rup(333.33));
+    // Karan paid, so Karan still absorbs whatever is left.
+    expect(rows.find((r) => r.participantId === K)!.owedAmount).toBe(rup(1000) - rup(333.33) - rup(333.33));
+    expect(rows.reduce((t, r) => t + r.owedAmount, 0)).toBe(rup(1000));
+  });
+
+  it("every mode now agrees about who is in the split", () => {
+    const each = { me: 1, [K]: 1, [P]: 1 };
+    for (const mode of ["EQUAL", "PERCENT", "RATIO", "EXACT"] as const) {
+      const rows = computeShares(rup(999), {
+        mode, participantIds: ids, payerParticipantId: K,
+        weights: each,
+        exactAmounts: { me: rup(333), [K]: rup(333), [P]: rup(333) },
+      });
+      expect({ mode, hasOwner: rows.some((r) => r.participantId === null) }).toEqual({ mode, hasOwner: true });
+      expect({ mode, total: rows.reduce((t, r) => t + r.owedAmount, 0) }).toEqual({ mode, total: rup(999) });
+    }
+  });
+
+  it("the owner paying still derives their share rather than stating it", () => {
+    // Unchanged behaviour: no "me" is consumed, the owner takes the remainder.
+    const rows = computeShares(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: null,
+      exactAmounts: { me: rup(999), [K]: rup(300), [P]: rup(300) },
+    });
+    expect(rows.find((r) => r.participantId === null)!.owedAmount).toBe(rup(400));
+    expect(rows.reduce((t, r) => t + r.owedAmount, 0)).toBe(rup(1000));
+  });
+
+  it("an absent owner key means an owner share of zero, not an absent owner", () => {
+    // Old payloads carry no "me". The owner is still listed, at zero, so the
+    // expense says plainly that they took no share of it.
+    const rows = computeShares(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: K,
+      exactAmounts: { [K]: rup(300), [P]: rup(300) },
+    });
+    expect(rows.find((r) => r.participantId === null)!.owedAmount).toBe(0);
+    expect(rows.reduce((t, r) => t + r.owedAmount, 0)).toBe(rup(1000));
+  });
+});
+
+// The payer × mode matrix. The bug that prompted this was payer-dependent and
+// mode-dependent at once, so the invariants are asserted across every
+// combination rather than the one shape that happened to break.
+describe("payer x mode: everyone present, nobody twice, totals exact", () => {
+  const K = "karan", P = "priya";
+  const ids = [K, P];
+  const MODES = ["EQUAL", "EXACT", "PERCENT", "RATIO"] as const;
+
+  for (const payer of [null, K] as const) {
+    for (const mode of MODES) {
+      it(`${mode} paid by ${payer ?? "me"}`, () => {
+        const rows = computeShares(rup(1000), {
+          mode, participantIds: ids, payerParticipantId: payer,
+          weights: { me: 1, [K]: 1, [P]: 2 },
+          exactAmounts: { me: rup(250), [K]: rup(250), [P]: rup(250) },
+        });
+        const who = rows.map((r) => r.participantId ?? "me");
+        // The owner and both friends are all in the split, whoever paid.
+        expect({ mode, payer, who: [...who].sort() }).toEqual({ mode, payer, who: ["karan", "me", "priya"] });
+        // Nobody appears twice.
+        expect({ mode, payer, unique: new Set(who).size }).toEqual({ mode, payer, unique: 3 });
+        // The shares are exactly the amount — no paise created or lost.
+        expect({ mode, payer, total: rows.reduce((t, r) => t + r.owedAmount, 0) }).toEqual({ mode, payer, total: rup(1000) });
+        // And no negative share.
+        expect({ mode, payer, negative: rows.some((r) => r.owedAmount < 0) }).toEqual({ mode, payer, negative: false });
+      });
+    }
+  }
+});

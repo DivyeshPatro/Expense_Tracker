@@ -147,6 +147,10 @@ function ShellInner({
           <ThemeToggle />
           <NotificationBell initialUnread={notifBadge} />
           <button
+            // Stays on the classic form deliberately. The composer is the
+            // "+ Add" experience from the reference and lives on the FAB; this
+            // desktop button is also how splits, paid-by, the date picker and
+            // the offline flows are reached, none of which the composer has.
             onClick={() => openModal("exp")}
             className="btn-primary hidden md:block shadow-[0_2px_8px_color-mix(in_oklab,var(--acc)_40%,transparent)]"
           >
@@ -454,8 +458,8 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
     return {
       label: "Add expense",
       actions: [
-        { icon: "🧾", label: "Add expense", run: () => openModal("exp") },
-        { icon: "💰", label: "Add income", run: () => openModal("inc") },
+        { icon: "🧾", label: "Add expense", run: () => openModal("compose") },
+        { icon: "💰", label: "Add income", run: () => openModal("compose") },
         { icon: "⇄", label: "Transfer money", run: () => openModal("tr") },
       ],
     };
@@ -496,8 +500,8 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
     return {
       label: "Add",
       actions: [
-        { icon: "🧾", label: "Add expense", run: () => openModal("exp") },
-        { icon: "💰", label: "Add income", run: () => openModal("inc") },
+        { icon: "🧾", label: "Add expense", run: () => openModal("compose") },
+        { icon: "💰", label: "Add income", run: () => openModal("compose") },
         { icon: "⇄", label: "Transfer money", run: () => openModal("tr") },
       ],
     };

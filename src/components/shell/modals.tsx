@@ -27,6 +27,7 @@ import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import type { OpenLoanRow } from "@/server/services/lending";
 import { AccountOptions } from "./account-options";
 import { DateField } from "./date-field";
+import { TransactionComposer } from "./transaction-composer";
 import { createRuleFor, RepeatBlock, useRepeat } from "./repeat-block";
 import { AdvancedFields, AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { MerchantInput } from "./merchant-input";
@@ -55,6 +56,7 @@ const TITLES: Record<string, string> = {
   txDetail: "Transaction",
   pendingDetail: "Transaction",
   lendingEntry: "Lending entry",
+  compose: "Add transaction",
   lendingContact: "Contact",
   loanDetail: "Loan details",
   accountCardDetails: "Card details",
@@ -128,6 +130,11 @@ export function Modals() {
       setTimeout(() => t.scrollIntoView({ block: "center", behavior: "smooth" }), 120);
     }
   };
+  // The composer is a screen, not a sheet: it renders itself edge to edge and
+  // supplies its own close control, so it must not be wrapped in the panel,
+  // header and backdrop every other modal shares.
+  if (modal.type === "compose") return <TransactionComposer />;
+
   return (
     <div
       // Close only when the gesture BEGAN on the backdrop as well as ending

@@ -33,10 +33,22 @@ export function computeShares(amount: number, split: SplitInput): SplitShare[] {
   const ids: (string | null)[] = [null, ...split.participantIds];
   if (split.mode === "EXACT") {
     const others = split.participantIds.map((id) => ({ participantId: id as string | null, owedAmount: split.exactAmounts?.[id] ?? 0 }));
-    // payer absorbs remainder; when a friend paid, the owner's share is stated too
+    // The owner is the payer: their share is what is left over, so they are not
+    // stated — splitExact appends them.
     if (split.payerParticipantId === null) return splitExact(amount, others, null);
+    // A FRIEND paid. The owner is still one of the people the expense was split
+    // between, so they need a stated share like everyone who did not pay —
+    // read from the "me" key, the same convention `weights` already uses for
+    // the owner in PERCENT/RATIO.
+    //
+    // Without this the owner vanished from the split entirely: ₹1,000 between
+    // three, paid by Karan, stored `priya=333.33, karan=666.67` and nothing for
+    // the owner — so the owner consumed none of an expense they shared and
+    // Karan was charged for it. EQUAL, PERCENT and RATIO all include the owner
+    // in this case; EXACT was the only mode that did not.
     const withoutPayer = others.filter((o) => o.participantId !== split.payerParticipantId);
-    return splitExact(amount, withoutPayer, split.payerParticipantId);
+    const owner = { participantId: null as string | null, owedAmount: split.exactAmounts?.["me"] ?? 0 };
+    return splitExact(amount, [owner, ...withoutPayer], split.payerParticipantId);
   }
   if (split.mode === "PERCENT" || split.mode === "RATIO") {
     const parts = [

@@ -11,6 +11,10 @@ export type ModalType =
   | "account"
   | "bill"
   | "friend"
+  // The full-screen transaction composer. Rendered outside the modal panel
+  // (see modals.tsx) because it owns the whole screen rather than sitting in a
+  // sheet, so it takes no title and no chrome from the shell.
+  | "compose"
   | "group"
   | "txDetail"
   | "pendingDetail"
