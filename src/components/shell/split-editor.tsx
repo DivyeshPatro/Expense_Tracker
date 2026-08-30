@@ -349,8 +349,9 @@ export function SplitEditor({
                     // the other fields under the user while "2" is on its way to
                     // "250", and typing a number should not be a moving target.
                     onBlur={(e) => {
+                      claim(p.id);
                       if (amountPaise === undefined) return;
-                      const next = redistributeOnEdit(amountPaise, state, selectedIds, p.id, e.target.value);
+                      const next = redistributeOnEdit(amountPaise, state, selectedIds, p.id, e.target.value, touched);
                       if (next?.exact) setExact(() => next.exact!);
                     }}
                     placeholder="0"
@@ -612,7 +613,12 @@ function spread(keys: string[], current: number[], target: number): number[] {
  * Three modes behave differently, on purpose:
  *   • EXACT — friends carry stated amounts and the owner's share is derived, so
  *     the others are scaled to hold that derived share steady. Nothing is
- *     invented for the owner; the engine still derives it.
+ *     invented for the owner; the engine still derives it. Editing the OWNER's
+ *     own field deliberately moves every friend rather than only the unclaimed
+ *     ones: when the owner pays, that field is a derived display of
+ *     `total − stated`, so it is an instruction about what the friends must
+ *     come to, and it has to be honoured the moment it is given or the number
+ *     shown would contradict the number typed.
  *   • PERCENT — every participant including the owner has a weight, and the
  *     natural reading is "out of 100", so the rest are scaled into 100 − edited.
  *   • RATIO — weights are relative by definition. Changing 1/1/2 to 2/1/2 is
@@ -665,15 +671,43 @@ export function redistributeOnEdit(
       return { exact };
     }
 
-    const before = selectedIds.map((id) => toPaise(state.exact[id]));
-    const statedBefore = before.reduce((a, b) => a + b, 0);
-    // Hold the owner's derived share steady: the friends' total stays put, so
-    // whatever the edited person gains, the others give up.
+    const statedBefore = selectedIds.reduce((t, id) => t + toPaise(state.exact[id]), 0);
+    // Hold the owner's share steady and let the friends move around it — but
+    // measured from the AMOUNT, not from what the friends happened to total a
+    // moment ago.
+    //
+    // Deriving the pool as `friends' total − edited` looks equivalent and is
+    // not, because of when this runs. The friend inputs are controlled, so by
+    // the time blur fires `state.exact[editedKey]` ALREADY holds the new value
+    // — which meant `statedBefore` counted it, `statedBefore − edited` came
+    // back as exactly the other friends' current total, and they were "spread"
+    // onto themselves. EXACT redistribution has therefore never moved anybody
+    // in the browser: editing one friend quietly took the difference out of the
+    // owner's derived share instead, whatever the unit tests said. They passed
+    // because they hand the function a pre-edit state no real event ever has.
+    //
+    // Anchoring on the amount removes the dependence on a previous value this
+    // callback cannot see. The owner's share comes from their own key when it
+    // exists, and falls back to the balance for a payload that predates it.
+    const ownerPaise = state.exact.me !== undefined && state.exact.me !== ""
+      ? toPaise(state.exact.me)
+      : Math.max(0, amountPaise - statedBefore);
+    // Which others move is the same question Percent answers: only the people
+    // the reader has not already settled on.
     const others = selectedIds.filter((id) => id !== editedKey);
-    const target = Math.max(0, Math.min(statedBefore, amountPaise) - editedPaise);
-    const parts = spread(others, others.map((id) => toPaise(state.exact[id])), target);
+    const free = others.filter((id) => !touched.has(id));
+    const spokenFor = others.filter((id) => touched.has(id)).reduce((t, id) => t + toPaise(state.exact[id]), 0);
+    const pool = amountPaise - ownerPaise - editedPaise - spokenFor;
     const exact: Record<string, string> = { ...state.exact, [editedKey]: rawValue };
-    others.forEach((id, i) => { exact[id] = String(Number((parts[i] / 100).toFixed(2))); });
+    // Everyone else is spoken for: nothing is rewritten, and an entry that
+    // overshoots is caught by splitExact — which refuses stated amounts above
+    // the total — and reported by computeSplitPreview as the error the save is
+    // gated on, rather than one of the reader's own figures being changed to
+    // hide it. With someone free, an overshoot still empties them rather than
+    // driving anybody negative.
+    if (free.length === 0) return { exact };
+    const parts = spread(free, free.map((id) => toPaise(state.exact[id])), Math.max(0, pool));
+    free.forEach((id, i) => { exact[id] = String(Number((parts[i] / 100).toFixed(2))); });
     return { exact };
   }
 
@@ -688,11 +722,12 @@ export function redistributeOnEdit(
   const free = others.filter((k) => !touched.has(k));
   const spokenFor = others.filter((k) => touched.has(k)).reduce((t, k) => t + bp(k), 0);
   const pool = 10000 - editedBp - spokenFor;
-  // Nothing left to absorb it, or nobody free to: leave every other number as
-  // the reader left it. splitInputProblem() reports the overflow.
-  if (free.length === 0 || pool < 0) return { weights };
+  // Nobody free to absorb it: leave every other number as the reader left it,
+  // and splitInputProblem() reports the overflow instead of hiding it in one
+  // of their own figures.
+  if (free.length === 0) return { weights };
 
-  const parts = spread(free, free.map(bp), pool);
+  const parts = spread(free, free.map(bp), Math.max(0, pool));
   free.forEach((k, i) => { weights[k] = String(Number((parts[i] / 100).toFixed(2))); });
   return { weights };
 }

@@ -75,7 +75,16 @@ async function fillExactAmount(page: Page, name: string, amount: string) {
   const row = modal(page)
     .locator("div.flex.items-center.gap-2\\.5", { hasText: name })
     .filter({ has: page.locator('input[type="number"]') });
-  await row.locator('input[type="number"]').fill(amount);
+  const input = row.locator('input[type="number"]');
+  await input.fill(amount);
+  // Committing the field is what the editor listens for — redistribution runs
+  // on blur, deliberately, so it cannot move the other boxes while a number is
+  // still being typed. Filling straight from one field into the next left the
+  // previous one uncommitted and raced its rebalance against this one's value:
+  // measured, it put "366.66200" in a number input. A person tabbing away, or
+  // reaching for Save, blurs; the suite has to as well.
+  await input.blur();
+  await page.waitForTimeout(150);
 }
 
 /** `<option>` elements inside a closed `<select>` never register as "visible"

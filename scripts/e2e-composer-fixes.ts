@@ -362,6 +362,40 @@ async function main() {
     ok("5b. and saves as what was on screen", rc !== null && rc.map[M1] === 40000 && rc.total === 100000, rc?.show ?? "not saved");
     if (rc) created.push(rc.tx.id);
 
+    // ══════════ 5b. Exact amounts, entered one name at a time ══════════
+    // Redistribution used to move every other friend, so ₹400 / ₹300 / ₹200
+    // typed in that order never arrived — each entry rewrote the ones before.
+    const seq = `ZFixSeq-${tag}`;
+    await openComposer(page);
+    await type(page, "1000");
+    await openGroupSplit(page, group.name);
+    await modeBtn(page, "Exact amounts").click();
+    await page.waitForTimeout(500);
+    await setField(page, "You", "400");
+    await setField(page, M1, "300");
+    await setField(page, M2, "200");
+    const typed = await fields(page);
+    console.log(`   exact in order: ${typed.map((f) => `${f.label}=${f.value}`).join("  ")}`);
+    ok("5c. each exact amount stays where it was typed",
+      typed.find((f) => f.label === "You")?.value === "400" &&
+      typed.find((f) => f.label === M1)?.value === "300" &&
+      typed.find((f) => f.label === M2)?.value === "200",
+      typed.map((f) => `${f.label}=${f.value}`).join(" "));
+    ok("5d. the one nobody touched carries the balance", Number(typed.find((f) => f.label === M3)?.value) === 100,
+      `${M3}=${typed.find((f) => f.label === M3)?.value}`);
+
+    await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
+    await page.waitForTimeout(350);
+    await nameIt(page, seq);
+    await swipe(page);
+    const rs = await stored(user.id, seq);
+    ok("5e. and that is what is stored", rs !== null && rs.map.OWNER === 40000 && rs.map[M1] === 30000 && rs.map[M2] === 20000 && rs.map[M3] === 10000,
+      rs?.show ?? "not saved");
+    if (rs) {
+      created.push(rs.tx.id);
+      ok("5f. the rows total the amount", rs.total === 100000, R(rs.total));
+    }
+
     // ══════════ 6. Category namespace ══════════
     const groupCats = await prisma.category.findMany({ where: { groupId: group.id, kind: "EXPENSE" }, orderBy: { name: "asc" } });
     const personalCats = await prisma.category.findMany({ where: { userId: user.id, groupId: null, kind: "EXPENSE" }, orderBy: { name: "asc" } });

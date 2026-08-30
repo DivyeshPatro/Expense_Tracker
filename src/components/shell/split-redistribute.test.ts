@@ -256,3 +256,192 @@ describe("percentages entered one at a time", () => {
     expect(withOut).toEqual({ me: "16.68", [A]: "50", [B]: "16.66", [C]: "16.66" });
   });
 });
+
+// ── entering exact amounts one at a time ──────────────────────────────────
+//
+// The same complaint Percent had, in rupees. Redistribution moved every other
+// friend, so ₹400 / ₹300 / ₹200 / ₹100 typed in that order never arrived —
+// each entry rewrote the ones before it. `touched` composes with EXACT's own
+// rule (the friends' total holds steady, which is what keeps the owner's
+// derived share where it is) rather than replacing it: the pool the unclaimed
+// friends share is simply what is left of that total.
+describe("exact amounts entered one at a time", () => {
+  const ids = [A, B, C];
+
+  it("₹400 / ₹300 / ₹200 typed in order arrives at 400 / 300 / 200 / 100", () => {
+    // ₹1,000 seeded equally: the owner and three friends on ₹250 each.
+    const touched = new Set<string>();
+    let exact: Record<string, string> = { me: "250", [A]: "250", [B]: "250", [C]: "250" };
+    const enter = (key: string, value: string) => {
+      const st = state({ mode: "EXACT", exact });
+      exact = { ...redistributeOnEdit(rup(1000), st, ids, key, value, touched)!.exact! };
+      touched.add(key);
+    };
+
+    // The owner's own field first — it is an instruction about what the
+    // friends must come to, and every one of them is still unclaimed.
+    enter("me", "400");
+    expect([A, B, C].reduce((t, k) => t + Number(exact[k]), 0)).toBe(600);
+
+    enter(A, "300");
+    expect(exact[A]).toBe("300");
+    enter(B, "200");
+    expect(exact[B]).toBe("200");
+
+    // What the reader asked for, and C — never touched — carries the balance.
+    expect(exact.me).toBe("400");
+    expect(exact[A]).toBe("300");
+    expect(exact[B]).toBe("200");
+    expect(Number(exact[C])).toBe(100);
+
+    // And the engine agrees, to the paise.
+    const p = computeSplitPreview(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: null,
+      exactAmounts: Object.fromEntries(["me", ...ids].map((k) => [k, Math.round(Number(exact[k]) * 100)])),
+    });
+    expect(p.rows.find((r) => r.participantId === null)!.owedAmount).toBe(rup(400));
+    expect(p.total).toBe(rup(1000));
+    expect(p.balances).toBe(true);
+  });
+
+  it("a friend the reader has already set is not moved again", () => {
+    const st = state({ mode: "EXACT", exact: { [A]: "500", [B]: "300", [C]: "200" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, C, "100", new Set([A]))!.exact!;
+    expect(out[A]).toBe("500");   // claimed
+    expect(out[C]).toBe("100");   // just entered
+    expect(Number(out[B])).toBe(400); // the only one free absorbs the difference
+    expect([A, B, C].reduce((t, k) => t + Number(out[k]), 0)).toBe(1000);
+  });
+
+  it("the owner's derived share is still held steady while friends move", () => {
+    // Friends total 750, so the owner derives 250 — and keeps it.
+    const st = state({ mode: "EXACT", exact: { me: "250", [A]: "250", [B]: "250", [C]: "250" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, A, "400", new Set())!.exact!;
+    expect([A, B, C].reduce((t, k) => t + Number(out[k]), 0)).toBe(750);
+    const p = computeSplitPreview(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: null,
+      exactAmounts: Object.fromEntries(ids.map((k) => [k, Math.round(Number(out[k]) * 100)])),
+    });
+    expect(p.rows.find((r) => r.participantId === null)!.owedAmount).toBe(rup(250));
+  });
+
+  it("when everyone is spoken for, nothing the reader typed is rewritten", () => {
+    const touched = new Set([A, B, C]);
+    const st = state({ mode: "EXACT", exact: { [A]: "250", [B]: "250", [C]: "250" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, A, "900", touched)!.exact!;
+    expect(out).toEqual({ [A]: "900", [B]: "250", [C]: "250" });
+  });
+
+  it("and an overshoot is reported by the engine rather than hidden", () => {
+    // The state the test above leaves behind: ₹1,400 stated against ₹1,000.
+    const p = computeSplitPreview(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: null,
+      exactAmounts: { [A]: rup(900), [B]: rup(250), [C]: rup(250) },
+    });
+    expect(p.error).toBe("Split amounts exceed the total");
+    expect(p.balances).toBe(false);
+  });
+
+  it("no touched fields is the original behaviour, unchanged", () => {
+    const st = state({ mode: "EXACT", exact: { [A]: "250", [B]: "250", [C]: "250" } });
+    const withOut = redistributeOnEdit(rup(1000), st, ids, A, "500")!.exact!;
+    const withEmpty = redistributeOnEdit(rup(1000), st, ids, A, "500", new Set())!.exact!;
+    expect(withOut).toEqual(withEmpty);
+    expect(Number(withOut[B]) + Number(withOut[C])).toBe(250);
+  });
+
+  it("editing your own share still moves every friend, claimed or not", () => {
+    // That field is a derived display when the owner pays, so it has to be
+    // honoured immediately or the figure shown contradicts the figure typed.
+    const st = state({ mode: "EXACT", exact: { me: "250", [A]: "250", [B]: "250", [C]: "250" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, "me", "100", new Set([A, B, C]))!.exact!;
+    expect(out.me).toBe("100");
+    expect([A, B, C].reduce((t, k) => t + Math.round(Number(out[k]) * 100), 0)).toBe(rup(900));
+  });
+});
+
+// ── the state a real blur actually carries ────────────────────────────────
+//
+// Every test above hands redistributeOnEdit a state in which the edited field
+// still holds its OLD value. No event in the app ever looks like that: the
+// friend inputs are controlled, onChange commits each keystroke, so by the
+// time onBlur runs `state.exact[editedKey]` is already the new number.
+//
+// That gap hid a bug for the whole life of the feature. Deriving the pool as
+// `friends' total − edited` then cancelled out — the other friends were spread
+// onto their own current values and never moved — and the difference came
+// silently out of the owner's derived share instead. Measured in the browser:
+// ₹1,000 four ways, typing ₹300 against one friend left the other two on ₹250
+// and dropped the owner from ₹250 to ₹200.
+//
+// These pass the state the way the DOM does.
+describe("the state a blur actually carries: the edited field already updated", () => {
+  const ids = [A, B, C];
+
+  /** What onBlur really sees: onChange has already written the new value. */
+  const asCommitted = (exact: Record<string, string>, key: string, value: string) => ({ ...exact, [key]: value });
+
+  it("the other friends still move — the difference does not fall on the owner", () => {
+    const seeded = { me: "250", [A]: "250", [B]: "250", [C]: "250" };
+    const st = state({ mode: "EXACT", exact: asCommitted(seeded, A, "300") });
+    const out = redistributeOnEdit(rup(1000), st, ids, A, "300", new Set())!.exact!;
+    expect(out[A]).toBe("300");
+    // B and C give up the ₹50 between them, so the friends still hold ₹750...
+    expect([A, B, C].reduce((t, k) => t + Math.round(Number(out[k]) * 100), 0)).toBe(rup(750));
+    // ...and the owner keeps the ₹250 they were on.
+    const p = computeSplitPreview(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: null,
+      exactAmounts: Object.fromEntries(ids.map((k) => [k, Math.round(Number(out[k]) * 100)])),
+    });
+    expect(p.rows.find((r) => r.participantId === null)!.owedAmount).toBe(rup(250));
+    expect(p.total).toBe(rup(1000));
+  });
+
+  it("the whole sequence arrives, committed the way the DOM commits it", () => {
+    const touched = new Set<string>();
+    let exact: Record<string, string> = { me: "250", [A]: "250", [B]: "250", [C]: "250" };
+    const enter = (key: string, value: string) => {
+      // The owner's field is uncontrolled, so only a friend's arrives updated.
+      const committed = key === "me" ? exact : asCommitted(exact, key, value);
+      exact = { ...redistributeOnEdit(rup(1000), state({ mode: "EXACT", exact: committed }), ids, key, value, touched)!.exact! };
+      touched.add(key);
+    };
+    enter("me", "400");
+    enter(A, "300");
+    enter(B, "200");
+    expect(exact.me).toBe("400");
+    expect(exact[A]).toBe("300");
+    expect(exact[B]).toBe("200");
+    expect(Number(exact[C])).toBe(100);
+  });
+
+  it("a friend paying reaches the same numbers", () => {
+    const touched = new Set<string>();
+    let exact: Record<string, string> = { me: "250", [A]: "250", [B]: "250", [C]: "250" };
+    const enter = (key: string, value: string) => {
+      exact = { ...redistributeOnEdit(rup(1000), state({ mode: "EXACT", exact: asCommitted(exact, key, value), payerId: A }), ids, key, value, touched)!.exact! };
+      touched.add(key);
+    };
+    enter(B, "200");
+    enter(C, "100");
+    // A paid, so their share is what is left once everyone else is stated.
+    const p = computeSplitPreview(rup(1000), {
+      mode: "EXACT", participantIds: ids, payerParticipantId: A,
+      exactAmounts: Object.fromEntries(["me", ...ids].map((k) => [k, Math.round(Number(exact[k]) * 100)])),
+    });
+    const owed = Object.fromEntries(p.rows.map((r) => [r.participantId ?? "me", r.owedAmount]));
+    expect(owed.me).toBe(rup(250));
+    expect(owed[B]).toBe(rup(200));
+    expect(owed[C]).toBe(rup(100));
+    expect(owed[A]).toBe(rup(450));
+    expect(p.total).toBe(rup(1000));
+  });
+
+  it("a payload with no owner key still balances against the amount", () => {
+    // Nothing has seeded "me" — the owner's share is the balance, and the
+    // friends move around it exactly as they did before.
+    const st = state({ mode: "EXACT", exact: { [A]: "500", [B]: "250", [C]: "250" } });
+    const out = redistributeOnEdit(rup(1000), st, ids, A, "500", new Set())!.exact!;
+    expect([A, B, C].reduce((t, k) => t + Math.round(Number(out[k]) * 100), 0)).toBe(rup(1000));
+  });
+});
