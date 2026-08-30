@@ -884,7 +884,10 @@ function EditExpenseForm({ detail, prefill, onCancel }: { detail: TransactionDet
   const pre = prefill as { amount?: string; accountId?: string | null; categoryId?: string | null; merchant?: string; date?: string; notes?: string } | undefined;
   const [amount, setAmount] = useState(pre?.amount ?? String(detail.amount / 100));
   const [accountId, setAccountId] = useState(pre?.accountId ?? detail.accountId ?? refData.accounts[0]?.id ?? "");
-  const [categoryId, setCategoryId] = useState(pre?.categoryId ?? detail.categoryId ?? refData.expenseCategories[0]?.id ?? "");
+  // An uncategorised transaction stays uncategorised. Falling back to the
+  // first category meant opening one to fix a typo and saving quietly filed it
+  // under whatever sorts first in this person's list.
+  const [categoryId, setCategoryId] = useState(pre?.categoryId ?? detail.categoryId ?? "");
   const [merchant, setMerchant] = useState(pre?.merchant ?? detail.merchant);
   const [date, setDate] = useState(pre?.date ?? detail.ymd);
   const [notes, setNotes] = useState(pre?.notes ?? detail.notes ?? "");
@@ -1096,7 +1099,9 @@ function EditIncomeForm({ detail, prefill, onCancel }: { detail: TransactionDeta
   const pre = prefill as { amount?: string; accountId?: string; categoryId?: string | null; merchant?: string; date?: string; notes?: string } | undefined;
   const [amount, setAmount] = useState(pre?.amount ?? String(detail.amount / 100));
   const [accountId, setAccountId] = useState(pre?.accountId ?? detail.accountId ?? refData.accounts[0]?.id ?? "");
-  const [categoryId, setCategoryId] = useState(pre?.categoryId ?? detail.categoryId ?? refData.incomeCategories[0]?.id ?? "");
+  // Same as the expense form: no category is a category, and an edit must not
+  // invent one.
+  const [categoryId, setCategoryId] = useState(pre?.categoryId ?? detail.categoryId ?? "");
   const [merchant, setMerchant] = useState(pre?.merchant ?? detail.merchant);
   const [date, setDate] = useState(pre?.date ?? detail.ymd);
   const [notes, setNotes] = useState(pre?.notes ?? detail.notes ?? "");

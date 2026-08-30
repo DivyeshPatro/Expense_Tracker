@@ -221,7 +221,7 @@ async function main() {
     await openComposer(page);
     await type(page, "250");
     // Category
-    await composer(page).getByRole("button", { name: /^Category:/ }).first().click();
+    await composer(page).getByRole("button", { name: /^Category:|^Choose a category$/ }).first().click();
     await page.waitForTimeout(500);
     const catButtons = sheet(page).locator("button");
     const catName = (await catButtons.nth(1).innerText()).replace(/^\S+\s*/, "").trim();

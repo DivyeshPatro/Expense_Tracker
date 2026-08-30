@@ -44,7 +44,12 @@ const UTILITY: KeypadKey[] = [
 
 // Phone-style ascending rows (7-8-9 on top). Calculators and numeric keypads
 // use this; only phone dialers invert it, and this is a calculator.
-const GRID: KeypadKey[] = [
+/** Exported so the full-screen composer lays out the SAME keys in its own
+ *  grid. It cannot mount AmountKeypad itself — that one is portalled and fixed
+ *  to the bottom of the viewport to dock under a modal, which would cover the
+ *  composer's swipe-to-confirm bar — but the two must never offer different
+ *  arithmetic. */
+export const GRID: KeypadKey[] = [
   { insert: "7", label: "7", aria: "7", kind: "digit" },
   { insert: "8", label: "8", aria: "8", kind: "digit" },
   { insert: "9", label: "9", aria: "9", kind: "digit" },

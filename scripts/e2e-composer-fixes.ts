@@ -402,16 +402,28 @@ async function main() {
     const gm = `ZFixCatGroup-${tag}`;
     await openComposer(page);
     await type(page, "500");
-    const personalChip = await composer(page).getByRole("button", { name: /^Category:/ }).innerText();
+    // Nothing is selected until the reader selects it, so this starts from a
+    // deliberate personal pick rather than from whatever used to be seeded.
+    ok("6-pre. a new expense starts with no category at all",
+      (await composer(page).getByRole("button", { name: "Choose a category" }).count()) === 1,
+      (await composer(page).getByRole("button", { name: /category/i }).first().innerText().catch(() => "(no category chip)")).replace(/\s+/g, " "));
+    await composer(page).getByRole("button", { name: "Choose a category" }).click();
+    await page.waitForTimeout(600);
+    const personalPick = personalCats.find((c) => !groupCats.some((g) => g.name === c.name)) ?? personalCats[0];
+    await sheet(page).getByRole("button", { name: new RegExp(personalPick.name) }).first().click();
+    await page.waitForTimeout(500);
+    const personalChip = await composer(page).getByRole("button", { name: /^Category:|^Choose a category$/ }).innerText();
     await openGroupSplit(page, group.name);
     await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
-    await page.waitForTimeout(600);
-    const groupChip = await composer(page).getByRole("button", { name: /^Category:/ }).innerText();
+    await page.waitForTimeout(700);
+    const groupChip = await composer(page).getByRole("button", { name: /^Category:|^Choose a category$/ }).innerText();
     console.log(`   category chip: personal "${personalChip.trim()}" → group "${groupChip.trim()}"`);
-    ok("6a. picking a group changes the category on the chip", personalChip.trim() !== groupChip.trim(), `${personalChip.trim()} vs ${groupChip.trim()}`);
+    ok("6a. a personal category does not survive into a group",
+      personalChip.includes(personalPick.name) && !groupChip.includes(personalPick.name),
+      `${personalChip.trim()} vs ${groupChip.trim()}`);
 
     // The picker must offer the group's list, not the owner's.
-    await composer(page).getByRole("button", { name: /^Category:/ }).click();
+    await composer(page).getByRole("button", { name: /^Category:|^Choose a category$/ }).click();
     await page.waitForTimeout(700);
     const offered = (await sheet(page).innerText()).replace(/\s+/g, " ");
     const personalOnly = personalCats.filter((c) => !groupCats.some((g) => g.name === c.name)).map((c) => c.name);
@@ -445,6 +457,11 @@ async function main() {
     const pm = `ZFixCatPersonal-${tag}`;
     await openComposer(page);
     await type(page, "400");
+    // Chosen, not seeded — there is no default to inherit any more.
+    await composer(page).getByRole("button", { name: "Choose a category" }).click();
+    await page.waitForTimeout(600);
+    await sheet(page).getByRole("button", { name: new RegExp(personalCats[0].name) }).first().click();
+    await page.waitForTimeout(500);
     await nameIt(page, pm);
     await swipe(page);
     const rp = await stored(user.id, pm);
@@ -461,16 +478,32 @@ async function main() {
     await openGroupSplit(page, group.name);
     await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
     await page.waitForTimeout(600);
-    const asGroup = await composer(page).getByRole("button", { name: /^Category:/ }).innerText();
+    const groupOnly = groupCats.find((c) => !personalCats.some((pc) => pc.name === c.name)) ?? groupCats[0];
+    await composer(page).getByRole("button", { name: "Choose a category" }).click();
+    await page.waitForTimeout(600);
+    await sheet(page).getByRole("button", { name: new RegExp(groupOnly.name) }).first().click();
+    await page.waitForTimeout(500);
+    const asGroup = await composer(page).getByRole("button", { name: /^Category:|^Choose a category$/ }).innerText();
     await composer(page).getByRole("button", { name: "Personal", exact: true }).click();
     await page.waitForTimeout(900);
-    const asPersonal = await composer(page).getByRole("button", { name: /^Category:/ }).innerText();
-    ok("6j. going back to Personal drops the group's category", asGroup.trim() !== asPersonal.trim() && personalCats.some((c) => asPersonal.includes(c.name)),
+    const asPersonal = await composer(page).getByRole("button", { name: /^Category:|^Choose a category$/ }).innerText();
+    // It goes back to unset rather than to some other category: the reader
+    // picks the replacement, the composer does not pick one for them.
+    ok("6j. a group category does not survive back into Personal",
+      asGroup.includes(groupOnly.name) && !asPersonal.includes(groupOnly.name) && asPersonal.includes("Category"),
       `${asGroup.trim()} → ${asPersonal.trim()}`);
     await composer(page).getByRole("button", { name: "Close" }).click();
     await page.waitForTimeout(400);
 
     console.log(`\nCREATED: ${created.join(",")}`);
+  } catch (e) {
+    // Without this the suite lied. `process.exit()` in the finally block
+    // discards whatever exception was in flight, so a section that threw
+    // half way — a selector that stopped matching, say — vanished silently
+    // and the run still printed "N/N checks passed" for the checks it had
+    // managed to reach. A suite that hides its own failure is worse than one
+    // that fails.
+    ok("script error", false, e instanceof Error ? `${e.message.split("\n")[0]}` : String(e));
   } finally {
     await ctx?.close();
     await browser.close();

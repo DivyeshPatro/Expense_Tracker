@@ -222,6 +222,94 @@ export function amountToPaise(raw: string): Paise {
   return r.ok ? r.paise : 0;
 }
 
+/** The operators a keypad can produce. The tokenizer already reads \u00d7 and \u00f7,
+ *  so the string stays legible instead of carrying * and / the reader never typed. */
+const KEY_OPS = ["+", "-", "\u00d7", "\u00f7"] as const;
+const isKeyOp = (c: string) => (KEY_OPS as readonly string[]).includes(c);
+
+/** Digits before the point, per operand. An amount field has no use for more. */
+const MAX_OPERAND_INT_DIGITS = 9;
+/** Money has two. Typing a third should do nothing rather than round later. */
+const MAX_OPERAND_DECIMALS = 2;
+
+/**
+ * One keypad press against the current expression string.
+ *
+ * A keypad cannot let the reader put the caret anywhere, so the rules are
+ * about the operand being typed right now — everything after the last
+ * operator — rather than the string as a whole. That is what keeps "500+7" and
+ * a bare "7" behaving identically.
+ *
+ * The states this exists to make unreachable:
+ *   \u2022 "500++"      \u2014 a second operator REPLACES the trailing one
+ *   \u2022 "+500"       \u2014 an operator with nothing to its left is ignored
+ *   \u2022 "007"        \u2014 a lone leading zero is replaced by the first real digit
+ *   \u2022 "1.2.3"      \u2014 one point per operand
+ *   \u2022 "1.234"      \u2014 two decimal places per operand
+ *
+ * A trailing operator IS allowed: "500+" is what the string looks like between
+ * two taps. It is not a valid expression, and evaluateAmount says so — which
+ * is why the display reads through partialAmount() and the save through
+ * evaluateAmount().
+ */
+export function pressAmountKey(cur: string, key: string): string {
+  if (key === "clear") return "";
+  if (key === "back") return cur.slice(0, -1);
+  if (cur.length >= MAX_INPUT) return cur;
+
+  if (isKeyOp(key)) {
+    if (!cur) return cur; // nothing to operate on yet
+    if (isKeyOp(cur[cur.length - 1])) return cur.slice(0, -1) + key; // swap, never doubled
+    return cur + key;
+  }
+
+  // The operand under the cursor: everything since the last operator.
+  let start = cur.length;
+  while (start > 0 && !isKeyOp(cur[start - 1])) start--;
+  const operand = cur.slice(start);
+
+  if (key === ".") {
+    if (operand.includes(".")) return cur;
+    // ".5" is legible but "0.5" is what people mean, and the parser reads both.
+    return operand === "" ? cur + "0." : cur + ".";
+  }
+
+  const digits = key === "00" ? "00" : key;
+  if (!/^\d+$/.test(digits)) return cur; // an unknown key changes nothing
+
+  const [int = "", dec] = operand.split(".");
+  if (dec !== undefined) {
+    const room = MAX_OPERAND_DECIMALS - dec.length;
+    return room <= 0 ? cur : cur + digits.slice(0, room);
+  }
+  const allZero = /^0+$/.test(digits);
+  if (int === "") return cur + (allZero ? "0" : digits);
+  if (int === "0") return allZero ? cur : cur.slice(0, -1) + digits;
+  if (int.length >= MAX_OPERAND_INT_DIGITS) return cur;
+  return cur + digits.slice(0, MAX_OPERAND_INT_DIGITS - int.length);
+}
+
+/**
+ * What an amount display should SHOW while an expression is still being typed.
+ *
+ * "500+" is not a valid expression and evaluateAmount rightly refuses it, but a
+ * display that blanks the moment an operator is tapped is unusable \u2014 the
+ * reader needs to see the \u20b9500 they are adding to. So an unparseable input is
+ * retried with a trailing operator removed, and anything still unreadable
+ * shows nothing rather than a guess.
+ *
+ * This is display only. Saving goes through evaluateAmount, which refuses the
+ * incomplete string, so a half-typed sum can never be persisted.
+ */
+export function partialAmount(raw: string): Paise {
+  const direct = evaluateAmount(raw);
+  if (direct.ok) return direct.paise;
+  const trimmed = raw.replace(/[+\-*/\u00d7\u00f7\s]+$/, "");
+  if (!trimmed || trimmed === raw) return 0;
+  const partial = evaluateAmount(trimmed);
+  return partial.ok ? partial.paise : 0;
+}
+
 /** Does this input use any arithmetic, or is it just a number? Drives whether the preview shows. */
 export function looksLikeExpression(raw: string): boolean {
   return /[+\-*/%()×÷xX]/.test(raw.replace(/^\s*-/, ""));

@@ -38,21 +38,30 @@ import {
 import { addExpenseAction, listGroupCategoriesAction } from "@/app/actions";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import { friendlyDay, todayYMD } from "@/lib/dates";
-import { amountToPaise } from "@/lib/expression";
+import { amountToPaise, evaluateAmount, looksLikeExpression, partialAmount, pressAmountKey } from "@/lib/expression";
+import { GRID } from "./amount-keypad";
 
 type Kind = "INCOME" | "EXPENSE";
 type Picker = null | "group" | "date" | "category" | "payment" | "note" | "split";
 
-/** Digits the amount accepts before it would stop fitting the display. */
-const MAX_INT_DIGITS = 9;
-
-/** Grouped for reading, without imposing a currency symbol — the symbol is its
- *  own element so it can be styled apart from the digits. */
-function formatEntry(raw: string): string {
+/**
+ * The digits under the ₹, for an entry that may be an expression.
+ *
+ * Formatting the raw string stopped working the moment the keypad grew
+ * operators — "500+250" has no integer part to group. The display now shows
+ * what the entry EVALUATES to, which is also what the reader asked for: tap
+ * 500 + 250 and the amount reads ₹750. The expression itself is shown on its
+ * own line above, so nothing is hidden.
+ *
+ * A trailing decimal point is kept verbatim ("12." stays "12.") — dropping it
+ * makes the point look like it was not registered.
+ */
+function displayDigits(raw: string): string {
   if (!raw) return "0";
-  const [int, dec] = raw.split(".");
-  const grouped = new Intl.NumberFormat("en-IN").format(Number(int || "0"));
-  return dec === undefined ? grouped : `${grouped}.${dec}`;
+  const rupees = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(partialAmount(raw) / 100);
+  // A plain number keeps its trailing point while it is being typed — "12."
+  // collapsing back to "12" reads as the tap not registering.
+  return !looksLikeExpression(raw) && raw.endsWith(".") ? `${rupees}.` : rupees;
 }
 
 export function TransactionComposer() {
@@ -68,7 +77,14 @@ export function TransactionComposer() {
   const [notes, setNotes] = useState("");
   const [merchant, setMerchant] = useState("");
   const [date, setDate] = useState(todayYMD());
-  const [categoryId, setCategoryId] = useState(() => refData.expenseCategories[0]?.id ?? "");
+  // No category until the reader picks one. `expenseCategories` is ordered by
+  // name, so seeding index 0 meant every new expense arrived pre-labelled with
+  // whatever sorts first in that person's list — "Bike" on a real account,
+  // "Education" on the demo one. It looked like a choice, saved like a choice,
+  // and was nobody's. Both schemas take `categoryId: z.string().nullable()`,
+  // and addExpense() fills a blank one from the merchant rule when it can, so
+  // empty is a value the write path already understands.
+  const [categoryId, setCategoryId] = useState("");
 
   // group-expenses-sprint §10: categories are namespaced — Category.userId for
   // personal, Category.groupId for a group — and a group expense is labelled
@@ -134,8 +150,12 @@ export function TransactionComposer() {
   // a personal category on a group expense classifies it in a namespace the
   // group cannot see, and the group's own page then reports spending under a
   // category none of its members have. Land on the new list's first entry.
+  // Clears rather than re-picks: a category from the other namespace is
+  // invalid, but the replacement is the reader's to choose, not ours. Landing
+  // on the new list's first entry would put a category they never selected on
+  // the transaction — the same bug as seeding one, arrived at sideways.
   useEffect(() => {
-    if (!categories.some((c) => c.id === categoryId)) setCategoryId(categories[0]?.id ?? "");
+    if (categoryId && !categories.some((c) => c.id === categoryId)) setCategoryId("");
   }, [categories, categoryId]);
 
   // Any edit clears a complaint about the previous attempt.
@@ -152,20 +172,19 @@ export function TransactionComposer() {
     }
   }, [kind, split]);
 
-  const press = useCallback((key: string) => {
-    setEntry((cur) => {
-      if (key === "back") return cur.slice(0, -1);
-      if (key === ".") return cur.includes(".") ? cur : (cur || "0") + ".";
-      const [int = "", dec] = cur.split(".");
-      if (dec !== undefined) return dec.length >= 2 ? cur : cur + key;
-      if (int === "0") return key; // no leading zeros
-      return int.length >= MAX_INT_DIGITS ? cur : cur + key;
-    });
-  }, []);
+  // The editing rules live in lib/expression alongside the parser that reads
+  // the result, so the keypad and the evaluator can never disagree about what
+  // a valid amount string looks like.
+  const press = useCallback((key: string) => setEntry((cur) => pressAmountKey(cur, key)), []);
 
   /** Everything the existing schemas require, in the shape they already take. */
   function validate(): string | null {
-    if (paise <= 0) return "Enter an amount first";
+    // The parser's own message, not a generic one: it names division by zero,
+    // an unfinished sum, a stray decimal point, a negative result and an
+    // absurd figure, each of which the reader can actually act on. Every one
+    // of those rules already existed — this just stops swallowing them.
+    const amount = evaluateAmount(entry);
+    if (!amount.ok) return entry.trim() ? amount.error : "Enter an amount first";
     // incomeSchema requires accountId; expenseSchema allows null.
     if (kind === "INCOME" && !accountId) return "Choose where the money landed";
     if (split) {
@@ -244,10 +263,13 @@ export function TransactionComposer() {
   // `what` is the accessible name: the icon is decorative and the visible text
   // is only the value, so a screen reader would otherwise hear "Education"
   // without being told it is the category.
+  // `unset` chips read as an invitation rather than a value: the label is the
+  // field's own name, muted, and the accessible name says so instead of the
+  // nonsense "Category: Category".
   const chips = [
-    { key: "date" as const, icon: "🗓", what: "Date", label: date === todayYMD() ? "Today" : friendlyDay(date) },
-    { key: "category" as const, icon: "🏷", what: "Category", label: category?.name ?? "Category" },
-    { key: "payment" as const, icon: "💳", what: "Payment method", label: account?.name ?? "Payment" },
+    { key: "date" as const, icon: "🗓", what: "Date", label: date === todayYMD() ? "Today" : friendlyDay(date), unset: false },
+    { key: "category" as const, icon: "🏷", what: "Category", label: category?.name ?? "Category", unset: !category },
+    { key: "payment" as const, icon: "💳", what: "Payment method", label: account?.name ?? "Payment", unset: !account },
   ];
 
   return (
@@ -308,12 +330,19 @@ export function TransactionComposer() {
 
         {/* ── the amount, and who it's for ─────────────────────────────── */}
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-1">
+          {/* The working, above the total — the way a paper sum is laid out.
+              Only while there IS a sum: a plain number needs no second line. */}
+          {looksLikeExpression(entry) && (
+            <div className="text-[15px] font-semibold text-mut2 tabular-nums select-none" aria-hidden>
+              {entry}
+            </div>
+          )}
           <div className="flex items-baseline justify-center gap-1 select-none" aria-live="polite">
             <span className="text-[30px] font-bold leading-none" style={{ color: kind === "INCOME" ? "var(--green)" : "var(--red)" }}>
               {kind === "INCOME" ? "+" : "−"}
             </span>
             <span className="text-[30px] font-semibold leading-none text-mut2">₹</span>
-            <span className="text-[54px] font-extrabold leading-none tabular-nums tracking-tight">{formatEntry(entry)}</span>
+            <span className="text-[54px] font-extrabold leading-none tabular-nums tracking-tight">{displayDigits(entry)}</span>
           </div>
           <button
             onClick={() => setPicker("note")}
@@ -351,8 +380,9 @@ export function TransactionComposer() {
             <button
               key={c.key}
               onClick={() => setPicker(c.key)}
-              aria-label={`${c.what}: ${c.label}`}
-              className="inline-flex items-center gap-1.5 px-3 min-h-[36px] rounded-full border border-line2 bg-transparent text-[12px] font-semibold text-ink cursor-pointer hover:bg-accsoft max-w-[46vw]"
+              aria-label={c.unset ? `Choose a ${c.what.toLowerCase()}` : `${c.what}: ${c.label}`}
+              data-unset={c.unset ? "" : undefined}
+              className={`inline-flex items-center gap-1.5 px-3 min-h-[36px] rounded-full border border-line2 bg-transparent text-[12px] font-semibold cursor-pointer hover:bg-accsoft max-w-[46vw] ${c.unset ? "text-mut2" : "text-ink"}`}
             >
               <span aria-hidden className="text-[12px] opacity-70">{c.icon}</span>
               <span className="truncate">{c.label}</span>
@@ -361,15 +391,42 @@ export function TransactionComposer() {
         </div>
 
         {/* ── keypad ───────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-3 gap-2.5 flex-none">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"].map((k) => (
+        {/* Four columns: the digit block plus the operator rail, exactly the
+            keys lib/expression can read. The composer was the only amount
+            surface in the app WITHOUT arithmetic — the classic form has had it
+            since AmountKeypad shipped — so this is the same capability
+            arriving here, not a second calculator. */}
+        {/* Clear and backspace sit above the grid, the way AmountKeypad's own
+            utility strip does, so all sixteen calculator keys keep their places
+            and nothing had to be dropped to make room for them. */}
+        <div className="flex justify-end gap-2 flex-none">
+          <button
+            onClick={() => press("clear")}
+            aria-label="Clear amount"
+            className="min-h-[38px] px-4 rounded-[12px] bg-side border-none text-[13px] font-bold text-mut2 cursor-pointer active:brightness-125 select-none"
+          >
+            C
+          </button>
+          <button
+            onClick={() => press("back")}
+            aria-label="Backspace"
+            className="min-h-[38px] px-4 rounded-[12px] bg-side border-none text-[15px] font-semibold text-mut2 cursor-pointer active:brightness-125 select-none"
+          >
+            ⌫
+          </button>
+        </div>
+
+        <div className="grid grid-cols-4 gap-2 flex-none">
+          {GRID.map((k) => (
             <button
-              key={k}
-              onClick={() => press(k)}
-              aria-label={k === "back" ? "Backspace" : k === "." ? "Decimal point" : k}
-              className="min-h-[54px] rounded-[18px] bg-side border-none text-[20px] font-semibold text-ink cursor-pointer active:brightness-125 select-none grid place-items-center"
+              key={k.label}
+              onClick={() => press(k.insert ?? "")}
+              aria-label={k.aria}
+              className={`min-h-[52px] rounded-[18px] border-none text-[20px] font-semibold cursor-pointer active:brightness-125 select-none grid place-items-center ${
+                k.kind === "operator" ? "bg-accsoft text-acc" : "bg-side text-ink"
+              }`}
             >
-              {k === "back" ? "⌫" : k}
+              {k.label}
             </button>
           ))}
         </div>
