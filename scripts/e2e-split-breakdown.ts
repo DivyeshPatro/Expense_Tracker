@@ -19,6 +19,14 @@ const ok = (name: string, pass: boolean, note?: string) => {
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${note ? ` · ${note}` : ""}`);
 };
 
+// Adding an expense is the full-screen composer now. The SplitEditor and the
+// SplitBreakdown it produces are the SAME components, rendered together in the
+// composer's split sheet — so every assertion below still reads the real
+// editor and the real preview, reached one tap in rather than behind a
+// collapsed "More details" section.
+const composer = (page: Page) => page.locator("div[data-composer]");
+const sheet = (page: Page) => page.getByRole("dialog").last();
+
 /** #187: the header's "+ Add expense" became the context-aware quick-add FAB.
  *  Both FABs (mobile bar, desktop bottom-right) are in the DOM at once. */
 async function openExpenseModal(page: Page) {
@@ -26,22 +34,48 @@ async function openExpenseModal(page: Page) {
   await fab.waitFor({ state: "visible", timeout: 30000 });
   await fab.click();
   await page.getByRole("button", { name: /Add expense/ }).first().click();
-  await page.waitForSelector('input[placeholder="0"]');
-  // The split CONTROLS live inside "More details", collapsed by default. The
-  // breakdown they produce must not — see the collapse/expand checks below.
-  await openAdvanced(page);
+  await composer(page).waitFor({ timeout: 30000 });
 }
 
-const advanced = (page: Page) => page.locator("summary").filter({ hasText: "More details" }).first();
+/** Tap an amount into the composer's keypad. */
+async function typeAmount(page: Page, rupees: string) {
+  await composer(page).getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of rupees) {
+    await composer(page).getByRole("button", { name: ch === "." ? "Decimal point" : ch, exact: true }).click();
+    await page.waitForTimeout(50);
+  }
+}
 
+/** Open the split sheet, where the editor and the breakdown both live. */
 async function openAdvanced(page: Page) {
-  if (!(await page.getByRole("switch").first().isVisible().catch(() => false))) await advanced(page).click();
+  if (await page.getByRole("switch").first().isVisible().catch(() => false)) return;
+  await composer(page).getByRole("button", { name: /people ·|Choose who's splitting|Split with someone/ }).click();
   await page.getByRole("switch").first().waitFor({ state: "visible", timeout: 10000 });
 }
 
+/** Back out to the composer screen. */
 async function closeAdvanced(page: Page) {
-  if (await page.getByRole("switch").first().isVisible().catch(() => false)) await advanced(page).click();
-  await page.waitForTimeout(300);
+  if (await sheet(page).getByRole("button", { name: "Done", exact: true }).count()) {
+    await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
+  }
+  await page.waitForTimeout(400);
+}
+
+/** Drag the confirm handle the whole way — the composer has no Save button. */
+async function saveComposer(page: Page) {
+  await closeAdvanced(page);
+  const track = composer(page).locator("div[role='slider']");
+  const box = (await track.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(1200);
 }
 
 async function signIn(page: Page) {
@@ -102,13 +136,26 @@ async function main() {
     await signIn(page);
     await page.goto(`${BASE}/transactions`, { waitUntil: "load" });
     await openExpenseModal(page);
-    await page.fill('input[placeholder="0"]', "2530");
-    await page.fill('input[placeholder="e.g. Blue Tokai"]', `ZNawab-${S}`).catch(async () => {
-      await page.locator('input[placeholder*="e.g."]').first().fill(`ZNawab-${S}`);
-    });
+    await typeAmount(page, "2530");
+    // The merchant lives behind the composer's "Who's it for?" line.
+    await composer(page).getByRole("button", { name: "Merchant and notes" }).click();
+    await page.waitForTimeout(400);
+    await sheet(page).locator("input").first().fill(`ZNawab-${S}`);
+    await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
+    await page.waitForTimeout(400);
 
     // ── split with the four of them ─────────────────────────────────────
-    await page.getByRole("switch").first().click();
+    await openAdvanced(page);
+    if ((await page.getByRole("switch").first().getAttribute("aria-checked")) !== "true") {
+      await page.getByRole("switch").first().click();
+      await page.waitForTimeout(250);
+    }
+    // The Shared entry point pre-ticks a couple of contacts; this case names
+    // its own four, so start from nobody.
+    for (const b of await sheet(page).locator('button[aria-pressed="true"]').all()) {
+      await b.click();
+      await page.waitForTimeout(80);
+    }
     for (const n of names) await page.getByText(n, { exact: true }).click();
     await page.waitForTimeout(400);
 
@@ -138,10 +185,14 @@ async function main() {
     ok("the remainder is named, with its recipient", (b?.note ?? "").includes("₹0.03") && (b?.note ?? "").includes("You"), b?.note ?? "");
 
     // ── the point of the whole change: no expanding required ────────────
-    await closeAdvanced(page);
-    ok("the split controls are inside More details", !(await page.getByRole("switch").first().isVisible()));
+    //
+    // What this asserted was that the breakdown is not hidden behind the
+    // section the CONTROLS live in. The composer answers it more plainly:
+    // the controls and the figures they produce are the same view, so the
+    // amounts are on screen the entire time the split is being set up. Read
+    // them with the editor open, which is the only state that now exists.
     const collapsed = await readBreakdown(page);
-    ok("the breakdown stays visible with Advanced collapsed", !!collapsed && Object.keys(collapsed.rows).length === 5,
+    ok("the breakdown sits with the controls that produce it", !!collapsed && Object.keys(collapsed.rows).length === 5,
       collapsed ? Object.keys(collapsed.rows).join(", ") : "not found");
     ok("and still shows the double share", collapsed?.rows[names[0]]?.amount === money(84333), collapsed?.rows[names[0]]?.amount);
     ok("and still names the remainder's recipient", (collapsed?.note ?? "").includes("→ You"), collapsed?.note ?? "");
@@ -150,8 +201,8 @@ async function main() {
     const previewed = { ...collapsed!.rows };
 
     // ── save, then compare with the stored rows ─────────────────────────
-    await page.getByRole("button", { name: /^(Save|Add expense)$/ }).last().click();
-    await page.waitForTimeout(2500);
+    await saveComposer(page);
+    await page.waitForTimeout(1500);
     const tx = await prisma.transaction.findFirst({
       where: { userId: user.id, merchant: `ZNawab-${S}` },
       include: { splits: { include: { participant: { select: { displayName: true } } } } },
@@ -172,13 +223,25 @@ async function main() {
 
     // ── the preview reacts to every input ────────────────────────────────
     await openExpenseModal(page);
-    await page.fill('input[placeholder="0"]', "1000");
+    await typeAmount(page, "1000");
     await openAdvanced(page);
-    await page.getByRole("switch").first().click();
+    if ((await page.getByRole("switch").first().getAttribute("aria-checked")) !== "true") {
+      await page.getByRole("switch").first().click();
+      await page.waitForTimeout(250);
+    }
+    for (const b of await sheet(page).locator('button[aria-pressed="true"]').all()) {
+      await b.click();
+      await page.waitForTimeout(80);
+    }
     for (const n of names.slice(0, 2)) await page.getByText(n, { exact: true }).click();
     await page.waitForTimeout(400);
     const before = await readBreakdown(page);
-    await page.fill('input[placeholder="0"]', "2000");
+    // The amount is on the screen behind the sheet, so changing it means
+    // stepping back out to the keypad and returning — which is exactly what a
+    // person does, and a stronger test of the preview surviving the round trip.
+    await closeAdvanced(page);
+    await typeAmount(page, "2000");
+    await openAdvanced(page);
     await page.waitForTimeout(400);
     const after = await readBreakdown(page);
     ok("changing the amount updates the breakdown", before?.total !== after?.total, `${before?.total} → ${after?.total}`);
@@ -190,23 +253,44 @@ async function main() {
 
     await page.getByRole("button", { name: "Percent", exact: true }).click();
     await page.waitForTimeout(300);
-    const pcts = page.locator('input[placeholder="%"]');
+    const pcts = sheet(page).locator('input[placeholder="%"]');
     await pcts.nth(0).fill("40");
-    for (let i = 1; i <= 3; i++) await pcts.nth(i).fill("20");
-    await page.waitForTimeout(500);
+    await pcts.nth(0).blur();
+    for (let i = 1; i <= 3; i++) {
+      await pcts.nth(i).fill("20");
+      // Committing each field is what the editor listens for — redistribution
+      // runs on blur, deliberately, so it cannot move the other boxes while a
+      // number is still being typed.
+      await pcts.nth(i).blur();
+      await page.waitForTimeout(150);
+    }
+    await page.waitForTimeout(600);
     const pct = await readBreakdown(page);
     ok("percent mode shows percentages and rupees", pct?.rows["You"]?.method === "40%" && pct?.rows["You"]?.amount === money(80000), JSON.stringify(pct?.rows["You"]));
 
     // ── an unbalanced split cannot be saved ──────────────────────────────
     await page.getByRole("button", { name: "Exact amounts", exact: true }).click();
     await page.waitForTimeout(300);
-    const exacts = page.locator('input[placeholder="0"]');
+    const exacts = sheet(page).locator('input[placeholder="0"]');
     await exacts.nth(1).fill("9999"); // far more than the ₹2,000 expense
+    await exacts.nth(1).blur();
     await page.waitForTimeout(600);
-    const saveBtn = page.getByRole("button", { name: /^(Save|Add expense)$/ }).last();
-    ok("an over-total split disables Save", await saveBtn.isDisabled());
-    const bad = await readBreakdown(page);
-    ok("and says why", (bad === null) || (bad.total ?? "").length >= 0);
+    // There is no Save button to disable: the composer commits on a swipe and
+    // refuses one it cannot honour. The property is the same and stricter —
+    // the gesture completes, nothing is written, and the screen says why.
+    const badMerchant = `ZOverTotal-${S}`;
+    await closeAdvanced(page);
+    await composer(page).getByRole("button", { name: "Merchant and notes" }).click();
+    await page.waitForTimeout(400);
+    await sheet(page).locator("input").first().fill(badMerchant);
+    await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
+    await page.waitForTimeout(400);
+    await saveComposer(page);
+    const stillOpen = await composer(page).count();
+    const refusal = await composer(page).getByRole("alert").innerText().catch(() => "");
+    const wroteAnyway = await prisma.transaction.findFirst({ where: { userId: user.id, merchant: badMerchant } });
+    ok("an over-total split is refused rather than saved", stillOpen === 1 && !wroteAnyway, `composer open=${stillOpen}, stored=${!!wroteAnyway}`);
+    ok("and says why", refusal.length > 0, refusal.slice(0, 120));
   } catch (e) {
     ok("script error", false, String(e).slice(0, 300));
     await page.screenshot({ path: "e2e-output/split-breakdown-error.png", fullPage: true }).catch(() => {});

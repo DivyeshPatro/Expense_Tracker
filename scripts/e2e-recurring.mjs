@@ -91,27 +91,54 @@ try {
   await page.waitForTimeout(2000);
 
   // ── Create an expense with "Repeat this" ticked ──
+  // The composer, whose Repeat chip opens the SAME RepeatBlock the classic
+  // form carried — createRuleFor reads the same state object on save, so the
+  // rule this produces is the rule that suite asserted on.
   await page.getByRole("button", { name: /Add expense/ }).first().click();
-  const modal = page.getByRole("dialog");
-  await modal.waitFor({ timeout: 30000 });
-  await page.waitForTimeout(2000); // hydration before interacting
+  const composer = page.locator("div[data-composer]");
+  const sheet = () => page.getByRole("dialog").last();
+  await composer.waitFor({ timeout: 30000 });
+  await page.waitForTimeout(1500); // hydration before interacting
 
-  ok("expense form offers a Repeat option", await modal.getByText("Repeat this").isVisible());
+  await composer.getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of "899") {
+    await composer.getByRole("button", { name: ch, exact: true }).click();
+    await page.waitForTimeout(50);
+  }
+  await composer.getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(500);
+  await sheet().locator("input").first().fill(MERCHANT);
+  await sheet().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
 
-  await modal.locator('input[placeholder="0"]').fill("899");
-  await modal.locator('input[placeholder="e.g. Swiggy"]').fill(MERCHANT);
-  await modal.getByText("Repeat this").click();
+  await composer.getByRole("button", { name: /^Repeat:|Choose a repeat/ }).click();
+  await page.waitForTimeout(600);
+  ok("the composer offers a Repeat option", await sheet().getByText("Repeat this").isVisible());
+  await sheet().getByText("Repeat this").click();
   await page.waitForTimeout(700);
-  const repeatText = await modal.innerText();
+  const repeatText = await sheet().innerText();
   ok(
     "the derived next-run date is shown before submitting",
     /the next is scheduled for \d{4}-\d{2}-\d{2}/.test(repeatText),
     (repeatText.match(/the next is scheduled for \d{4}-\d{2}-\d{2}/) ?? [""])[0]
   );
+  await sheet().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
 
-  await modal.getByRole("button", { name: "Add expense", exact: true }).click();
-  // The modal closes only on success, so this is the real "submitted" signal.
-  await modal.waitFor({ state: "detached", timeout: 30000 });
+  // Drag the confirm handle the whole way — the composer has no Save button.
+  const track = composer.locator("div[role='slider']");
+  const box = await track.boundingBox();
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, cy);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, cy);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  // The composer closes only on success, so this is the real "submitted" signal.
+  await composer.waitFor({ state: "detached", timeout: 30000 });
 
   const tx = await waitFor(
     () => prisma.transaction.findFirst({ where: { userId: user.id, merchant: MERCHANT } }),

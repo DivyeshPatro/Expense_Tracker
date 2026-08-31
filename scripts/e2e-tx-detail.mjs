@@ -83,7 +83,8 @@ async function composerSave() {
     await page.waitForTimeout(18);
   }
   await page.mouse.up();
-  await page.waitForTimeout(900);
+  await composer().waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(500);
 }
 const undoBtn = () => page.getByRole("button", { name: "Undo", exact: true });
 
@@ -154,19 +155,20 @@ try {
   // ═══════════ Expense: open, edit, cancel-without-mutation, delete+undo ═══════════
   const before1 = await accountBalance("Cash Wallet");
 
+  // The composer now. The account is a chip rather than a <select>, and it
+  // still has to be pinned or the balance assertion below reads a mystery.
   await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  // Field renders an implicit <label>, so address the control by its label
-  // inside the dialog — "the first <select> on the page" hit the list behind the
-  // modal, and the label alone matches every form that has an ACCOUNT field.
-  // And no .catch(): swallowing this put the expense on whichever account
-  // happened to be first, leaving the balance assertion below reporting a
-  // mystery instead of the reason.
-  await chooseAccount("ACCOUNT", "Cash Wallet");
-  await page.fill('input[placeholder="0"]', "500");
-  await page.fill('input[placeholder="e.g. Swiggy"]', "E2ETxDetailExpense");
-  await page.getByRole("button", { name: "Add expense", exact: true }).click();
-  await page.waitForSelector("text=Expense added");
+  await typeComposerAmount("500");
+  await composer().getByRole("button", { name: /^Payment method:/ }).click();
+  await page.waitForTimeout(500);
+  await page.getByRole("dialog").last().getByRole("button", { name: /Cash Wallet/ }).first().click();
+  await page.waitForTimeout(400);
+  await composer().getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(500);
+  await page.getByRole("dialog").last().locator("input").first().fill("E2ETxDetailExpense");
+  await page.getByRole("dialog").last().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
+  await composerSave();
   await page.waitForTimeout(500);
 
   const afterAdd1 = await accountBalance("Cash Wallet");
@@ -264,9 +266,7 @@ try {
   await page.getByRole("dialog").last().getByRole("button", { name: "Done", exact: true }).click();
   await page.waitForTimeout(400);
   await composerSave();
-  await page.waitForSelector("text=Credit added, text=Income added", { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(900);
-  await page.waitForTimeout(500);
   const afterAddInc = await accountBalance("HDFC Savings");
 
   await openRow("E2ETxDetailIncome");
@@ -328,25 +328,34 @@ try {
   ok("deleting the edited transfer reverses both account effects", cleanFrom === beforeFrom && cleanTo === beforeTo, `${cleanFrom} vs ${beforeFrom}, ${cleanTo} vs ${beforeTo}`);
 
   // ═══════════ Split / shared expense ═══════════
-  await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[placeholder="0"]', "300");
-  await page.fill('input[placeholder="e.g. Swiggy"]', "E2ETxDetailSplit");
-  // A role="switch". The dialog's sticky action bar overlays it, and a forced
-  // click is NOT the answer — force skips the hit check but still dispatches at
-  // the coordinate, so the event lands on the action bar and closes the modal.
-  // Dispatch the click on the element itself, which drives the same handler.
-  await page.locator('[role="switch"]').filter({ hasText: "Split with friends" }).first().dispatchEvent("click");
-  // Scoped to the dialog: a bare text= match also finds occurrences in the list
-  // behind the modal, and waits on whichever it happens to resolve first.
-  // The picker sits below the fold in a tall dialog, so it has to be scrolled
-  // to before it can be interacted with. dispatchEvent for the same reason as
-  // the switch above: the sticky action bar sits over this part of the form.
-  const karan = page.getByRole("dialog").locator("button").filter({ hasText: "Karan" }).first();
+  await page.goto("http://localhost:3000/shared", { waitUntil: "load" });
+  await page.getByRole("button", { name: /Add shared expense/i }).filter({ visible: true }).first().click();
+  await typeComposerAmount("300");
+  await composer().getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(500);
+  await page.getByRole("dialog").last().locator("input").first().fill("E2ETxDetailSplit");
+  await page.getByRole("dialog").last().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
+  // The split editor is one tap in, behind the composer's split line. Karan has
+  // to be among the people splitting for the breakdown assertion below.
+  await composer().getByRole("button", { name: /people ·|Choose who's splitting/ }).click();
+  await page.waitForSelector("text=Split with friends");
+  // Karan and nobody else, so the shares below are arithmetic the assertions
+  // can name: ₹300 between you and Karan is ₹150 each. The Shared entry point
+  // opens with a couple of contacts already ticked, which is right for a person
+  // and useless for a fixed expectation.
+  const sheet = page.getByRole("dialog").last();
+  for (const b of await sheet.locator('button[aria-pressed="true"]').all()) {
+    if (!(await b.innerText()).includes("Karan")) await b.click();
+    await page.waitForTimeout(120);
+  }
+  const karan = sheet.locator("button").filter({ hasText: "Karan" }).first();
   await karan.scrollIntoViewIfNeeded();
-  await karan.dispatchEvent("click");
-  await page.getByRole("button", { name: "Add expense", exact: true }).click();
-  await page.waitForSelector("text=Split expense added");
+  if ((await karan.getAttribute("aria-pressed")) !== "true") await karan.click();
+  await page.waitForTimeout(300);
+  await page.getByRole("dialog").last().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
+  await composerSave();
   await page.waitForTimeout(500);
 
   await openRow("E2ETxDetailSplit");
@@ -357,7 +366,7 @@ try {
   // The split lives behind the composer's group line, and the per-person
   // inputs are the split sheet's own number fields.
   await composer().waitFor({ timeout: 15000 });
-  await composer().getByRole("button", { name: /people ·/ }).click();
+  await composer().getByRole("button", { name: /people ·|Choose who's splitting/ }).click();
   await page.waitForTimeout(700);
   const splitSheet = page.getByRole("dialog").last();
   await splitSheet.getByRole("button", { name: "Exact amounts", exact: true }).click();

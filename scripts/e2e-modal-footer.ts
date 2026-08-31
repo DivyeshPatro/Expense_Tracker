@@ -105,9 +105,12 @@ async function main() {
       await page.waitForTimeout(400);
 
       // ── A form with many fields, which must still scroll under a pinned footer.
-      await page.goto(`${BASE}/lending`, { waitUntil: "load" });
+      //    Transfer rather than "You gave money": lending records itself in the
+      //    full-screen composer now, which has no modal, no scroll body and no
+      //    sticky footer to measure. Transfer is a classic modal and stays one.
+      await page.goto(`${BASE}/accounts`, { waitUntil: "load" });
       await page.waitForTimeout(1200);
-      await openQuickAdd(page, /You gave money/);
+      await openQuickAdd(page, /Transfer money/);
       const long = await measure(page);
       ok(`${w}x${h} long form: the footer clears the last field too`, long !== null && long.gap >= RING, long ? `gap=${long.gap}px` : "not measured");
       if (long?.scrolls) {

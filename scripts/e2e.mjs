@@ -7,6 +7,32 @@ import fs from "node:fs";
 const SHOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "e2e-output");
 fs.mkdirSync(SHOT, { recursive: true });
 const results = [];
+const composer = (page) => page.locator("div[data-composer]");
+/** Tap an amount into the composer's keypad. */
+async function composerType(page, rupees) {
+  await composer(page).waitFor({ timeout: 15000 });
+  await composer(page).getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of String(rupees)) {
+    await composer(page).getByRole("button", { name: ch === "." ? "Decimal point" : ch, exact: true }).click();
+    await page.waitForTimeout(60);
+  }
+}
+/** Drag the confirm handle the whole way — the composer has no Save button. */
+async function composerSave(page) {
+  const track = composer(page).locator("div[role='slider']");
+  const box = await track.boundingBox();
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(900);
+}
+
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
@@ -58,12 +84,19 @@ try {
   // the entry point for splits, paid-by, the date picker and the offline flows,
   // none of which the composer carries. The composer is the FAB's "+ Add", and
   // is driven from the mobile section below.
+  // Every Spending add action opens the full-screen composer now, this button
+  // included — the amount is a keypad and the save is a swipe.
   await page.click("text=＋ Add expense");
-  await page.waitForSelector("text=AMOUNT (₹)");
-  await page.fill('input[placeholder="0"]', "123");
-  await page.click('button:has-text("Add expense") >> nth=-1');
-  await page.waitForSelector("text=Expense added", { timeout: 10000 });
-  ok("add expense happy path with toast", true);
+  await composerType(page, "123");
+  await composerSave(page);
+  // The composer's success state is a full-screen wash that clears itself after
+  // ~900ms, which is too short to wait on reliably — e2e:composer covers the
+  // copy. What matters here is that it committed and closed, so wait for the
+  // screen to go and read the row back off the list.
+  await composer(page).waitFor({ state: "detached", timeout: 15000 });
+  await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
+  await page.waitForSelector("text=₹123", { timeout: 15000 });
+  ok("add expense happy path — the composer commits and the row lands", true);
 
   // ── transactions: open detail, delete + undo (Phase 1 moved delete off the
   // row and into the detail sheet, behind a confirm step) ──
@@ -123,15 +156,21 @@ try {
   // On /shared the quick-add has a single action, so the FAB runs it directly
   // instead of opening a chooser — and its accessible name is that action, not
   // "<section> — quick add". The old literal "Quick add (desktop)" is gone.
+  // Shared opens the composer with the group already in context; the split
+  // editor lives one tap in, behind the group line.
   await page.getByRole("button", { name: /Add shared expense/i }).filter({ visible: true }).first().click();
+  await composerType(page, "999");
+  // With no group chosen the line reads "Choose who's splitting"; inside a
+  // group it reads "N people · …". Either is the way into the split editor.
+  await composer(page).getByRole("button", { name: /people ·|Choose who's splitting/ }).click();
   await page.waitForSelector("text=Split with friends");
-  await page.fill('input[placeholder="0"]', "999");
-  // The split breakdown lists a row per person now instead of a single
-  // "₹333 each" note, so assert the arithmetic rather than the old sentence.
+  // The split breakdown lists a row per person, so assert the arithmetic.
   await page.getByText("₹333").first().waitFor();
   ok("equal split preview shows ₹333 each (you + 2 friends)", true);
-  await page.click('button:has-text("Add expense") >> nth=-1');
-  await page.waitForSelector("text=Split expense added");
+  await page.getByRole("dialog").last().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(400);
+  await composerSave(page);
+  await composer(page).waitFor({ state: "detached", timeout: 15000 });
   ok("split expense committed (DB trigger accepted split sum)", true);
 
   // ── bills: mark paid rolls due date ──

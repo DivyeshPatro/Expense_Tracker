@@ -37,7 +37,16 @@ async function contactPane(page: Page) {
  * page header — they are the context-aware quick-add FAB's job now. Same
  * modal, same fields, same intent; only the entry point moved. Both FABs
  * (mobile bar, desktop bottom-right) are in the DOM at once, so resolve to
- * whichever the current viewport actually shows. */
+ * whichever the current viewport actually shows.
+ *
+ * Recording a loan is the full-screen LendingComposer now: the amount is a
+ * keypad, the contact and the funding source are sheets behind their own
+ * lines, and the commit is a swipe. Same payload, same service, same
+ * validation — the classic modal is still what an EDIT opens, so the edit
+ * flow further down is deliberately untouched. */
+const composer = (page: Page) => page.locator("div[data-lending]");
+const sheet = (page: Page) => page.getByRole("dialog").last();
+
 async function openLendingEntry(page: Page, kind: "GAVE" | "GOT") {
   const fab = page.locator('button[aria-label="Lending — quick add"]:visible').first();
   // The FAB is client-rendered; on a loaded machine `load` can fire well before
@@ -45,7 +54,58 @@ async function openLendingEntry(page: Page, kind: "GAVE" | "GOT") {
   await fab.waitFor({ state: "visible", timeout: 30000 });
   await fab.click();
   await page.getByRole("button", { name: kind === "GAVE" ? /You gave money/ : /You got money/ }).first().click();
-  await page.waitForSelector('input[placeholder="0"]');
+  await composer(page).waitFor({ timeout: 30000 });
+}
+
+/** Tap an amount into the lending composer's keypad. */
+async function typeLendingAmount(page: Page, rupees: string) {
+  await composer(page).getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of rupees) {
+    await composer(page).getByRole("button", { name: ch === "." ? "Decimal point" : ch, exact: true }).click();
+    await page.waitForTimeout(50);
+  }
+}
+
+/** Choose the contact from the line under the amount. */
+async function pickContact(page: Page, name: string) {
+  await composer(page).getByRole("button", { name: /^Contact:|Choose a contact/ }).click();
+  await page.waitForTimeout(500);
+  await sheet(page).getByRole("button", { name: new RegExp(name) }).first().click();
+  await page.waitForTimeout(500);
+}
+
+/** Choose the funding source from its chip. */
+async function pickFundingSource(page: Page, accountLabel: string) {
+  await composer(page).getByRole("button", { name: /^Funding source:|Choose a funding source/ }).click();
+  await page.waitForTimeout(500);
+  await sheet(page).getByLabel("Funding source").selectOption({ label: accountLabel });
+  await page.waitForTimeout(500);
+}
+
+/** Fill the reason, which lives behind "What was it for?". */
+async function setReason(page: Page, reason: string) {
+  await composer(page).getByRole("button", { name: "Reason and notes" }).click();
+  await page.waitForTimeout(400);
+  await sheet(page).locator('input[placeholder="e.g. Dinner, rent help"]').fill(reason);
+  await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(350);
+}
+
+/** Drag the confirm handle the whole way — the composer has no Record button. */
+async function recordLoan(page: Page) {
+  const track = composer(page).locator("div[role='slider']");
+  const box = (await track.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  await composer(page).waitFor({ state: "detached", timeout: 20000 });
+  await page.waitForTimeout(400);
 }
 
 /** A contact's ledger is tabbed (Overview / Transactions / Reports / Activity).
@@ -151,14 +211,12 @@ async function main() {
     const heroLabels = ["You'll get", "You'll pay", "Net"];
     ok("Lending dashboard shows the three summary cards", heroLabels.every((l) => heroBody.includes(l.toUpperCase())), heroLabels.join(" / "));
     await openLendingEntry(page, "GAVE");
-    ok("Lending entry form has no native date input", (await modal(page).locator('input[type="date"]').count()) === 0);
-    await page.fill('input[placeholder="0"]', "2000");
-    await modal(page).locator("select").first().selectOption({ label: "Rohan" });
-    const fundingSelect = modal(page).locator("select").nth(1);
-    await fundingSelect.selectOption({ label: "🏦 HDFC Savings" });
-    await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2ELent-${suffix}`);
-    await page.getByRole("button", { name: "Record You Gave", exact: true }).click();
-    await page.waitForSelector("text=Loan recorded");
+    ok("Lending entry form has no native date input", (await page.locator('input[type="date"]').count()) === 0);
+    await typeLendingAmount(page, "2000");
+    await pickContact(page, "Rohan");
+    await pickFundingSource(page, "🏦 HDFC Savings");
+    await setReason(page, `E2ELent-${suffix}`);
+    await recordLoan(page);
 
     const gaveEntry = await waitForSyncedEntry(`E2ELent-${suffix}`);
     entryIds.push(gaveEntry.id);
@@ -181,11 +239,10 @@ async function main() {
     await rohanRow.click();
     await page.waitForSelector("text=+ You Gave");
     await (await contactPane(page)).getByRole("button", { name: "+ You got", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
-    await page.fill('input[placeholder="0"]', "500");
-    await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2ERepay-${suffix}`);
-    await page.getByRole("button", { name: "Record You Got", exact: true }).click();
-    await page.waitForSelector("text=Repayment recorded");
+    await composer(page).waitFor({ timeout: 30000 });
+    await typeLendingAmount(page, "500");
+    await setReason(page, `E2ERepay-${suffix}`);
+    await recordLoan(page);
 
     const gotEntry = await waitForSyncedEntry(`E2ERepay-${suffix}`);
     entryIds.push(gotEntry.id);
@@ -248,9 +305,9 @@ async function main() {
 
     await rowGroup.getByRole("button", { name: new RegExp(`View details .*E2ELent-${suffix}`) }).click();
     await page.waitForSelector("text=Funding Source", { timeout: 10000 });
-    const sheet = await modal(page).innerText();
-    ok("clicking the row opens that transaction", sheet.includes(`E2ELent-${suffix}`));
-    ok("the sheet carries the funding account the list omits", sheet.includes("HDFC Savings"));
+    const entrySheetText = await modal(page).innerText();
+    ok("clicking the row opens that transaction", entrySheetText.includes(`E2ELent-${suffix}`));
+    ok("the sheet carries the funding account the list omits", entrySheetText.includes("HDFC Savings"));
     ok("opening the transaction did not navigate away from Lending", page.url().includes("/lending"), page.url());
     await page.keyboard.press("Escape").catch(() => {});
     await page.waitForTimeout(400);
@@ -282,11 +339,10 @@ async function main() {
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await context.setOffline(true);
     await openLendingEntry(page, "GAVE");
-    await page.fill('input[placeholder="0"]', "300");
-    await modal(page).locator("select").first().selectOption({ label: "Rohan" });
-    await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2EOffline-${suffix}`);
-    await page.getByRole("button", { name: "Record You Gave", exact: true }).click();
-    await page.waitForSelector("text=Loan recorded");
+    await typeLendingAmount(page, "300");
+    await pickContact(page, "Rohan");
+    await setReason(page, `E2EOffline-${suffix}`);
+    await recordLoan(page);
     const offlineEntryBefore = await prisma.loanEntry.findFirst({ where: { userId: alice.id, reason: `E2EOffline-${suffix}` } });
     ok("a loan entry queued offline does NOT hit the server yet", offlineEntryBefore === null);
     await context.setOffline(false);
@@ -469,11 +525,21 @@ async function main() {
     await page.waitForSelector("text=Contacts", { timeout: 15000 });
     await quickAdd(page);
     await page.getByRole("dialog", { name: "Lending" }).getByRole("button", { name: /You gave money/ }).click();
-    await page.waitForTimeout(900);
-    const pickerOptions = await page.getByRole("dialog").locator("select").first().locator("option").allInnerTexts();
+    await composer(page).waitFor({ timeout: 30000 });
+    // The contact picker is a sheet of buttons behind the line under the
+    // amount, not a <select>.
+    await composer(page).getByRole("button", { name: /^Contact:|Choose a contact/ }).click();
+    await page.waitForTimeout(600);
+    const pickerOptions = await sheet(page).getByRole("button").allInnerTexts();
     ok("the new contact is immediately offered by the loan form", pickerOptions.includes(standaloneName), pickerOptions.join(" / "));
-    await page.getByRole("dialog").getByRole("button", { name: "Close" }).click().catch(() => page.keyboard.press("Escape"));
+    // Escape reaches the sheet and the screen behind it, so one press is
+    // enough — press again only if something is still up.
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(400);
+    if (await composer(page).count()) {
+      await composer(page).getByRole("button", { name: "Close" }).click();
+      await page.waitForTimeout(400);
+    }
 
     // ══════════════ 17. Loan form → "+ New Contact" → auto-selected → saved ══════════════
     // Previously uncovered end to end, and the flow the standalone button
@@ -483,28 +549,29 @@ async function main() {
     await page.getByRole("dialog", { name: "Lending" }).getByRole("button", { name: /You gave money/ }).click();
     await page.waitForTimeout(900);
 
-    const loanDialog = page.getByRole("dialog");
-    await loanDialog.locator("select").first().selectOption({ label: "+ New Contact" });
+    await composer(page).waitFor({ timeout: 30000 });
+    await composer(page).getByRole("button", { name: /^Contact:|Choose a contact/ }).click();
     await page.waitForTimeout(600);
-    ok("choosing + New Contact swaps in the inline contact form", /New contact/.test(await loanDialog.innerText()));
+    await sheet(page).getByRole("button", { name: "+ New contact", exact: true }).click();
+    await page.waitForTimeout(600);
+    ok("choosing + New contact swaps in the inline contact form", /New contact/.test(await sheet(page).innerText()));
 
     const inlineName = `ZInline-${suffix}`;
-    await loanDialog.locator("input.field").first().fill(inlineName);
-    await loanDialog.getByRole("button", { name: /Create & continue/ }).click();
+    await sheet(page).locator("input.field").first().fill(inlineName);
+    await sheet(page).getByRole("button", { name: /Create & continue/ }).click();
     await page.waitForTimeout(1200);
 
     const inlineContact = await prisma.participant.findFirst({ where: { ownerId: alice.id, displayName: inlineName } });
     ok("the inline form creates the contact", inlineContact !== null, inlineContact?.id ?? "not created");
     if (inlineContact) createdParticipantIds.push(inlineContact.id);
 
-    const selectedLabel = await loanDialog.locator("select").first().locator("option:checked").innerText();
-    ok("it returns to the loan form with the new contact already selected", selectedLabel.trim() === inlineName, selectedLabel);
+    // Creating from inside the flow closes the sheet and comes back to the
+    // composer with that person already on the line under the amount.
+    const selectedLabel = (await composer(page).getByRole("button", { name: /^Contact:/ }).getAttribute("aria-label")) ?? "";
+    ok("it returns to the loan form with the new contact already selected", selectedLabel.endsWith(inlineName), selectedLabel);
 
-    await loanDialog.getByLabel("AMOUNT (₹)").fill("450").catch(async () => {
-      await loanDialog.locator('input[inputmode="decimal"], input[placeholder="0"]').first().fill("450");
-    });
-    await loanDialog.getByRole("button", { name: /Record You Gave/ }).click();
-    await page.waitForTimeout(2000);
+    await typeLendingAmount(page, "450");
+    await recordLoan(page);
 
     const inlineEntry = inlineContact
       ? await prisma.loanEntry.findFirst({ where: { userId: alice.id, participantId: inlineContact.id }, orderBy: { createdAt: "desc" } })

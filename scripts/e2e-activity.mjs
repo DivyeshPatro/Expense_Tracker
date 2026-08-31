@@ -73,23 +73,65 @@ try {
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
 
+  // Adding and editing a Debit is the full-screen composer now: the amount is
+  // a keypad, the merchant lives behind its own sheet, and the commit is a
+  // swipe. Every audit assertion below is unchanged — it is the same service
+  // writing the same rows, reached through a different surface.
+  const composer = () => page.locator("div[data-composer]");
+  const sheet = () => page.getByRole("dialog").last();
+
+  async function typeAmount(rupees) {
+    await composer().waitFor({ timeout: 20000 });
+    await composer().getByRole("button", { name: "Clear amount" }).click();
+    for (const ch of String(rupees)) {
+      await composer().getByRole("button", { name: ch === "." ? "Decimal point" : ch, exact: true }).click();
+      await page.waitForTimeout(50);
+    }
+  }
+
+  async function setMerchant(merchant) {
+    await composer().getByRole("button", { name: "Merchant and notes" }).click();
+    await page.waitForTimeout(400);
+    await sheet().locator("input").first().fill(merchant);
+    await sheet().getByRole("button", { name: "Done", exact: true }).click();
+    await page.waitForTimeout(350);
+  }
+
+  async function saveComposer() {
+    const done = sheet().getByRole("button", { name: "Done", exact: true });
+    if (await done.count()) {
+      await done.click();
+      await page.waitForTimeout(350);
+    }
+    const track = composer().locator("div[role='slider']");
+    const box = await track.boundingBox();
+    const y = box.y + box.height / 2;
+    await page.mouse.move(box.x + 30, y);
+    await page.mouse.down();
+    const end = box.x + 30 + (box.width - 62);
+    for (let i = 1; i <= 12; i++) {
+      await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+      await page.waitForTimeout(18);
+    }
+    await page.mouse.up();
+    await composer().waitFor({ state: "detached", timeout: 20000 });
+    await page.waitForTimeout(400);
+  }
+
   // ═══════════ A. drive one mutation per P1 catalog kind ═══════════
 
   // expense create → edit → delete → restore
   await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[placeholder="0"]', "250");
-  await page.fill('input[placeholder="e.g. Swiggy"]', "E2EActivityExp");
-  await page.getByRole("button", { name: "Add expense", exact: true }).click();
-  await page.waitForSelector("text=Expense added");
+  await typeAmount("250");
+  await setMerchant("E2EActivityExp");
+  await saveComposer();
 
   // three rapid edits — a 10-minute chain the timeline must collapse (P2)
   for (const amount of ["350", "360", "370"]) {
     await openRow("E2EActivityExp");
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await page.waitForSelector('input[placeholder="0"]');
-    await page.fill('input[placeholder="0"]', amount);
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await typeAmount(amount);
+    await saveComposer();
     await page.waitForSelector("text=Transaction updated");
     await page.waitForTimeout(300);
   }
@@ -198,15 +240,15 @@ try {
   // P2: expense over the E2EActCatB budget → BUDGET_EXCEEDED notification event
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
   await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[placeholder="0"]', "7000");
-  await page.fill('input[placeholder="e.g. Swiggy"]', "E2EActBudgetHit");
-  await page.locator("select.field").nth(1).selectOption({ label: "📦 E2EActCatB" }).catch(async () => {
-    // category select position varies with account select — try both
-    await page.locator("select.field").nth(0).selectOption({ label: "📦 E2EActCatB" });
-  });
-  await page.getByRole("button", { name: "Add expense", exact: true }).click();
-  await page.waitForSelector("text=Expense added");
+  await typeAmount("7000");
+  await setMerchant("E2EActBudgetHit");
+  // The category is a sheet of buttons now, addressed by name rather than by
+  // whichever <select> happened to come second.
+  await composer().getByRole("button", { name: /^Category:|Choose a category/ }).click();
+  await page.waitForTimeout(600);
+  await sheet().getByRole("button", { name: /E2EActCatB/ }).first().click();
+  await page.waitForTimeout(400);
+  await saveComposer();
   await page.waitForTimeout(500);
 
   // bill create → pay (one-off retires itself)

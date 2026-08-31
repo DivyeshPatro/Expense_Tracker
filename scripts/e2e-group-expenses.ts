@@ -18,22 +18,97 @@ const ok = (name: string, pass: boolean, detail = "") => {
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
 };
 
-/** Scoped to the open modal panel — the transactions list behind it can
- * already contain rows whose text coincidentally matches a friend's name. */
+/** Scoped to the topmost open sheet — the transactions list behind it can
+ * already contain rows whose text coincidentally matches a friend's name.
+ *
+ * Adding an expense is the full-screen composer now, and every field it does
+ * not put on the first screen (split, category, date, merchant) lives in a
+ * BottomSheet opened from a chip. Those sheets ARE role="dialog", and they
+ * render the same SplitEditor / DateField / MerchantInput the classic modal
+ * did — so everything below still drives the real controls, just reached
+ * through the composer rather than through one long scrolling form. */
 function modal(page: Page) {
-  return page.locator(".fixed.inset-0.z-\\[60\\]").first();
+  return page.getByRole("dialog").last();
 }
 
-/** The Split toggle sits inside the collapsed "More details" section, so that
- *  has to be opened first — it was moved there by the Fast Input Flows work and
- *  this script was never re-run against it. */
-async function openSplit(page: Page) {
-  const summary = modal(page).locator("summary", { hasText: "More details" }).first();
-  if (await summary.count()) {
-    const isOpen = await modal(page).locator("details").first().evaluate((d) => (d as HTMLDetailsElement).open);
-    if (!isOpen) await summary.click();
+/** The composer itself. Present only while it is open. */
+const composer = (page: Page) => page.locator("div[data-composer]");
+
+const KEY_ARIA: Record<string, string> = { ".": "Decimal point" };
+
+/** Open the composer from the Spending screen and tap in an amount. */
+async function openComposer(page: Page, amount: string) {
+  await page.click('button:has-text("＋ Add expense")');
+  await composer(page).waitFor({ timeout: 20000 });
+  await composer(page).getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of amount) {
+    await composer(page).getByRole("button", { name: KEY_ARIA[ch] ?? ch, exact: true }).click();
+    await page.waitForTimeout(50);
   }
-  await modal(page).getByText("👥 Split with friends").first().click();
+}
+
+/** The merchant lives behind the "Who's it for?" sheet. */
+async function setMerchant(page: Page, merchant: string) {
+  await composer(page).getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(400);
+  await modal(page).locator("input").first().fill(merchant);
+  await modal(page).getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(300);
+}
+
+/** Open one of the composer's chips by its accessible name. */
+async function openChip(page: Page, name: RegExp) {
+  await composer(page).getByRole("button", { name }).click();
+  await page.waitForTimeout(500);
+}
+
+/** Close whichever sheet is on top. */
+async function sheetDone(page: Page) {
+  await modal(page).getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(350);
+}
+
+/** Drag the confirm handle the whole way — the composer has no Save button. */
+async function saveComposer(page: Page) {
+  // A sheet left open sits over the swipe track. Closing it is what a person
+  // does too — the sheet's own Done is the way back to the screen.
+  while (await page.getByRole("dialog").count()) {
+    const done = page.getByRole("dialog").last().getByRole("button", { name: "Done", exact: true });
+    if (!(await done.count())) break;
+    await done.click();
+    await page.waitForTimeout(350);
+  }
+  const track = composer(page).locator("div[role='slider']");
+  const box = (await track.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  await composer(page).waitFor({ state: "detached", timeout: 20000 });
+  await page.waitForTimeout(300);
+}
+
+/** Open the split sheet and make sure the split itself is switched on.
+ *  The line reads "Choose who's splitting" until somebody is chosen and
+ *  "N people · <mode>" after — either way it is the way in. */
+async function openSplit(page: Page) {
+  await openChip(page, /people ·|Choose who's splitting|Split with someone/);
+  const sw = modal(page).locator('[role="switch"]').first();
+  if ((await sw.getAttribute("aria-checked")) !== "true") {
+    await modal(page).getByText("👥 Split with friends").first().click();
+    await page.waitForTimeout(250);
+  }
+  // Whoever the entry point pre-ticked is not what these cases are about —
+  // each one names its own people, so start from nobody.
+  for (const b of await modal(page).locator('button[aria-pressed="true"]').all()) {
+    await b.click();
+    await page.waitForTimeout(80);
+  }
 }
 
 async function toggleParticipant(page: Page, name: string) {
@@ -44,27 +119,19 @@ async function removeParticipant(page: Page, name: string) {
   await modal(page).getByRole("button", { name: `Remove ${name} from the split` }).click();
 }
 
-async function openAdvanced(page: Page) {
-  const summary = modal(page).locator("summary", { hasText: "More details" }).first();
-  if (await summary.count()) {
-    const isOpen = await modal(page).locator("details").first().evaluate((d) => (d as HTMLDetailsElement).open);
-    if (!isOpen) await summary.click();
-  }
-}
-
-async function selectByOptionText(page: Page, optionText: string): Promise<boolean> {
-  await openAdvanced(page);
-  const selects = modal(page).locator("select");
-  const count = await selects.count();
-  for (let i = 0; i < count; i++) {
-    const opts = await selects.nth(i).locator("option").allTextContents();
-    const match = opts.find((o) => o.includes(optionText));
-    if (match) {
-      await selects.nth(i).selectOption({ label: match });
-      return true;
-    }
-  }
-  return false;
+/** Choose a group by name from the composer's group sheet.
+ *  The way in is the Personal|Group segmented control above the amount. */
+async function selectGroup(page: Page, groupName: string): Promise<boolean> {
+  await composer(page).getByRole("group", { name: "Personal or group" }).getByRole("button").last().click();
+  await page.waitForTimeout(500);
+  const row = modal(page).getByRole("button", { name: new RegExp(groupName) }).first();
+  if (!(await row.count())) return false;
+  await row.click();
+  await page.waitForTimeout(700);
+  // Choosing a group that has members opens the split sheet straight away,
+  // which is right for a person and in the way of a category assertion.
+  if (await modal(page).getByRole("button", { name: "Done", exact: true }).count()) await sheetDone(page);
+  return true;
 }
 
 /** Fills the EXACT-mode per-person input for `name`, found by locating that
@@ -140,15 +207,12 @@ async function main() {
 
     // ═══════════════════════ 1. Paid By defaults to Me ═══════════════════════
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "300");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GEDefault-${suffix}`);
+    await openComposer(page, "300");
+    await setMerchant(page, `GEDefault-${suffix}`);
     await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Split expense added");
+    await saveComposer(page);
     const txDefault = await waitForSyncedTx(`GEDefault-${suffix}`);
     txIds.push(txDefault.id);
     ok("Paid By defaults to Me (paidByParticipantId null) when left untouched", txDefault.paidByParticipantId === null);
@@ -158,10 +222,8 @@ async function main() {
     const rohanBefore = beforeNets.find((n) => n.id === rohan.id)?.net ?? 0;
 
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "2000");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GEPaidByRohan-${suffix}`);
+    await openComposer(page, "2000");
+    await setMerchant(page, `GEPaidByRohan-${suffix}`);
     await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
@@ -169,8 +231,7 @@ async function main() {
     await page.locator('[aria-label="Paid by"]').selectOption({ label: "Rohan" });
     const bodyBeforeSubmit = await modal(page).innerText();
     ok('the Split Between row for the selected payer shows a "paid" badge', /Rohan[\s\S]{0,10}·\s*paid/.test(bodyBeforeSubmit));
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Split expense added");
+    await saveComposer(page);
 
     const txPaidByRohan = await waitForSyncedTx(`GEPaidByRohan-${suffix}`);
     txIds.push(txPaidByRohan.id);
@@ -189,32 +250,26 @@ async function main() {
 
     // ═══════════════════════ 3. Split modes: equal / exact / two-person / multi-person ═══════════════════════
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "900");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GEEqualTwo-${suffix}`);
+    await openComposer(page, "900");
+    await setMerchant(page, `GEEqualTwo-${suffix}`);
     await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Split expense added");
+    await saveComposer(page);
     const txEqualTwo = await waitForSyncedTx(`GEEqualTwo-${suffix}`);
     txIds.push(txEqualTwo.id);
     const rohanShareEqualTwo = txEqualTwo.splits.find((s) => s.participantId === rohan.id)?.owedAmount;
     ok("equal split, two-person (you + Rohan): ₹900 → ₹450 each", Number(rohanShareEqualTwo) === 45000, String(rohanShareEqualTwo));
 
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "900");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GEEqualMulti-${suffix}`);
+    await openComposer(page, "900");
+    await setMerchant(page, `GEEqualMulti-${suffix}`);
     await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await toggleParticipant(page, "Karan");
     await toggleParticipant(page, "Priya");
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Split expense added");
+    await saveComposer(page);
     const txEqualMulti = await waitForSyncedTx(`GEEqualMulti-${suffix}`);
     txIds.push(txEqualMulti.id);
     ok(
@@ -224,10 +279,8 @@ async function main() {
     );
 
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "1000");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GEExact-${suffix}`);
+    await openComposer(page, "1000");
+    await setMerchant(page, `GEExact-${suffix}`);
     await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
@@ -235,8 +288,7 @@ async function main() {
     await page.getByRole("button", { name: "Exact amounts", exact: true }).click();
     await fillExactAmount(page, "Rohan", "300");
     await fillExactAmount(page, "Karan", "200");
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Split expense added");
+    await saveComposer(page);
     const txExact = await waitForSyncedTx(`GEExact-${suffix}`);
     txIds.push(txExact.id);
     const rohanExact = Number(txExact.splits.find((s) => s.participantId === rohan.id)?.owedAmount);
@@ -250,24 +302,25 @@ async function main() {
 
     // ═══════════════════════ 4. Remove participant + guard the last one ═══════════════════════
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "600");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GERemove-${suffix}`);
+    await openComposer(page, "600");
+    await setMerchant(page, `GERemove-${suffix}`);
     await openSplit(page);
     await page.waitForSelector("text=Split between");
     await toggleParticipant(page, "Rohan");
     await toggleParticipant(page, "Karan");
-    const infoWithTwo = await modal(page).locator("text=/each · you \\+ 2 friends/").isVisible();
-    ok("split info shows 2 friends before removal", infoWithTwo);
+    const breakdownWithTwo = await modal(page).innerText();
+    ok("the split breakdown shows ₹200 each across you + 2 friends", breakdownWithTwo.includes("₹200"), breakdownWithTwo.slice(0, 160).replace(/\n/g, " | "));
     await removeParticipant(page, "Karan");
-    await page.waitForTimeout(150);
-    const infoWithOne = await modal(page).locator("text=/each · you \\+ 1 friend$/").isVisible();
-    ok("removing a participant immediately updates the split math (2 friends -> 1)", infoWithOne);
+    await page.waitForTimeout(400);
+    const breakdownWithOne = await modal(page).innerText();
+    ok(
+      "removing a participant immediately updates the split math (₹200 each -> ₹300 each)",
+      breakdownWithOne.includes("₹300") && !(await modal(page).getByRole("button", { name: "Remove Karan from the split" }).count()),
+      breakdownWithOne.slice(0, 160).replace(/\n/g, " | ")
+    );
     const lastRemoveBtn = modal(page).getByRole("button", { name: "Remove Rohan from the split" });
     ok("the ✕ on the LAST remaining participant is disabled (can't remove down to zero)", await lastRemoveBtn.isDisabled());
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Split expense added");
+    await saveComposer(page);
     const txRemove = await waitForSyncedTx(`GERemove-${suffix}`);
     txIds.push(txRemove.id);
     ok(
@@ -277,20 +330,39 @@ async function main() {
 
     // ═══════════════════════ 5. Personal (non-group) expense flow is unchanged ═══════════════════════
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "150");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GEPersonal-${suffix}`);
-    const personalCatSelectCount = await modal(page).locator("select").count();
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Expense added");
+    await openComposer(page, "150");
+    await setMerchant(page, `GEPersonal-${suffix}`);
+    await openChip(page, /^Category:|Choose a category/);
+    const personalCategoryBody = await modal(page).innerText();
+    await modal(page).getByRole("button", { name: /Groceries|Grocery/ }).first().click();
+    await page.waitForTimeout(400);
+    // The composer has no <select> at all — group and category are sheets of
+    // buttons. What the old count was really asserting is that a personal
+    // expense engages no group-category machinery, so assert that directly:
+    // the group line still says Personal.
+    // "Personal" is the pressed half of the segmented control while no group
+    // is in play — that is what "engages no group-category machinery" means
+    // on this screen.
+    const personalPressed = await composer(page)
+      .getByRole("group", { name: "Personal or group" })
+      .getByRole("button")
+      .first()
+      .getAttribute("aria-pressed");
+    await saveComposer(page);
     const txPersonal = await waitForSyncedTx(`GEPersonal-${suffix}`);
     txIds.push(txPersonal.id);
-    ok("a personal (no group) expense still gets a categoryId from the personal list", !!txPersonal.categoryId);
+    ok("a personal (no group) expense takes its category from the personal list", !!txPersonal.categoryId);
+    ok(
+      "the personal list is the one on offer, not a group's",
+      personalCategoryBody.includes("Fuel") || personalCategoryBody.includes("Insurance"),
+      personalCategoryBody.slice(0, 120).replace(/\n/g, " | ")
+    );
     ok("a personal expense never gets a groupId", txPersonal.groupId === null);
-    // ACCOUNT + GROUP. CATEGORY is a CategoryPicker, not a <select>, since the
-    // Fast Input Flows work — this assertion still expected the old 3.
-    ok("a personal expense's form engages no group-category machinery (account+group selects only)", personalCatSelectCount === 2, String(personalCatSelectCount));
+    ok(
+      "a personal expense's form engages no group-category machinery (no group is in play)",
+      personalPressed === "true",
+      String(personalPressed)
+    );
 
     // ═══════════════════════ 6. Group categories: isolation + persistence + "+ Create New Category" ═══════════════════════
     const groupName = `GEFlat-${suffix}`;
@@ -307,31 +379,36 @@ async function main() {
     );
 
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "500");
-    await page.fill('input[placeholder="e.g. Swiggy"]', `GECatTest-${suffix}`);
-    await selectByOptionText(page, groupName);
-    // GroupCategorySelect renders "Uncategorized" + "+ Create New Category"
-    // immediately on mount and fills in real categories only once its fetch
-    // resolves — wait for an actual seeded category, not the static chrome.
+    await openComposer(page, "500");
+    await setMerchant(page, `GECatTest-${suffix}`);
+    await selectGroup(page, groupName);
+    // The category sheet is filled from the same listGroupCategoriesAction the
+    // classic select used, so it too shows nothing real until the fetch lands.
+    await openChip(page, /^Category:|Choose a category/);
     await waitForModalText(page, "Food");
-    const groupDropdownBody = await modal(page).innerText();
+    const groupCategoryBody = await modal(page).innerText();
     ok(
-      "switching to a group swaps the category dropdown to the group's own list (personal categories like Electricity/Fuel disappear)",
-      groupDropdownBody.includes("Food") && !groupDropdownBody.includes("Fuel") && !groupDropdownBody.includes("Insurance")
+      "switching to a group swaps the category list to the group's own (personal categories like Electricity/Fuel disappear)",
+      groupCategoryBody.includes("Food") && !groupCategoryBody.includes("Fuel") && !groupCategoryBody.includes("Insurance")
     );
-    const categorySelect = modal(page).locator('div.label-caps:text-is("CATEGORY") + select');
-    await categorySelect.selectOption({ label: "+ Create New Category" });
+    // Naming a category while recording the expense that needs it: the classic
+    // form's "+ Create New Category", in the composer's sheet.
+    await modal(page).getByRole("button", { name: /New category/ }).click();
     await page.waitForSelector('input[placeholder="New category name"]');
     await page.fill('input[placeholder="New category name"]', `Pool Maintenance ${suffix}`);
     await page.getByRole("button", { name: "Add", exact: true }).click();
-    await page.waitForTimeout(600);
-    const newCatSelected = await categorySelect.inputValue();
+    await page.waitForTimeout(900);
     const newCat = await prisma.category.findFirstOrThrow({ where: { groupId: flat.id, name: `Pool Maintenance ${suffix}` } });
-    ok('"+ Create New Category" creates it scoped to the group and auto-selects it', newCatSelected === newCat.id);
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Expense added");
+    const catChipLabel = await composer(page)
+      .getByRole("button", { name: /^Category:|Choose a category/ })
+      .first()
+      .getAttribute("aria-label");
+    ok(
+      '"+ New category" creates it scoped to the group and auto-selects it',
+      (catChipLabel ?? "").includes(`Pool Maintenance ${suffix}`),
+      String(catChipLabel)
+    );
+    await saveComposer(page);
     const txGroupCat = await waitForSyncedTx(`GECatTest-${suffix}`);
     txIds.push(txGroupCat.id);
     ok("the custom group category was actually applied to the transaction", txGroupCat.categoryId === newCat.id);
@@ -364,17 +441,19 @@ async function main() {
 
     // ═══════════════════════ 7. Date picker ═══════════════════════
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await openAdvanced(page); // DATE lives inside "More details" as well
+    await openComposer(page, "100");
+    // The composer's date chip opens a sheet holding the SAME DateField, whose
+    // own trigger then opens the themed calendar.
+    await openChip(page, /^Date:/);
     const dateTrigger = modal(page).getByRole("button", { name: /\d{4}$/ }); // "17 Jul 2026"-shaped trigger
     await dateTrigger.click();
     await page.waitForSelector('[role="dialog"][aria-label="Choose date"]');
-    ok("no native browser date input is used anywhere in the form", (await modal(page).locator('input[type="date"]').count()) === 0);
+    ok("no native browser date input is used anywhere in the form", (await page.locator('input[type="date"]').count()) === 0);
     await page.locator('[aria-label="Month"]').selectOption({ label: "Jan" });
     await page.waitForTimeout(100);
     const dayCell = page.locator('[data-day="15"]').first();
     await dayCell.click();
+    await page.waitForTimeout(250);
     const dateNowShown = await dateTrigger.innerText();
     ok("picking a day in the themed calendar updates the field (month + day applied)", dateNowShown.includes("Jan") && dateNowShown.includes("15"));
 
@@ -389,20 +468,24 @@ async function main() {
     // page.goto (not Escape — there's no global Escape-to-close for this
     // modal, only for the mobile sheets) guarantees a clean, un-obstructed
     // reload before each new modal is opened.
+    // Same component reused across entry surfaces: a Credit in the composer,
+    // and a Transfer in the classic modal it deliberately still uses.
     await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button[aria-label="Quick add (desktop)"]');
-    await page.getByRole("button", { name: "💰 Income" }).click();
-    await page.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
-    await openAdvanced(page);
+    await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+    await page.getByRole("button", { name: /Add income/i }).filter({ visible: true }).first().click();
+    await composer(page).waitFor({ timeout: 20000 });
+    await composer(page).getByRole("button", { name: /Credit/ }).click();
+    await page.waitForTimeout(300);
+    await openChip(page, /^Date:/);
     const incomeDateTrigger = modal(page).getByRole("button", { name: /\d{4}$/ });
     ok(
-      "Add Income uses the same themed DateField, not a native picker",
-      (await modal(page).locator('input[type="date"]').count()) === 0 && (await incomeDateTrigger.count()) >= 1
+      "a Credit uses the same themed DateField, not a native picker",
+      (await page.locator('input[type="date"]').count()) === 0 && (await incomeDateTrigger.count()) >= 1
     );
 
-    await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await page.click('button[aria-label="Quick add (desktop)"]');
-    await page.getByRole("button", { name: "⇄ Transfer" }).click();
+    await page.goto(`${BASE}/accounts`, { waitUntil: "load" });
+    await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+    await page.getByRole("button", { name: /Transfer money/i }).filter({ visible: true }).first().click();
     await page.waitForSelector('input[placeholder="0"]');
     ok("Add Transfer uses the same themed DateField, not a native picker", (await modal(page).locator('input[type="date"]').count()) === 0);
   } catch (e) {

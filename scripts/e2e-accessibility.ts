@@ -92,24 +92,41 @@ async function main() {
     });
     ok("first Tab reveals a working 'Skip to content' link", /skip to content/i.test(skip.text ?? "") && skip.href === "#main-content" && skip.visible, JSON.stringify(skip));
 
-    // Modal focus trap + Escape: open Add expense, Tab many times, focus must
-    // never leave the dialog; Escape closes it.
+    // Focus trap + Escape on the overlay that covers the app.
+    //
+    // Adding an expense is the full-screen composer now, which is deliberately
+    // NOT role="dialog" — it is a screen, not a sheet. The obligation is the
+    // same either way and is what this measures: while it is up, Tab must stay
+    // inside it and Escape must close it. Anything else strands a keyboard
+    // user on a sidebar they cannot see.
     await dp.getByRole("button", { name: "＋ Add expense" }).click();
-    await dp.waitForSelector('[role="dialog"]', { timeout: 8000 });
+    await dp.waitForSelector("div[data-composer]", { timeout: 8000 });
     await dp.waitForTimeout(400);
     let trapped = true;
     for (let i = 0; i < 30; i++) {
       await dp.keyboard.press("Tab");
       const inside = await dp.evaluate(() => {
-        const dlg = document.querySelector('[role="dialog"]');
-        return !!(dlg && document.activeElement && dlg.contains(document.activeElement));
+        const screen = document.querySelector("div[data-composer]")?.parentElement ?? null;
+        return !!(screen && document.activeElement && screen.contains(document.activeElement));
       });
       if (!inside) { trapped = false; break; }
     }
-    ok("modal traps Tab focus within the dialog", trapped);
+    ok("the full-screen composer traps Tab focus within itself", trapped);
     await dp.keyboard.press("Escape");
     await dp.waitForTimeout(300);
-    ok("modal closes on Escape", (await dp.locator('[role="dialog"]').count()) === 0);
+    ok("the composer closes on Escape", (await dp.locator("div[data-composer]").count()) === 0);
+
+    // The sheets it opens are still real dialogs, and still have to behave.
+    await dp.getByRole("button", { name: "＋ Add expense" }).click();
+    await dp.waitForSelector("div[data-composer]", { timeout: 8000 });
+    await dp.getByRole("button", { name: /^Category:|Choose a category/ }).click();
+    await dp.waitForSelector('[role="dialog"]', { timeout: 8000 });
+    ok("a picker opened from the composer is a real dialog", (await dp.locator('[role="dialog"]').count()) >= 1);
+    await dp.keyboard.press("Escape");
+    await dp.waitForTimeout(300);
+    ok("that dialog closes on Escape", (await dp.locator('[role="dialog"]').count()) === 0);
+    await dp.keyboard.press("Escape");
+    await dp.waitForTimeout(300);
   } finally {
     await desktop.close();
   }

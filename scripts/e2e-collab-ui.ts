@@ -63,25 +63,75 @@ async function newSession(browser: Browser, cookies: { name: string; value: stri
  * `optionText` — Field doesn't bind its label to the <select> via for/id, so
  * this is the only reliable way to find the right one (borrowed from
  * e2e-offline-p3.ts, same reasoning). */
-async function selectByOptionText(page: Page, optionText: string): Promise<boolean> {
-  const selects = page.locator("select");
-  const count = await selects.count();
-  for (let i = 0; i < count; i++) {
-    const opts = await selects.nth(i).locator("option").allTextContents();
-    const match = opts.find((o) => o.includes(optionText));
-    if (match) {
-      // force: the modal's sticky action bar overlays the centre of these
-      // controls, so Playwright's actionability check never passes even though
-      // the select is visible and enabled. Selecting an option on a native
-      // <select> sets the value and fires change without a pointer event, so
-      // this drives the same code path a user does. (A forced CLICK would not
-      // be safe — it still dispatches at the coordinate and hits the bar.)
-      await selects.nth(i).selectOption({ label: match }, { force: true });
-      return true;
-    }
+// Creating an expense is the full-screen composer now. A cross-person EDIT is
+// not: that still opens CollaborativeEditForm, so the edit assertions below
+// drive the same classic form they always did.
+const composer = (page: Page) => page.locator("div[data-composer]");
+const topSheet = (page: Page) => page.getByRole("dialog").last();
+
+/** Open the composer from the Spending screen and tap in an amount. */
+async function openComposer(page: Page, rupees: string) {
+  await page.click('button:has-text("＋ Add expense")');
+  await composer(page).waitFor({ timeout: 30000 });
+  await composer(page).getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of rupees) {
+    await composer(page).getByRole("button", { name: ch, exact: true }).click();
+    await page.waitForTimeout(50);
   }
-  return false;
 }
+
+/** The merchant lives behind the composer's "Who's it for?" line. */
+async function setMerchant(page: Page, merchant: string) {
+  await composer(page).getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(400);
+  await topSheet(page).locator("input").first().fill(merchant);
+  await topSheet(page).getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(350);
+}
+
+/** Close whichever sheet is on top, if one is. */
+async function sheetDone(page: Page) {
+  const done = topSheet(page).getByRole("button", { name: "Done", exact: true });
+  if (await done.count()) {
+    await done.click();
+    await page.waitForTimeout(400);
+  }
+}
+
+/** Drag the confirm handle the whole way — the composer has no Save button. */
+async function saveComposer(page: Page) {
+  await sheetDone(page);
+  const track = composer(page).locator("div[role='slider']");
+  const box = (await track.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  await composer(page).waitFor({ state: "detached", timeout: 30000 });
+  await page.waitForTimeout(400);
+}
+
+/** Choose a group in the composer, via the Personal|Group segmented control.
+ *  Returns false when the group is not on offer at all. */
+async function selectComposerGroup(page: Page, groupName: string): Promise<boolean> {
+  // The second half of the Personal|Group control. Its LABEL is the chosen
+  // group's name once one is in play — including when the split's own members
+  // implied it — so address the control, not the wording.
+  await composer(page).getByRole("group", { name: "Personal or group" }).getByRole("button").last().click();
+  await page.waitForTimeout(600);
+  const row = topSheet(page).getByRole("button", { name: new RegExp(groupName) }).first();
+  if (!(await row.count())) return false;
+  await row.click();
+  await page.waitForTimeout(700);
+  await sheetDone(page);
+  return true;
+}
+
 
 async function openTxByDeepLink(page: Page, txId: string) {
   await page.goto(`${BASE}/transactions?tx=${txId}`, { waitUntil: "load" });
@@ -193,15 +243,11 @@ async function main() {
 
     // Alice (OWNER) creates a group expense through the real Add Expense form
     await alicePage.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await alicePage.click('button:has-text("＋ Add expense")');
-    await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await alicePage.fill('input[placeholder="0"]', "800");
-    await alicePage.fill('input[placeholder="e.g. Swiggy"]', `UIGroupRent-${suffix}`);
-    const aliceSawGroupField = await selectByOptionText(alicePage, groupName);
-    ok("Alice's Add Expense form shows the GROUP field once she belongs to a group", aliceSawGroupField);
-    await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
-    await alicePage.waitForSelector("text=Expense added");
-    await alicePage.waitForTimeout(500);
+    await openComposer(alicePage, "800");
+    await setMerchant(alicePage, `UIGroupRent-${suffix}`);
+    const aliceSawGroupField = await selectComposerGroup(alicePage, groupName);
+    ok("Alice's Add Expense flow offers the group once she belongs to one", aliceSawGroupField);
+    await saveComposer(alicePage);
     const rentTx = await txByMerchant(`UIGroupRent-${suffix}`);
     txIds.push(rentTx.id);
     ok(
@@ -212,15 +258,11 @@ async function main() {
     // Bob (MEMBER) creates his OWN transaction tagged with the same group —
     // positive path: "Group create works for authorized members"
     await bobPage.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await bobPage.click('button:has-text("＋ Add expense")');
-    await bobPage.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await bobPage.fill('input[placeholder="0"]', "300");
-    await bobPage.fill('input[placeholder="e.g. Swiggy"]', `UIBobOwn-${suffix}`);
-    const bobSawGroupField = await selectByOptionText(bobPage, groupName);
-    ok("a MEMBER's own Add Expense form also shows the shared group (not just the owner's)", bobSawGroupField);
-    await bobPage.getByRole("button", { name: "Add expense", exact: true }).click();
-    await bobPage.waitForSelector("text=Expense added");
-    await bobPage.waitForTimeout(500);
+    await openComposer(bobPage, "300");
+    await setMerchant(bobPage, `UIBobOwn-${suffix}`);
+    const bobSawGroupField = await selectComposerGroup(bobPage, groupName);
+    ok("a MEMBER's own Add Expense flow also offers the shared group (not just the owner's)", bobSawGroupField);
+    await saveComposer(bobPage);
     const bobTx = await txByMerchant(`UIBobOwn-${suffix}`);
     txIds.push(bobTx.id);
     ok(
@@ -231,29 +273,32 @@ async function main() {
     // Alice creates a split group expense (with Karan) — used below to prove
     // the amount lock + split-preservation design decision (S4.4)
     await alicePage.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await alicePage.click('button:has-text("＋ Add expense")');
-    await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await alicePage.fill('input[placeholder="0"]', "600");
-    await alicePage.fill('input[placeholder="e.g. Swiggy"]', `UIGroupSplit-${suffix}`);
-    // A role="switch" that the dialog's sticky action bar overlays.
-    // dispatchEvent, not force: a forced click still fires at the coordinate,
-    // so it lands on the bar and closes the modal instead of toggling the
-    // switch. Dispatching on the element drives the same handler.
-    await alicePage.locator('[role="switch"]').filter({ hasText: "Split with friends" }).first().dispatchEvent("click");
-    await alicePage.waitForSelector("text=Karan");
-    // scoped to the open modal — the transactions list behind it can already
-    // have plenty of unrelated historical rows whose aria-label also mentions
-    // "Karan" (e.g. "...paid by Karan..."), which an unscoped locator matches first
-    // The picker sits below the fold in a tall dialog, so it must be scrolled
-    // to first, and the sticky action bar covers this part of the form — hence
-    // dispatchEvent rather than click.
-    const karanChip = alicePage.locator(".fixed.inset-0.z-\\[60\\] button", { hasText: "Karan" }).first();
+    await openComposer(alicePage, "600");
+    await setMerchant(alicePage, `UIGroupSplit-${suffix}`);
+    // People first, then the group. Choosing the group first narrows the
+    // picker to that group's roster — which is the point of the coupling, and
+    // means Karan (not a member) would not be on offer.
+    await composer(alicePage).getByRole("button", { name: /people ·|Choose who's splitting|Split with someone/ }).click();
+    const splitSwitch = topSheet(alicePage).locator('[role="switch"]').first();
+    if ((await splitSwitch.getAttribute("aria-checked")) !== "true") {
+      await topSheet(alicePage).getByText("👥 Split with friends").first().click();
+      await alicePage.waitForTimeout(300);
+    }
+    await alicePage.waitForSelector("text=Split between");
+    // Karan and nobody else, so the share below is arithmetic this suite can
+    // name: ₹600 between Alice and Karan is ₹300 each.
+    const splitSheet = topSheet(alicePage);
+    for (const b of await splitSheet.locator('button[aria-pressed="true"]').all()) {
+      if (!(await b.innerText()).includes("Karan")) await b.click();
+      await alicePage.waitForTimeout(100);
+    }
+    const karanChip = splitSheet.locator("button", { hasText: "Karan" }).first();
     await karanChip.scrollIntoViewIfNeeded();
-    await karanChip.dispatchEvent("click");
-    await selectByOptionText(alicePage, groupName);
-    await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
-    await alicePage.waitForSelector("text=Split expense added");
-    await alicePage.waitForTimeout(500);
+    if ((await karanChip.getAttribute("aria-pressed")) !== "true") await karanChip.click();
+    await alicePage.waitForTimeout(400);
+    await sheetDone(alicePage);
+    await selectComposerGroup(alicePage, groupName);
+    await saveComposer(alicePage);
     const splitTx = await txByMerchant(`UIGroupSplit-${suffix}`);
     txIds.push(splitTx.id);
 
@@ -379,14 +424,10 @@ async function main() {
     // ═══════════════════════ solo transactions unchanged (regression) ═══════════════════════
 
     await alicePage.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
-    await alicePage.click('button:has-text("＋ Add expense")');
-    await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await alicePage.fill('input[placeholder="0"]', "150");
-    await alicePage.fill('input[placeholder="e.g. Swiggy"]', `UISoloRegression-${suffix}`);
-    // deliberately leave GROUP at "Personal"
-    await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
-    await alicePage.waitForSelector("text=Expense added");
-    await alicePage.waitForTimeout(500);
+    await openComposer(alicePage, "150");
+    await setMerchant(alicePage, `UISoloRegression-${suffix}`);
+    // deliberately leave the group at "Personal"
+    await saveComposer(alicePage);
     const soloTx = await txByMerchant(`UISoloRegression-${suffix}`);
     txIds.push(soloTx.id);
 

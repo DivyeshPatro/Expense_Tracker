@@ -165,13 +165,20 @@ try {
   await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(2500);
   await page.getByRole("button", { name: /Add expense/ }).first().click();
-  const modal = page.getByRole("dialog");
-  await modal.waitFor({ timeout: 30000 });
-  await page.waitForTimeout(1500);
-  const options = await modal.locator("select").first().innerText();
-  ok("an archived account disappears from the account picker", !options.includes("HDFC Savings"));
-  await modal.getByRole("button", { name: "Close" }).click();
-  await page.waitForTimeout(500);
+  // The account picker moved into the composer's payment sheet — a list of
+  // buttons rather than a <select>, reached from the "Payment method" chip.
+  const composer = page.locator("div[data-composer]");
+  await composer.waitFor({ timeout: 30000 });
+  await composer.getByRole("button", { name: /^Payment method:|Choose a payment method/ }).click();
+  await page.waitForTimeout(800);
+  const options = await page.getByRole("dialog").last().innerText();
+  ok("an archived account disappears from the account picker", !options.includes("HDFC Savings"), options);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+  if (await composer.count()) {
+    await composer.getByRole("button", { name: "Close" }).click();
+    await page.waitForTimeout(500);
+  }
 
   // ── Still reachable: history and restore ──
   await gotoAccounts();

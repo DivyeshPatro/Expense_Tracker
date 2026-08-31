@@ -32,6 +32,13 @@ async function contactPane(page: Page) {
  * header — the context-aware quick-add FAB opens the same modal now. Both FABs
  * (mobile bar, desktop bottom-right) are in the DOM at once, so resolve to
  * whichever the current viewport actually shows. */
+// Recording a repayment is the full-screen LendingComposer now — the keypad
+// for the amount, sheets for the contact and the allocation, a swipe to
+// commit. LoanAllocationPicker is the SAME component the classic form used, so
+// every FIFO/manual assertion below still drives the real allocator.
+const composer = (page: Page) => page.locator("div[data-lending]");
+const sheet = (page: Page) => page.getByRole("dialog").last();
+
 async function openLendingEntry(page: Page, kind: "GAVE" | "GOT") {
   const fab = page.locator('button[aria-label="Lending — quick add"]:visible').first();
   // The FAB is client-rendered; on a loaded machine `load` can fire well before
@@ -39,7 +46,66 @@ async function openLendingEntry(page: Page, kind: "GAVE" | "GOT") {
   await fab.waitFor({ state: "visible", timeout: 30000 });
   await fab.click();
   await page.getByRole("button", { name: kind === "GAVE" ? /You gave money/ : /You got money/ }).first().click();
-  await page.waitForSelector('input[placeholder="0"]');
+  await composer(page).waitFor({ timeout: 30000 });
+}
+
+/** Tap an amount into the lending composer's keypad. */
+async function typeLendingAmount(page: Page, rupees: string) {
+  await composer(page).getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of rupees) {
+    await composer(page).getByRole("button", { name: ch === "." ? "Decimal point" : ch, exact: true }).click();
+    await page.waitForTimeout(50);
+  }
+}
+
+/** Choose the contact from the line under the amount. */
+async function pickContact(page: Page, name: string) {
+  await composer(page).getByRole("button", { name: /^Contact:|Choose a contact/ }).click();
+  await page.waitForTimeout(500);
+  await sheet(page).getByRole("button", { name: new RegExp(`^${name}$`) }).first().click();
+  await page.waitForTimeout(600);
+}
+
+/** Open the allocation sheet — "Apply to" and the per-loan boxes live there. */
+async function openAllocation(page: Page) {
+  await composer(page).getByRole("button", { name: /^Allocation:/ }).click();
+  await page.waitForSelector("text=Apply to", { timeout: 10000 });
+}
+
+/** Close whichever sheet is on top. */
+async function sheetDone(page: Page) {
+  const done = sheet(page).getByRole("button", { name: "Done", exact: true });
+  if (await done.count()) {
+    await done.click();
+    await page.waitForTimeout(400);
+  }
+}
+
+/** Fill the reason, which lives behind "What was it for?". */
+async function setReason(page: Page, reason: string) {
+  await composer(page).getByRole("button", { name: "Reason and notes" }).click();
+  await page.waitForTimeout(400);
+  await sheet(page).locator('input[placeholder="e.g. Dinner, rent help"]').fill(reason);
+  await sheet(page).getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(350);
+}
+
+/** Drag the confirm handle the whole way — the composer has no Record button. */
+async function recordLoan(page: Page, { expectClose = true }: { expectClose?: boolean } = {}) {
+  await sheetDone(page);
+  const track = composer(page).locator("div[role='slider']");
+  const box = (await track.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  if (expectClose) await composer(page).waitFor({ state: "detached", timeout: 20000 });
+  await page.waitForTimeout(400);
 }
 
 /** A contact's ledger is tabbed (Overview / Transactions / Reports / Activity);
@@ -103,13 +169,13 @@ async function main() {
 
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await openLendingEntry(page, "GOT");
-    await modal(page).locator("select").first().selectOption({ label: "Rohan" });
-    await page.waitForSelector("text=Apply to", { timeout: 10000 });
-    ok("the allocation picker defaults to Auto (FIFO)", await modal(page).getByRole("button", { name: "Auto", exact: true }).isVisible());
-    await page.fill('input[placeholder="0"]', "1200"); // ₹1200 = fully covers the ₹1000 old loan + ₹200 into the new one
-    await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2EFifoRepay-${suffix}`);
-    await page.getByRole("button", { name: "Record You Got", exact: true }).click();
-    await page.waitForSelector("text=Repayment recorded");
+    await pickContact(page, "Rohan");
+    await typeLendingAmount(page, "1200"); // ₹1200 = fully covers the ₹1000 old loan + ₹200 into the new one
+    await openAllocation(page);
+    ok("the allocation picker defaults to Auto (FIFO)", await sheet(page).getByRole("button", { name: "Auto", exact: true }).isVisible());
+    await sheetDone(page);
+    await setReason(page, `E2EFifoRepay-${suffix}`);
+    await recordLoan(page);
     const fifoRepay = await waitForSyncedEntry(`E2EFifoRepay-${suffix}`);
     entryIds.push(fifoRepay.id);
 
@@ -150,12 +216,10 @@ async function main() {
     // ══════════════ 3. Full settlement ══════════════
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await openLendingEntry(page, "GOT");
-    await modal(page).locator("select").first().selectOption({ label: "Rohan" });
-    await page.waitForSelector("text=Apply to", { timeout: 10000 });
-    await page.fill('input[placeholder="0"]', "300"); // clears the remaining ₹300 on the newer loan exactly
-    await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2EFullRepay-${suffix}`);
-    await page.getByRole("button", { name: "Record You Got", exact: true }).click();
-    await page.waitForSelector("text=Repayment recorded");
+    await pickContact(page, "Rohan");
+    await typeLendingAmount(page, "300"); // clears the remaining ₹300 on the newer loan exactly
+    await setReason(page, `E2EFullRepay-${suffix}`);
+    await recordLoan(page);
     const fullRepay = await waitForSyncedEntry(`E2EFullRepay-${suffix}`);
     entryIds.push(fullRepay.id);
 
@@ -175,21 +239,23 @@ async function main() {
 
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await openLendingEntry(page, "GOT");
-    await modal(page).locator("select").first().selectOption({ label: "Priya" });
-    await page.waitForSelector("text=Apply to", { timeout: 10000 });
-    await modal(page).getByRole("button", { name: "Custom", exact: true }).click();
+    await pickContact(page, "Priya");
+    await typeLendingAmount(page, "200");
+    await openAllocation(page);
+    await sheet(page).getByRole("button", { name: "Custom", exact: true }).click();
     // target manualB specifically (the newer, larger loan) — a plain FIFO
     // run would have hit manualA (older) first, so this proves the override
     // getByText(exact) targets the specific leaf label div unambiguously —
     // a generic `locator("div").filter({hasText}).last()` picks the
     // innermost matching div, but here that's the leaf text node itself
     // (no sibling input), not the row two levels up that actually holds one
-    const manualBRow = modal(page).getByText(`E2EManualB-${suffix}`, { exact: true }).locator("xpath=..").locator("xpath=..");
+    const manualBRow = sheet(page).getByText(`E2EManualB-${suffix}`, { exact: true }).locator("xpath=..").locator("xpath=..");
     await manualBRow.locator('input[type="number"]').fill("200");
-    await page.fill('input[placeholder="0"]', "200");
-    await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2EManualRepay-${suffix}`);
-    await page.getByRole("button", { name: "Record You Got", exact: true }).click();
-    await page.waitForSelector("text=Repayment recorded");
+    await manualBRow.locator('input[type="number"]').blur();
+    await page.waitForTimeout(300);
+    await sheetDone(page);
+    await setReason(page, `E2EManualRepay-${suffix}`);
+    await recordLoan(page);
     const manualRepay = await waitForSyncedEntry(`E2EManualRepay-${suffix}`);
     entryIds.push(manualRepay.id);
 
@@ -272,10 +338,10 @@ async function main() {
     await page.goto(`${BASE}/lending`, { waitUntil: "load" });
     await context.setOffline(true);
     await openLendingEntry(page, "GOT");
-    await modal(page).locator("select").first().selectOption({ label: "Rohan" });
-    await page.fill('input[placeholder="0"]', "100");
-    await page.fill('input[placeholder="e.g. Dinner, rent help"]', `E2EOfflineSettle-${suffix}`);
-    await page.getByRole("button", { name: "Record You Got", exact: true }).click();
+    await pickContact(page, "Rohan");
+    await typeLendingAmount(page, "100");
+    await setReason(page, `E2EOfflineSettle-${suffix}`);
+    await recordLoan(page);
     await page.waitForTimeout(500);
     const beforeSync = await prisma.loanEntry.findFirst({ where: { reason: `E2EOfflineSettle-${suffix}` } });
     ok("a settlement queued offline does NOT hit the server yet", beforeSync === null);

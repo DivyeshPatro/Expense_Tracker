@@ -107,12 +107,19 @@ async function main() {
 
     // ── the split picker offers exactly one ───────────────────────────────
     await page.goto(`${BASE}/dashboard`, { waitUntil: "load" });
+    // The composer, whose split line opens the SAME SplitEditor picker.
     await page.getByRole("button", { name: "Expense", exact: true }).first().click();
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]', { timeout: 30000 });
-    const modal = page.locator(".fixed.inset-0.z-\\[60\\]").first();
-    const summary = modal.locator("summary", { hasText: "More details" }).first();
-    if (await summary.count()) await summary.click();
-    await modal.getByText("👥 Split with friends").first().click();
+    const composer = page.locator("div[data-composer]");
+    await composer.waitFor({ timeout: 30000 });
+    await composer.getByRole("button", { name: /people ·|Choose who's splitting|Split with someone/ }).click();
+    const modal = page.getByRole("dialog").last();
+    // The roster only exists once the split is switched on — the same toggle
+    // the classic form carried, in the sheet the line opens.
+    const splitSwitch = modal.locator('[role="switch"]').first();
+    if ((await splitSwitch.getAttribute("aria-checked")) !== "true") {
+      await modal.getByText("👥 Split with friends").first().click();
+      await page.waitForTimeout(300);
+    }
     await page.waitForSelector("text=Split between", { timeout: 15000 });
     const search = modal.getByLabel("Search contacts");
     if (await search.count()) await search.fill(NAME);
