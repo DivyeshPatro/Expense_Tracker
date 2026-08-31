@@ -36,35 +36,29 @@ import {
   useSplitPreview,
   type SplitEditorState,
 } from "./split-editor";
-import { addExpenseAction, listGroupCategoriesAction, updateExpenseAction } from "@/app/actions";
+import { addExpenseAction, createGroupCategoryAction, listGroupCategoriesAction, updateExpenseAction } from "@/app/actions";
+import { inferGroupForMembers, needsExplicitGroupChoice } from "@/lib/group-inference";
 import type { TransactionDetail } from "@/server/services/transactions";
+import type { ModalPrefill } from "./ui-context";
 import { ensureDeviceId, getDeviceName } from "@/lib/offline/db";
 import { friendlyDay, todayYMD } from "@/lib/dates";
-import { amountToPaise, evaluateAmount, looksLikeExpression, partialAmount, pressAmountKey } from "@/lib/expression";
-import { GRID } from "./amount-keypad";
+import { amountToPaise, evaluateAmount, pressAmountKey } from "@/lib/expression";
+import {
+  AmountHero,
+  EntryKeypad,
+  MetaChips,
+  Segmented,
+  SuccessWash,
+  SwipeToConfirm,
+} from "./entry-shell";
+import { createRuleFor, RepeatBlock, useRepeat, type RepeatState } from "./repeat-block";
+import { useFocusTrap } from "./use-focus-trap";
 
 type Kind = "INCOME" | "EXPENSE";
-type Picker = null | "group" | "date" | "category" | "payment" | "note" | "split";
 
-/**
- * The digits under the ₹, for an entry that may be an expression.
- *
- * Formatting the raw string stopped working the moment the keypad grew
- * operators — "500+250" has no integer part to group. The display now shows
- * what the entry EVALUATES to, which is also what the reader asked for: tap
- * 500 + 250 and the amount reads ₹750. The expression itself is shown on its
- * own line above, so nothing is hidden.
- *
- * A trailing decimal point is kept verbatim ("12." stays "12.") — dropping it
- * makes the point look like it was not registered.
- */
-function displayDigits(raw: string): string {
-  if (!raw) return "0";
-  const rupees = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(partialAmount(raw) / 100);
-  // A plain number keeps its trailing point while it is being typed — "12."
-  // collapsing back to "12" reads as the tap not registering.
-  return !looksLikeExpression(raw) && raw.endsWith(".") ? `${rupees}.` : rupees;
-}
+/** What the chip reads once a rule is armed. Cadences are RepeatState's own. */
+const REPEAT_LABEL: Record<string, string> = { DAILY: "Daily", WEEKLY: "Weekly", MONTHLY: "Monthly", YEARLY: "Yearly" };
+type Picker = null | "group" | "date" | "category" | "payment" | "note" | "split" | "repeat";
 
 /**
  * Create and edit are the same screen.
@@ -82,7 +76,7 @@ function displayDigits(raw: string): string {
  * account locked, transfer's two accounts, and prefilling from the queued
  * payload respectively).
  */
-export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDetail; onCancel?: () => void } = {}) {
+export function TransactionComposer({ edit, onCancel, prefill }: { edit?: TransactionDetail; onCancel?: () => void; prefill?: ModalPrefill } = {}) {
   const { refData, closeModal, showToast } = useUI();
   const { createViaOutbox, enqueueMutation } = useOffline();
   const router = useRouter();
@@ -93,8 +87,13 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
   // opens on whatever the row already is, and cannot change it — the data layer
   // has no Debit↔Credit conversion (separate services, separate schemas), so
   // offering one would be inventing a mutation nothing implements.
-  const [kind, setKind] = useState<Kind>(edit?.type === "INCOME" ? "INCOME" : "EXPENSE");
-  const [groupId, setGroupId] = useState(edit?.groupId ?? "");
+  const [kind, setKind] = useState<Kind>(
+    edit ? (edit.type === "INCOME" ? "INCOME" : "EXPENSE") : (prefill?.composeKind ?? "EXPENSE")
+  );
+  // A Shared entry point opens straight into its group. `dupGroupId` is the
+  // shape the classic form already accepted from those buttons, so the callers
+  // did not have to learn a new one.
+  const [groupId, setGroupId] = useState(edit?.groupId ?? prefill?.dupGroupId ?? "");
   // The amount starts as the stored figure in plain rupees, so the keypad can
   // extend it: "1000" is already a valid expression, and tapping + 250 makes
   // it "1000+250" without any special case.
@@ -146,6 +145,26 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
   }, [groupId, inGroupExpense]);
   const catsReady = !inGroupExpense || groupCatsFor === groupId;
 
+  /**
+   * Create a category in the group's own namespace and select it.
+   *
+   * GroupCategorySelect has offered this since group categories existed, and
+   * it is the only way to add one while recording the expense that needs it —
+   * Settings > Categories manages the PERSONAL list, so without this a group
+   * expense could only be filed under a name somebody had thought of earlier.
+   * Same action, same namespace, same auto-select as the classic form.
+   */
+  async function addGroupCategory(name: string): Promise<string | null> {
+    const res = await createGroupCategoryAction(groupId, name.trim());
+    if (!res.ok) return res.error;
+    if (res.category) {
+      const c = { id: res.category.id, name: res.category.name, icon: res.category.icon ?? "📦" };
+      setGroupCategories((cs) => [...cs.filter((x) => x.id !== c.id), c].sort((a, b) => a.name.localeCompare(b.name)));
+      setCategoryId(c.id);
+    }
+    return null;
+  }
+
   const categories = kind === "INCOME" ? refData.incomeCategories : inGroupExpense ? groupCategories : refData.expenseCategories;
 
   // The classic form's split state, unchanged in shape, so SplitEditor and
@@ -160,19 +179,34 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
   // them, so a split created either way reopens as EXACT with today's amounts.
   // That is the existing, deliberate behaviour: accurate, rather than guessing
   // at weights that would be wrong unless re-entered.
-  const [split, setSplit] = useState((edit?.splits.length ?? 0) > 0);
+  // A group arriving by prefill has to be set up the same way picking one is —
+  // its members become the split — or the Shared buttons would land on a group
+  // with nobody in it. Same rule, same source (refData.groups memberIds), just
+  // applied at mount instead of on tap.
+  const preGroup = !edit && prefill?.dupGroupId ? refData.groups.find((g) => g.id === prefill.dupGroupId) : undefined;
+  const preMembers = (preGroup?.memberIds ?? []).filter((mid) => refData.participants.some((p) => p.id === mid));
+  const [split, setSplit] = useState((edit?.splits.length ?? 0) > 0 || preMembers.length > 0 || (!edit && !!prefill?.split));
   const [mode, setMode] = useState<"EQUAL" | "EXACT" | "PERCENT" | "RATIO">(
     edit && edit.splits.length > 0 ? (edit.splits[0].method === "EQUAL" ? "EQUAL" : "EXACT") : "EQUAL"
   );
-  const [parts, setParts] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries((edit?.splits ?? []).filter((s) => s.participantId).map((s) => [s.participantId as string, true]))
-  );
+  const [parts, setParts] = useState<Record<string, boolean>>(() => {
+    if (edit) return Object.fromEntries(edit.splits.filter((s) => s.participantId).map((s) => [s.participantId as string, true]));
+    if (preMembers.length) return Object.fromEntries(preMembers.map((mid) => [mid, true]));
+    // A split asked for with no group — the Shared FAB's shape. The classic
+    // form seeded the first two contacts here so the editor opened on
+    // something rather than on nobody; same roster, same reason.
+    if (prefill?.split) return Object.fromEntries(refData.participants.slice(0, 2).map((p) => [p.id, true]));
+    return {};
+  });
   const [exact, setExact] = useState<Record<string, string>>(() =>
     Object.fromEntries((edit?.splits ?? []).map((s) => [s.participantId ?? "me", String(s.owedAmount / 100)]))
   );
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [payerId, setPayerId] = useState<string | null>(edit?.paidByParticipantId ?? null);
   const [accountId, setAccountId] = useState(edit?.accountId ?? refData.accounts[0]?.id ?? "");
+  // Recurrence, from the same hook, block and action the classic forms use.
+  // The composer schedules nothing itself — createRuleFor owns that.
+  const repeat = useRepeat();
   const [picker, setPicker] = useState<Picker>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -198,6 +232,19 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
     return () => others.forEach((d) => d.removeAttribute("inert"));
   }, [isEdit, portalReady]);
 
+  // Escape-to-close comes from app-shell's global handler, which this screen
+  // shares with every sheet. The trap is the half that has to live here: the
+  // composer covers the app but is not a dialog, so nothing else stops Tab
+  // walking out onto the sidebar behind it.
+  useFocusTrap(rootRef, true);
+  useEffect(() => {
+    const el = rootRef.current;
+    // Only when focus is still outside — the amount is a keypad, so there is
+    // no field autoFocusing, and taking focus from a sheet opened on top of
+    // this screen would fight it.
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+  }, []);
+
   const paise = amountToPaise(entry || "0");
   // While a group's list is in flight, an edit still names the category it was
   // saved with — resolved server-side on the detail, so it is correct even for
@@ -210,6 +257,15 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
   const account = refData.accounts.find((a) => a.id === accountId);
   const group = refData.groups.find((g) => g.id === groupId);
 
+  // The conditions are the old forms' own, not new ones: the expense form
+  // renders RepeatBlock when `!split && !groupId`, the income form when
+  // `!groupId`. A rule carries no split and no group, so a repeating group or
+  // split entry would schedule something different from what is on screen.
+  //
+  // Editing offers no repeat because neither classic edit form does: a rule is
+  // a separate row, created alongside the transaction, and is edited in
+  // Settings rather than through the transaction it came from.
+  const repeatAvailable = !isEdit && (kind === "INCOME" ? !groupId : !split && !groupId);
   const splitState: SplitEditorState = { split, setSplit, mode, setMode, parts, setParts, exact, setExact, weights, setWeights, payerId, setPayerId };
   // A group expense can only be split among that group's members — the same
   // narrowing the classic form applies, from the same helper.
@@ -218,6 +274,40 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
   // The engine's own preview: the arithmetic here is the arithmetic that gets
   // stored, because both go through computeShares.
   const preview = useSplitPreview(paise, splitState, selectedIds);
+
+  // v2.1 split ↔ group coupling, unchanged in substance from the classic form.
+  //
+  // "Split with friends" and "Group" were once independent controls, and an
+  // expense split among a group's members saved with groupId = null — the
+  // group dashboard filters on groupId, so it simply never saw it. Four of
+  // five expenses on one real trip went missing that way.
+  //
+  // The rule is asymmetric about certainty: choosing a group applies its
+  // roster (a fact — that is what onPickGroup below does), while choosing
+  // people only implies a group (a guess), so it applies ONLY when exactly
+  // one group holds everyone, and otherwise asks instead of picking.
+  //
+  // A composer that dropped this would reintroduce the original bug, so it is
+  // ported whole rather than approximated: same inference, same "ask, do not
+  // guess" block on saving.
+  const groupTouched = useRef(!!(edit?.groupId ?? prefill?.dupGroupId));
+  const inference = inferGroupForMembers(selectedIds, refData.groups);
+  // Collapsed to a primitive so the effect runs on a real change of outcome,
+  // not on every render's freshly-allocated object.
+  const inferenceKey = `${split}|${inference.kind}|${inference.kind === "one" ? inference.groupId : ""}`;
+  useEffect(() => {
+    if (groupTouched.current || !split) return;
+    const next = inference.kind === "one" ? inference.groupId : "";
+    if (next === groupId) return;
+    setGroupId(next);
+    setCategoryId(""); // group and personal categories are separate namespaces
+    // groupId is deliberately not a dependency: this reacts to the inference
+    // changing, never to the value it just wrote.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inferenceKey]);
+
+  /** Several groups fit, or one nearly fits, and nobody has said which. */
+  const mustChooseGroup = needsExplicitGroupChoice(inference, groupTouched.current);
 
   // Switching type — or moving between Personal and a group — swaps the
   // category list, so a selection from the other one would be silently invalid:
@@ -232,6 +322,13 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
     if (!catsReady) return; // the group's list is still on its way
     if (categoryId && !categories.some((c) => c.id === categoryId)) setCategoryId("");
   }, [categories, categoryId, catsReady]);
+
+  // Turning a personal expense into a group or split one withdraws the offer,
+  // so the pending choice goes with it — otherwise a rule would be scheduled
+  // for a transaction whose own form no longer offers to repeat it.
+  useEffect(() => {
+    if (!repeatAvailable && repeat.on) repeat.setOn(false);
+  }, [repeatAvailable, repeat]);
 
   // Any edit clears a complaint about the previous attempt.
   useEffect(() => setError(null), [entry, kind, groupId, accountId, split, mode, parts]);
@@ -264,6 +361,14 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
     if (kind === "INCOME" && !accountId) return "Choose where the money landed";
     if (split) {
       if (selectedIds.length === 0) return "Pick who this is split with";
+      // Ask rather than guess. Quietly saving as Personal is the original bug.
+      if (mustChooseGroup) {
+        return inference.kind === "conflict"
+          ? `Most of these people are in ${inference.candidates.map((c) => c.name).join(" and ")}, but not all of them — choose the group, or Personal.`
+          : `These people are in ${
+              inference.kind === "ambiguous" ? inference.candidates.map((c) => c.name).join(" and ") : "more than one group"
+            } — choose which one this belongs to, or Personal.`;
+      }
       // computeSplitPreview is the same engine the writer uses, so if it says
       // the shares do not add up, saving would store a split that does not.
       if (preview?.error) return preview.error;
@@ -363,10 +468,27 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
       setError(res.error ?? "Couldn't save that — try again");
       return false;
     }
+    // Scheduled AFTER the transaction lands, and a failure here must not fail
+    // the submission: the transaction is already committed, and reporting
+    // failure would invite a duplicate on resubmit. Surfaced in the success
+    // line instead — the same trade the classic forms make, with the same copy.
+    let scheduleError: string | null = null;
+    if (repeatAvailable && repeat.on) {
+      scheduleError = await createRuleFor(repeat, {
+        type: kind,
+        amount: entry,
+        accountId: accountId || null,
+        categoryId: categoryId || null,
+        merchant,
+        date,
+      });
+    }
     setDone(true);
     // An edit says so in a toast the way the classic form did, rather than
     // relying on a wash that reads as "added".
     if (edit) showToast("Transaction updated");
+    else if (scheduleError) showToast(`${kind === "INCOME" ? "Income" : "Expense"} added — but the repeat wasn't saved: ${scheduleError}`);
+    else if (repeatAvailable && repeat.on) showToast(`${kind === "INCOME" ? "Income" : "Expense"} added and scheduled to repeat`);
     // Long enough to read, short enough not to be in the way. The dashboard is
     // refreshed underneath while the wash is up, so it has the new row by the
     // time it is visible again.
@@ -378,7 +500,7 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
     return true;
   }
 
-  if (done) return <SuccessWash kind={kind} />;
+  if (done) return <SuccessWash label={`${kind === "INCOME" ? "Credit" : "Debit"} added`} />;
 
   // `what` is the accessible name: the icon is decorative and the visible text
   // is only the value, so a screen reader would otherwise hear "Education"
@@ -390,6 +512,17 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
     { key: "date" as const, icon: "🗓", what: "Date", label: date === todayYMD() ? "Today" : friendlyDay(date), unset: false },
     { key: "category" as const, icon: "🏷", what: "Category", label: category?.name ?? "Category", unset: !category },
     { key: "payment" as const, icon: "💳", what: "Payment method", label: account?.name ?? "Payment", unset: !account },
+    // Offered on exactly the entries the classic forms offer it on, so the chip
+    // appearing and disappearing tracks a rule that already existed.
+    ...(repeatAvailable
+      ? [{
+          key: "repeat" as const,
+          icon: "🔁",
+          what: "Repeat",
+          label: repeat.on ? REPEAT_LABEL[repeat.cadence] ?? "Repeating" : "Repeat",
+          unset: !repeat.on,
+        }]
+      : []),
   ];
 
   const screen = (
@@ -397,7 +530,13 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
     // already owns that role, and claiming it here would make every existing
     // `getByRole("dialog")` in the app and its suites ambiguous. The focus
     // problem an edit really has is solved by the portal and inert above.
-    <div ref={rootRef} aria-label={isEdit ? "Edit transaction" : "New transaction"} className="fixed inset-0 z-[70] bg-bg flex flex-col" style={{ animation: "composerIn .22s ease" }}>
+    <div
+      ref={rootRef}
+      tabIndex={-1}
+      aria-label={isEdit ? "Edit transaction" : "New transaction"}
+      className="fixed inset-0 z-[70] bg-bg flex flex-col outline-none"
+      style={{ animation: "composerIn .22s ease" }}
+    >
       <style>{`
         @keyframes composerIn { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
         @keyframes washIn { from { opacity: 0 } to { opacity: 1 } }
@@ -418,6 +557,7 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
           </button>
           <div className="flex-1 flex justify-center">
             <Segmented
+              label="Debit or credit"
               options={[
                 { value: "EXPENSE", label: "Debit", glyph: "↗" },
                 { value: "INCOME", label: "Credit", glyph: "↙" },
@@ -439,6 +579,7 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
         <div className="flex justify-center flex-none">
           <Segmented
             small
+            label="Personal or group"
             options={[
               { value: "personal", label: "Personal" },
               { value: "group", label: group ? group.name : "Group" },
@@ -446,6 +587,9 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
             value={groupId ? "group" : "personal"}
             onChange={(v) => {
               if (v === "personal") {
+                // An explicit answer, including to the "which group?" question
+                // — so the inference must not quietly put one back.
+                groupTouched.current = true;
                 // Back to a plain personal entry: the split comes off with the
                 // group, or the row would carry members it is no longer for.
                 setGroupId("");
@@ -461,18 +605,11 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-1">
           {/* The working, above the total — the way a paper sum is laid out.
               Only while there IS a sum: a plain number needs no second line. */}
-          {looksLikeExpression(entry) && (
-            <div className="text-[15px] font-semibold text-mut2 tabular-nums select-none" aria-hidden>
-              {entry}
-            </div>
-          )}
-          <div className="flex items-baseline justify-center gap-1 select-none" aria-live="polite">
-            <span className="text-[30px] font-bold leading-none" style={{ color: kind === "INCOME" ? "var(--green)" : "var(--red)" }}>
-              {kind === "INCOME" ? "+" : "−"}
-            </span>
-            <span className="text-[30px] font-semibold leading-none text-mut2">₹</span>
-            <span className="text-[54px] font-extrabold leading-none tabular-nums tracking-tight">{displayDigits(entry)}</span>
-          </div>
+          <AmountHero
+            entry={entry}
+            sign={kind === "INCOME" ? "+" : "−"}
+            tint={kind === "INCOME" ? "var(--green)" : "var(--red)"}
+          />
           <button
             onClick={() => setPicker("note")}
             aria-label="Merchant and notes"
@@ -483,14 +620,27 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
           {/* Group context: one line, not a panel. Members and the split method
               live behind it so the composer stays the reference's single
               screen instead of turning into the classic form again. */}
-          {groupId && kind === "EXPENSE" && (
+          {/* Every expense, not only a group one. Splitting has never required
+              a group — the classic form offered "Split with friends" on any
+              expense, the Shared entry point asks for a split with no group
+              chosen, and v2.1's repair path exists precisely because a split
+              can be saved outside one. Gating this line on a group would take
+              that away, and would strand an already-made split with no way
+              back to its editor. Reads as an invitation until there is one. */}
+          {kind === "EXPENSE" && (
             <button
               onClick={() => setPicker("split")}
               className="inline-flex items-center gap-1.5 px-3 min-h-[36px] rounded-full border bg-transparent text-[12px] font-semibold cursor-pointer"
-              style={{ borderColor: "var(--acc)", color: "var(--acc)" }}
+              style={
+                selectedIds.length === 0
+                  ? { borderColor: "var(--line2)", color: "var(--mut2)" }
+                  : { borderColor: "var(--acc)", color: "var(--acc)" }
+              }
             >
               {selectedIds.length === 0
-                ? "Choose who's splitting"
+                ? split || groupId
+                  ? "Choose who's splitting"
+                  : "Split with someone"
                 : `${selectedIds.length + 1} people · ${
                     { EQUAL: "Split equally", PERCENT: "By percentage", EXACT: "Custom amounts", RATIO: "By ratio" }[mode]
                   }`}
@@ -504,20 +654,7 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
         </div>
 
         {/* ── metadata chips ───────────────────────────────────────────── */}
-        <div className="flex items-center justify-center gap-2 flex-wrap flex-none">
-          {chips.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => setPicker(c.key)}
-              aria-label={c.unset ? `Choose a ${c.what.toLowerCase()}` : `${c.what}: ${c.label}`}
-              data-unset={c.unset ? "" : undefined}
-              className={`inline-flex items-center gap-1.5 px-3 min-h-[36px] rounded-full border border-line2 bg-transparent text-[12px] font-semibold cursor-pointer hover:bg-accsoft max-w-[46vw] ${c.unset ? "text-mut2" : "text-ink"}`}
-            >
-              <span aria-hidden className="text-[12px] opacity-70">{c.icon}</span>
-              <span className="truncate">{c.label}</span>
-            </button>
-          ))}
-        </div>
+        <MetaChips chips={chips} onPick={(k) => setPicker(k as Picker)} />
 
         {/* ── keypad ───────────────────────────────────────────────────── */}
         {/* Four columns: the digit block plus the operator rail, exactly the
@@ -528,37 +665,9 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
         {/* Clear and backspace sit above the grid, the way AmountKeypad's own
             utility strip does, so all sixteen calculator keys keep their places
             and nothing had to be dropped to make room for them. */}
-        <div className="flex justify-end gap-2 flex-none">
-          <button
-            onClick={() => press("clear")}
-            aria-label="Clear amount"
-            className="min-h-[38px] px-4 rounded-[12px] bg-side border-none text-[13px] font-bold text-mut2 cursor-pointer active:brightness-125 select-none"
-          >
-            C
-          </button>
-          <button
-            onClick={() => press("back")}
-            aria-label="Backspace"
-            className="min-h-[38px] px-4 rounded-[12px] bg-side border-none text-[15px] font-semibold text-mut2 cursor-pointer active:brightness-125 select-none"
-          >
-            ⌫
-          </button>
-        </div>
-
-        <div className="grid grid-cols-4 gap-2 flex-none">
-          {GRID.map((k) => (
-            <button
-              key={k.label}
-              onClick={() => press(k.insert ?? "")}
-              aria-label={k.aria}
-              className={`min-h-[52px] rounded-[18px] border-none text-[20px] font-semibold cursor-pointer active:brightness-125 select-none grid place-items-center ${
-                k.kind === "operator" ? "bg-accsoft text-acc" : "bg-side text-ink"
-              }`}
-            >
-              {k.label}
-            </button>
-          ))}
-        </div>
+        {/* Clear, backspace and the sixteen calculator keys — the shell owns
+            the markup so Spending and Lending cannot drift apart. */}
+        <EntryKeypad press={press} />
 
         <SwipeToConfirm onComplete={commit} label={isEdit ? "Swipe to save changes" : `Swipe to add ${kind === "INCOME" ? "credit" : "debit"}`} />
       </div>
@@ -569,11 +678,15 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
           close={() => setPicker(null)}
           state={{ groupId, setGroupId, date, setDate, categoryId, setCategoryId, accountId, setAccountId, notes, setNotes, merchant, setMerchant }}
           categories={categories}
+          onCreateCategory={inGroupExpense ? addGroupCategory : undefined}
           splitState={splitState}
+          repeatState={repeat}
           participants={pickerParticipants}
           preview={preview}
           amountPaise={paise}
           onPickGroup={(id) => {
+            // A deliberate choice, so the inference stops second-guessing it.
+            groupTouched.current = true;
             setGroupId(id);
             // Same rule the classic form applies when a group is chosen: its
             // members become the split, so the expense starts out shared with
@@ -585,6 +698,14 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
               setSplit(false);
               setParts({});
               setPayerId(null);
+              setPicker(null);
+              return;
+            }
+            // Personal: the group comes off, the split stays. A split with
+            // no group is a real shape (dinner with a friend who is in none of
+            // your groups), and clearing it here would throw away the roster
+            // the user just picked.
+            if (!id) {
               setPicker(null);
               return;
             }
@@ -604,163 +725,88 @@ export function TransactionComposer({ edit, onCancel }: { edit?: TransactionDeta
   return isEdit && portalReady ? createPortal(screen, document.body) : screen;
 }
 
-/** Pill selector — the shape both the type and the personal/group choice take. */
-function Segmented({
-  options,
-  value,
-  onChange,
-  tint,
-  small,
-}: {
-  options: { value: string; label: string; glyph?: string }[];
-  value: string;
-  /** Omitted when the choice is fixed — the buttons then read as a statement
-   *  of what this transaction IS, rather than a control that does nothing. */
-  onChange?: (v: string) => void;
-  tint?: string;
-  small?: boolean;
-}) {
-  return (
-    <div className={`inline-flex gap-1 rounded-full bg-side border border-line2 ${small ? "p-0.5" : "p-1"}`} role="group">
-      {options.map((o) => {
-        const on = o.value === value;
-        return (
-          <button
-            key={o.value}
-            onClick={() => onChange?.(o.value)}
-            aria-pressed={on}
-            disabled={!onChange}
-            title={!onChange && !on ? "A saved transaction can't change between Debit and Credit" : undefined}
-            className={`inline-flex items-center gap-1.5 rounded-full border-none font-bold transition-colors ${
-              onChange ? "cursor-pointer" : "cursor-default"
-            } ${!onChange && !on ? "opacity-40" : ""} ${
-              small ? "px-3 min-h-[32px] text-[11.5px]" : "px-4 min-h-[38px] text-[13px]"
-            }`}
-            style={{ background: on ? "var(--card)" : "transparent", color: on ? "var(--ink)" : "var(--mut2)" }}
-          >
-            {o.glyph && <span aria-hidden style={{ color: on ? tint : "inherit" }}>{o.glyph}</span>}
-            <span className="truncate max-w-[38vw]">{o.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+/**
+ * "＋ New category", and the little form it turns into.
+ *
+ * Deliberately the last row rather than a separate control: it is the same
+ * place GroupCategorySelect kept it, at the bottom of the list you have just
+ * failed to find what you wanted in.
+ */
+function NewCategoryRow({ onCreate, done }: { onCreate: (name: string) => Promise<string | null>; done: () => void }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-/** Drag the handle to commit. A real pointer gesture, not a button wearing a
- *  track: releasing short of the threshold animates back and saves nothing. */
-function SwipeToConfirm({ onComplete, label }: { onComplete: () => Promise<boolean>; label: string }) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [x, setX] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const [locked, setLocked] = useState(false);
-  const travel = useRef(1);
-
-  const span = () => {
-    const t = trackRef.current;
-    travel.current = t ? Math.max(1, t.clientWidth - 62) : 1;
-    return travel.current;
-  };
-
-  function move(clientX: number) {
-    const t = trackRef.current;
-    if (!t) return;
-    const left = t.getBoundingClientRect().left;
-    setX(Math.min(span(), Math.max(0, clientX - left - 31)));
-  }
-
-  async function release() {
-    setDragging(false);
-    if (x >= span() * 0.85) {
-      setLocked(true);
-      setX(span());
-      const ok = await onComplete();
-      if (!ok) {
-        // Rejected — hand the control back rather than stranding it at the end.
-        setLocked(false);
-        setX(0);
-      }
+  async function submit() {
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setError(null);
+    const err = await onCreate(trimmed);
+    setBusy(false);
+    if (err) {
+      setError(err);
       return;
     }
-    setX(0);
+    setAdding(false);
+    setName("");
+    // Picking any other category closes the sheet; creating one selects it, so
+    // it closes too rather than leaving the screen mid-air.
+    done();
   }
 
-  const pct = Math.round((x / travel.current) * 100);
-
-  return (
-    <div
-      ref={trackRef}
-      className="relative flex-none h-[58px] rounded-full bg-side border border-line2 overflow-hidden select-none touch-none"
-      role="slider"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={pct}
-      tabIndex={0}
-      onKeyDown={async (e) => {
-        // Keyboard equivalent: the gesture cannot be the only way in.
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          if (!locked) {
-            setLocked(true);
-            const ok = await onComplete();
-            if (!ok) setLocked(false);
-          }
-        }
-      }}
-      onPointerDown={(e) => {
-        if (locked) return;
-        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-        setDragging(true);
-        move(e.clientX);
-      }}
-      onPointerMove={(e) => dragging && move(e.clientX)}
-      onPointerUp={release}
-      onPointerCancel={release}
-    >
-      {/* Filled portion, growing behind the handle. */}
-      <div
-        className="absolute inset-y-0 left-0"
-        style={{
-          // Starts at nothing: at rest the track is dark and only the handle's
-          // glow is green, as in the reference. A fill that already had width
-          // before the drag began read as a stub of progress that was not there.
-          width: x,
-          background: "var(--green)",
-          opacity: 0.35 + (x / travel.current) * 0.45,
-          transition: dragging ? "none" : "width .22s ease, opacity .22s ease",
-        }}
-      />
-      <span className="absolute inset-0 grid place-items-center text-[13px] font-bold text-ink pointer-events-none px-14 text-center">
-        {label}
-      </span>
-      <div
-        className="absolute top-[4px] left-0 w-[50px] h-[50px] rounded-full bg-white grid place-items-center text-[17px] text-[#111] cursor-grab active:cursor-grabbing"
-        style={{
-          transform: `translateX(${x + 4}px)`,
-          transition: dragging ? "none" : "transform .22s ease",
-          boxShadow: "0 4px 14px rgba(0,0,0,.35), 0 0 18px 4px color-mix(in oklab, var(--green) 55%, transparent)",
-        }}
+  if (!adding) {
+    return (
+      <button
+        onClick={() => setAdding(true)}
+        className="flex items-center gap-2 px-3 min-h-[44px] rounded-[10px] text-left text-[13px] font-bold bg-transparent border-none cursor-pointer text-acc hover:bg-accsoft w-full"
       >
-        →
-      </div>
-    </div>
-  );
-}
+        ＋ New category
+      </button>
+    );
+  }
 
-/** The success state: the whole screen, briefly. */
-function SuccessWash({ kind }: { kind: Kind }) {
   return (
-    <div
-      data-wash
-      className="fixed inset-0 z-[80] grid place-items-center"
-      style={{ background: "radial-gradient(120% 90% at 50% 38%, #12a06a 0%, #0b6b47 45%, #052e21 100%)", animation: "washIn .18s ease" }}
-      role="status"
-    >
-      <div className="flex items-center gap-2 -mt-16 text-white">
-        <span className="w-5 h-5 rounded-full bg-white/90 grid place-items-center text-[12px] text-[#0f7a52] font-black" aria-hidden>✓</span>
-        <span className="text-[15px] font-semibold">{kind === "INCOME" ? "Credit" : "Debit"} added</span>
+    <div className="flex flex-col gap-1 px-1 py-1">
+      <div className="flex gap-1.5">
+        <input
+          className="field flex-1"
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="New category name"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void submit();
+            }
+            if (e.key === "Escape") {
+              setAdding(false);
+              setName("");
+              setError(null);
+            }
+          }}
+        />
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy || !name.trim()}
+          className="px-3 rounded-[10px] text-[12.5px] font-bold text-white border-none cursor-pointer disabled:opacity-60"
+          style={{ background: "var(--acc)" }}
+        >
+          {busy ? "…" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setAdding(false); setName(""); setError(null); }}
+          aria-label="Cancel"
+          className="px-3 rounded-[10px] text-[12.5px] font-semibold border border-line2 bg-card cursor-pointer"
+        >
+          ✕
+        </button>
       </div>
+      {error && <div className="text-[11.5px] font-semibold text-red">{error}</div>}
     </div>
   );
 }
@@ -772,14 +818,17 @@ function PickerSheet({
   state,
   categories,
   splitState,
+  repeatState,
   participants,
   preview,
   onPickGroup,
   amountPaise,
+  onCreateCategory,
 }: {
   picker: Exclude<Picker, null>;
   close: () => void;
   splitState: SplitEditorState;
+  repeatState: RepeatState;
   participants: { id: string; name: string; initial: string; color: string; isLending?: boolean }[];
   preview: ReturnType<typeof useSplitPreview>;
   onPickGroup: (id: string) => void;
@@ -793,9 +842,11 @@ function PickerSheet({
     merchant: string; setMerchant: (v: string) => void;
   };
   categories: { id: string; name: string; icon: string }[];
+  /** Present only where a new category can be made — a group expense. */
+  onCreateCategory?: (name: string) => Promise<string | null>;
 }) {
   const { refData } = useUI();
-  const title = { group: "Group", date: "Date", category: "Category", payment: "Payment method", note: "Who's it for?", split: "Split" }[picker];
+  const title = { group: "Group", date: "Date", category: "Category", payment: "Payment method", note: "Who's it for?", split: "Split", repeat: "Repeat" }[picker];
 
   const Row = ({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) => (
     <button
@@ -811,7 +862,11 @@ function PickerSheet({
     <BottomSheet onClose={close} label={title} z={90}>
       {picker === "group" && (
         <>
-          <Row on={!state.groupId} onClick={() => state.setGroupId("")}>Personal</Row>
+          {/* "Personal" is an answer to "which group?", not an absence of one
+              — the classic form's "Personal (not in a group)" option. Saying
+              so is what stops the inference from quietly putting a group back
+              on a split somebody deliberately kept personal. */}
+          <Row on={!state.groupId} onClick={() => onPickGroup("")}>Personal</Row>
           {refData.groups.map((g) => (
             <button
               key={g.id}
@@ -833,9 +888,14 @@ function PickerSheet({
         </div>
       )}
 
-      {picker === "category" && categories.map((c) => (
-        <Row key={c.id} on={state.categoryId === c.id} onClick={() => state.setCategoryId(c.id)}>{c.icon} {c.name}</Row>
-      ))}
+      {picker === "category" && (
+        <>
+          {categories.map((c) => (
+            <Row key={c.id} on={state.categoryId === c.id} onClick={() => state.setCategoryId(c.id)}>{c.icon} {c.name}</Row>
+          ))}
+          {onCreateCategory && <NewCategoryRow onCreate={onCreateCategory} done={close} />}
+        </>
+      )}
 
       {picker === "payment" && (
         <>
@@ -873,6 +933,16 @@ function PickerSheet({
               {preview.error}
             </div>
           )}
+          <button onClick={close} className="btn-primary min-h-[44px] text-[13px] font-bold cursor-pointer">Done</button>
+        </div>
+      )}
+
+      {picker === "repeat" && (
+        <div className="px-1 py-1 flex flex-col gap-2">
+          {/* The classic forms' own block, unmodified — cadence, interval and
+              end date all come from it, and createRuleFor reads the same state
+              object on save. */}
+          <RepeatBlock state={repeatState} transactionYmd={state.date} />
           <button onClick={close} className="btn-primary min-h-[44px] text-[13px] font-bold cursor-pointer">Done</button>
         </div>
       )}
