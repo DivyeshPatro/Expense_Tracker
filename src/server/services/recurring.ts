@@ -169,11 +169,32 @@ export interface RuleInput {
   interval: number;
   startYmd: string;
   endYmd: string | null;
+  /**
+   * The day-of-month the schedule is really pinned to, when the caller knows it
+   * independently of `startYmd`.
+   *
+   * It exists because `startYmd` is not always a faithful record of that day. A
+   * "repeat this" on a transaction dated the 31st schedules its FIRST run one
+   * step later, and September has no 31st — so the start date arrives already
+   * clamped to the 30th. Deriving the anchor from it pinned the whole schedule
+   * to the 30th, and every later run with it: the 31st was gone for good after
+   * one short month. Omitted, the start date's own day is used, which is right
+   * for every caller that passes a date the user actually chose.
+   */
+  anchorDay?: number | null;
 }
 
-/** Month-based cadences pin to the start date's day; day-based ones don't need it. */
-function anchorFor(cadence: RuleInput["cadence"], startYmd: string): number | null {
+/**
+ * Month-based cadences pin to a day; day-based ones don't need one.
+ *
+ * `advance()` already does the right thing with an anchor — it clamps to the
+ * month's last day for the occurrence without ever changing the anchor itself,
+ * so a 31 gives Sep 30, Oct 31, Nov 30. The only thing that was wrong is which
+ * number got stored here.
+ */
+function anchorFor(cadence: RuleInput["cadence"], startYmd: string, explicit?: number | null): number | null {
   if (cadence === "DAILY" || cadence === "WEEKLY") return null;
+  if (typeof explicit === "number" && Number.isInteger(explicit) && explicit >= 1 && explicit <= 31) return explicit;
   return Number(startYmd.slice(8, 10));
 }
 
@@ -262,7 +283,7 @@ export async function createRecurringRule(userId: string, input: RuleInput): Pro
       interval: input.interval,
       nextRunAt: istNoon(input.startYmd),
       endsAt: input.endYmd ? istNoon(input.endYmd) : null,
-      anchorDay: anchorFor(input.cadence, input.startYmd),
+      anchorDay: anchorFor(input.cadence, input.startYmd, input.anchorDay),
       template: toTemplate(input) as unknown as Prisma.InputJsonValue,
     },
   });
@@ -286,7 +307,12 @@ export async function updateRecurringRule(userId: string, ruleId: string, input:
       interval: input.interval,
       nextRunAt: istNoon(input.startYmd),
       endsAt: input.endYmd ? istNoon(input.endYmd) : null,
-      anchorDay: anchorFor(input.cadence, input.startYmd),
+      // An edit that MOVES the start date re-anchors to the day chosen — that
+      // is what choosing a new date means. An edit that leaves it alone must
+      // not: the stored next run may itself be a clamped date, so re-deriving
+      // from it would quietly demote a 31st schedule to the 30th on a save
+      // that changed only the amount. The caller says which case this is.
+      anchorDay: anchorFor(input.cadence, input.startYmd, input.anchorDay),
       template: toTemplate(input) as unknown as Prisma.InputJsonValue,
     },
   });

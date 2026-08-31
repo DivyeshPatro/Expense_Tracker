@@ -29,13 +29,33 @@ export function useRepeat(): RepeatState {
 }
 
 /**
+ * The day this schedule is pinned to: the day of the transaction it repeats.
+ *
+ * Kept as one definition because `firstFutureRun` and `createRuleFor` must
+ * agree on it. They did not, in effect: the first run was computed with the
+ * transaction's day as the anchor and then, being a clamped date, was the only
+ * thing the server got — so the server pinned the schedule to the clamped day.
+ */
+export function anchorDayFor(cadence: Cadence, transactionYmd: string): number | null {
+  if (cadence === "DAILY" || cadence === "WEEKLY") return null;
+  return Number(transactionYmd.slice(8, 10));
+}
+
+/**
  * The transaction being submitted covers the first occurrence, so the schedule
  * starts one step later — otherwise tonight's cron would immediately duplicate
  * what the user just added.
+ *
+ * Anchored on the transaction's day, so a 31st transaction schedules Sep 30
+ * rather than drifting to the 30th of every month thereafter.
  */
 export function firstFutureRun(state: RepeatState, transactionYmd: string): string {
-  const anchor = state.cadence === "DAILY" || state.cadence === "WEEKLY" ? null : Number(transactionYmd.slice(8, 10));
-  return advance(transactionYmd, state.cadence, Math.max(1, Number(state.interval) || 1), anchor);
+  return advance(
+    transactionYmd,
+    state.cadence,
+    Math.max(1, Number(state.interval) || 1),
+    anchorDayFor(state.cadence, transactionYmd)
+  );
 }
 
 /**
@@ -58,6 +78,9 @@ export async function createRuleFor(
     interval: state.interval,
     startDate: firstFutureRun(state, tx.date),
     endDate: state.endDate || null,
+    // The transaction's own day, NOT the first run's: those differ exactly when
+    // the next month is too short, which is the case this exists for.
+    anchorDay: anchorDayFor(state.cadence, tx.date),
   });
   return res.ok ? null : res.error;
 }

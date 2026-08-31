@@ -163,6 +163,12 @@ function EditRuleForm({ rule, onDone }: { rule: RecurringRuleView; onDone: () =>
       interval,
       startDate,
       endDate: endDate || null,
+      // Choosing a new date, or a new cadence, IS choosing a new anchor — let
+      // the server derive it. Leaving both alone must not re-derive: the date
+      // shown is the next run, which for a month-end schedule is already
+      // clamped, so saving an amount change would silently demote a 31st rule
+      // to the 30th.
+      anchorDay: startDate === rule.nextRunYmd && cadence === rule.cadence ? rule.anchorDay : null,
     });
     setBusy(false);
     if (!res.ok) {

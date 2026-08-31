@@ -326,6 +326,10 @@ export const recurringRuleSchema = z
     interval: z.coerce.number().int().min(1, "Repeat every at least 1").max(99),
     startDate: ymd,
     endDate: ymd.nullable().optional(),
+    // The day the schedule is pinned to, when the caller knows it independently
+    // of startDate — see RuleInput.anchorDay. Absent, the start date's own day
+    // is used, which is what every caller that passes a user-chosen date wants.
+    anchorDay: z.coerce.number().int().min(1).max(31).nullable().optional(),
   })
   .refine((v) => !v.endDate || v.endDate >= v.startDate, {
     message: "End date can't be before the start date",

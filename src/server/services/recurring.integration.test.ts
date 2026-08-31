@@ -276,6 +276,77 @@ describe("recurring rule management", () => {
     expect(rules.find((r) => r.template.merchant === "Weekly")?.anchorDay).toBeNull();
   });
 
+  // Regression: the day a schedule is pinned to was read back off its FIRST
+  // RUN, and "repeat this" on a 31st transaction schedules the first run a
+  // month later — a September that has no 31st. The start date arrived already
+  // clamped to the 30th, the anchor was derived from it, and the schedule was
+  // on the 30th from then on. The caller now says which day it means.
+  it("stores the anchor the caller states, not the day its clamped start date happens to fall on", async () => {
+    await createRecurringRule(userId, input({ cadence: "MONTHLY", startYmd: "2026-09-30", anchorDay: 31 }));
+    const rule = (await listRecurringRules(userId))[0];
+
+    expect(rule.anchorDay).toBe(31);
+    expect(rule.nextRunYmd).toBe("2026-09-30"); // the occurrence is still right
+  });
+
+  it("materializes a 31st-anchored rule created that way back onto the 31st", async () => {
+    // The whole point, end to end: a rule created from a 31 August transaction
+    // must produce Sep 30, Oct 31, Nov 30 — not the 30th forever.
+    await createRecurringRule(userId, input({ cadence: "MONTHLY", startYmd: "2026-09-30", anchorDay: 31 }));
+    await materializeDueRules(istNoon("2026-11-30"));
+
+    const txs = await prisma.transaction.findMany({ where: { userId }, orderBy: { occurredAt: "asc" } });
+    expect(txs.map((t) => toYMD(t.occurredAt))).toEqual(["2026-09-30", "2026-10-31", "2026-11-30"]);
+  });
+
+  it("ignores a nonsensical anchor and falls back to the start date's own day", async () => {
+    for (const bad of [0, 32, -1, 3.5] as number[]) {
+      await prisma.recurringRule.deleteMany({ where: { userId } });
+      await createRecurringRule(userId, input({ cadence: "MONTHLY", startYmd: "2026-01-15", anchorDay: bad }));
+      expect((await listRecurringRules(userId))[0].anchorDay).toBe(15);
+    }
+  });
+
+  it("never anchors a day-based cadence, whatever the caller states", async () => {
+    // A day-of-month on a weekly rule would make `advance` treat it as a
+    // month-based one, silently changing what the schedule means.
+    await createRecurringRule(userId, input({ cadence: "WEEKLY", startYmd: "2026-01-31", anchorDay: 31 }));
+    expect((await listRecurringRules(userId))[0].anchorDay).toBeNull();
+  });
+
+  it("keeps a stated anchor through an edit that leaves the start date alone", async () => {
+    // Saving an amount change on a month-end rule must not demote it: the date
+    // in the form is the next run, which for such a rule is already clamped.
+    await createRecurringRule(userId, input({ cadence: "MONTHLY", startYmd: "2026-09-30", anchorDay: 31 }));
+    const created = (await listRecurringRules(userId))[0];
+
+    await updateRecurringRule(userId, created.id, input({ cadence: "MONTHLY", startYmd: "2026-09-30", anchorDay: 31, amountPaise: 59_900 }));
+    const after = (await listRecurringRules(userId))[0];
+
+    expect(after.anchorDay).toBe(31);
+    expect(after.template.amount).toBe(59_900);
+  });
+
+  it("re-anchors on an edit that moves the start date", async () => {
+    // Choosing a new date IS choosing a new anchor — the obsolete one must go.
+    await createRecurringRule(userId, input({ cadence: "MONTHLY", startYmd: "2026-09-30", anchorDay: 31 }));
+    const created = (await listRecurringRules(userId))[0];
+
+    await updateRecurringRule(userId, created.id, input({ cadence: "MONTHLY", startYmd: "2026-10-15" }));
+    const after = (await listRecurringRules(userId))[0];
+
+    expect(after.anchorDay).toBe(15);
+    expect(after.nextRunYmd).toBe("2026-10-15");
+  });
+
+  it("drops the anchor when an edit turns a monthly rule into a weekly one", async () => {
+    await createRecurringRule(userId, input({ cadence: "MONTHLY", startYmd: "2026-09-30", anchorDay: 31 }));
+    const created = (await listRecurringRules(userId))[0];
+
+    await updateRecurringRule(userId, created.id, input({ cadence: "WEEKLY", startYmd: "2026-10-05" }));
+    expect((await listRecurringRules(userId))[0].anchorDay).toBeNull();
+  });
+
   it("refuses an account or category belonging to someone else", async () => {
     const other = await prisma.user.create({ data: { name: "Other", email: "other-recurring@ledgerly.app", emailVerified: true } });
     const foreign = await prisma.account.create({

@@ -871,6 +871,7 @@ export async function createRecurringRuleAction(input: unknown): Promise<ActionR
       interval: d.interval,
       startYmd: d.startDate,
       endYmd: d.endDate ?? null,
+      anchorDay: d.anchorDay ?? null,
     });
     refresh();
     return { ok: true };
@@ -893,6 +894,7 @@ export async function updateRecurringRuleAction(input: unknown): Promise<ActionR
       interval: d.interval,
       startYmd: d.startDate,
       endYmd: d.endDate ?? null,
+      anchorDay: d.anchorDay ?? null,
     });
     refresh();
     return { ok: true };
