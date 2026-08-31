@@ -89,19 +89,69 @@ async function main() {
     // document and the assertions below fail for no real reason.
     await page.waitForSelector("text=Members · contribution", { timeout: 30000 });
     const afterText = await page.locator("body").innerText();
-    // Scoped to the members card. The name legitimately appears a second time in
-    // the Balances list as a payment row — that is one person being
-    // named twice on the page, not two identities, so counting whole-page text
-    // would be the wrong assertion.
-    // The page splits at the payment plan, whose section is headed "Settle up".
-    const splitAt = afterText.indexOf("Settle up");
-    const membersSection = splitAt > 0 ? afterText.slice(0, splitAt) : afterText;
-    const suggestionSection = splitAt > 0 ? afterText.slice(splitAt) : "";
-    const memberOccurrences = (membersSection.match(new RegExp(NAME, "g")) ?? []).length;
-    const suggestionOccurrences = (suggestionSection.match(new RegExp(NAME, "g")) ?? []).length;
-    ok("after merge: the contact appears exactly once in the members list", memberOccurrences === 1, `${memberOccurrences}× in members section`);
+    // Counted per SECTION, by locating each section rather than slicing the
+    // page text at a marker: the group page reordered — the payment plan
+    // ("Settle up") leads and the roster ("Members · contribution") follows —
+    // so a single split point put the members list on the wrong side.
+    //
+    // The name legitimately appears twice on the page: once as a member and
+    // once as a payment row. That is one person named twice, not two
+    // identities, which is exactly what the merge has to produce.
+    const sectionCount = async (heading: string) => {
+      const section = page.locator("section").filter({ has: page.getByText(heading, { exact: true }) }).first();
+      const text = await section.innerText();
+      return (text.match(new RegExp(NAME, "g")) ?? []).length;
+    };
+    const memberOccurrences = await sectionCount("Members · contribution");
+    const suggestionOccurrences = await sectionCount("Settle up");
+    ok("after merge: the contact appears exactly once in the members list", memberOccurrences === 1, `${memberOccurrences}× in the members section`);
     ok("after merge: it is named once more only as a payment row in the settlement plan", suggestionOccurrences === 1, `${suggestionOccurrences}× in the plan`);
     ok("after merge: no '(left group)' row remains", !afterText.includes("(left group)"));
+
+    // A merge moves one person's history onto another. What must survive it,
+    // checked against the stored rows rather than inferred from the screen:
+    // the transactions keep their owner, the split rows point at the survivor,
+    // the duplicate is gone, and the group roster still holds the survivor.
+    const survivingSplits = await prisma.expenseSplit.findMany({
+      where: { txId: { in: [txA.id, txB.id] } },
+      select: { participantId: true, owedAmount: true, txId: true },
+    });
+    // Each expense splits three ways — the owner (participantId null) plus two
+    // contacts — so what matters is that nothing still points at the person who
+    // was merged away, and that what they were owed moved to the survivor
+    // rather than being rewritten or dropped.
+    ok(
+      "no split row still points at the merged-away contact",
+      survivingSplits.every((s) => s.participantId !== duplicate.id),
+      survivingSplits.map((s) => String(s.participantId)).join(", ")
+    );
+    const owedToSurvivor = survivingSplits
+      .filter((s) => s.participantId === canonical.id)
+      .reduce((sum, s) => sum + Number(s.owedAmount), 0);
+    ok(
+      "the survivor now carries both shares — ₹100 + ₹200 — with neither rewritten",
+      owedToSurvivor === 30000,
+      `${owedToSurvivor} paise`
+    );
+    const splitTotal = survivingSplits.reduce((sum, s) => sum + Number(s.owedAmount), 0);
+    ok("and the expenses still sum to what they always did (₹900)", splitTotal === 90000, `${splitTotal} paise`);
+    const ownersAfter = await prisma.transaction.findMany({
+      where: { id: { in: [txA.id, txB.id] } },
+      select: { userId: true, groupId: true },
+    });
+    ok(
+      "merge never moves a transaction to another owner or group",
+      ownersAfter.every((t) => t.userId === user.id && t.groupId === group.id)
+    );
+    ok("the duplicate contact is gone for good", (await prisma.participant.count({ where: { id: duplicate.id } })) === 0);
+    ok(
+      "the surviving contact is still a member of the group",
+      (await prisma.groupMember.count({ where: { groupId: group.id, participantId: canonical.id } })) === 1
+    );
+    ok(
+      "no lending entry is left pointing at the merged-away contact",
+      (await prisma.loanEntry.count({ where: { participantId: duplicate.id } })) === 0
+    );
     ok("after merge: the combined balance ₹300.00 is shown", afterText.includes("300"));
     ok("after merge: group total unchanged at ₹900.00", afterText.includes("900"));
     await page.screenshot({ path: path.join(SHOT, "merge-390-after.png"), fullPage: true });

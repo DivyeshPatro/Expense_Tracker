@@ -51,9 +51,24 @@ async function precleanEntities() {
 }
 await precleanEntities();
 
+/** Open the Spending list's search, which is deliberately opt-in.
+ *
+ *  `<details open={!!q}>` — collapsed until there is a query, because the list
+ *  is the page's job and the field is a tool you reach for. So it has to be
+ *  opened before it can be typed into; the input is in the DOM the whole time
+ *  and simply is not actionable, which is why a bare fill() waited out its
+ *  entire timeout on an element it could see. */
+const openSearch = async (p) => {
+  const field = p.locator('input[placeholder^="Search"]');
+  if (!(await field.isVisible())) await p.locator("summary").filter({ hasText: "Search" }).first().click();
+  await field.waitFor({ state: "visible", timeout: 15000 });
+  return field;
+};
+
 const openRow = async (merchantText) => {
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.fill('input[placeholder^="Search"]', merchantText);
+  const field = await openSearch(page);
+  await field.fill(merchantText);
   await page.waitForTimeout(500);
   await page.locator(`button:has-text("${merchantText}")`).first().click();
   await page.getByRole("button", { name: "Edit", exact: true }).waitFor({ timeout: 8000 });
@@ -161,18 +176,22 @@ try {
 
   // income
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.click('button[aria-label="Quick add (desktop)"]');
-  await page.getByRole("button", { name: "💰 Income" }).click();
-  await page.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
-  await page.fill('input[placeholder="0"]', "777");
-  await page.fill('input[placeholder="e.g. Salary · Acme Corp"]', "E2EActivityInc");
-  await page.getByRole("button", { name: "Add income", exact: true }).click();
-  await page.waitForSelector("text=Income added");
+  await page.click('button:has-text("＋ Add expense")');
+  await composer().waitFor({ timeout: 20000 });
+  await composer().getByRole("button", { name: /Credit/ }).click();
+  await page.waitForTimeout(300);
+  await typeAmount("777");
+  await setMerchant("E2EActivityInc");
+  await saveComposer();
 
   // transfer (pinned accounts, from a page without a standalone Transfer button)
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.click('button[aria-label="Quick add (desktop)"]');
-  await page.getByRole("button", { name: "⇄ Transfer" }).click();
+  // The quick-add chooser is a BottomSheet on a phone and an inline stack of
+  // buttons beside the desktop FAB — so the action is addressed by role and
+  // name, not by the container it happens to sit in at this width.
+  await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(500);
+  await page.getByRole("button", { name: /Transfer money/i }).filter({ visible: true }).first().click();
   await page.waitForSelector('input[placeholder="0"]');
   const selects = page.locator("select.field");
   await selects.nth(0).selectOption({ label: "🏦 HDFC Savings" }).catch(() => {});
@@ -182,17 +201,39 @@ try {
   await page.waitForSelector("text=Transfer recorded");
 
   // settlement
+  //
+  // A settled group has nothing to settle — "Settle up" shows "All settled up"
+  // rather than a form — and the seeded group nets to zero. So the imbalance
+  // this step settles is created first, through the real split flow, rather
+  // than assumed from seed state.
   await page.goto("http://localhost:3000/shared", { waitUntil: "load" });
-  await page.waitForSelector("text=YOU OWE");
-  await page.locator('button:has-text("Settle")').first().click();
-  await page.waitForSelector('input[placeholder="0"]');
-  await page.fill('input[placeholder="0"]', "450");
-  await page.getByRole("button", { name: "Record settlement", exact: true }).click();
-  await page.waitForSelector("text=Settlement recorded");
+  await page.getByRole("button", { name: /Add shared expense/i }).filter({ visible: true }).first().click();
+  await typeAmount("900");
+  await setMerchant("E2EActivitySplit");
+  await saveComposer();
+  await page.waitForTimeout(800);
+
+  // /shared is an index of groups and per-person balances now; settling is an
+  // action on the group that owns the balance, under its "Settle up" section.
+  await page.goto("http://localhost:3000/shared", { waitUntil: "load" });
+  await page.getByRole("link", { name: /Flat 402/ }).first().click();
+  await page.waitForURL("**/shared/groups/**", { timeout: 20000 });
+  await page.getByRole("button", { name: "Settle up", exact: true }).first().click();
+  // "Settle up" asks who first — one payment per person, so the plan names the
+  // pair before the amount. Pick whoever the plan lists.
+  await page.getByRole("dialog").last().waitFor({ timeout: 20000 });
+  await page.getByRole("dialog").last().getByRole("button", { name: /Karan/ }).first().click();
+  await page.waitForSelector('input[placeholder="0"]', { timeout: 20000 });
+  await page.fill('input[placeholder="0"]', "300");
+  // The settle form's submit reads "Record payment" — one payment between two
+  // people, which is what the plan's rows describe.
+  await page.getByRole("button", { name: "Record payment", exact: true }).click();
+  await page.waitForSelector("text=Payment recorded");
 
   // category create → rename → delete
-  await page.goto("http://localhost:3000/settings", { waitUntil: "load" });
-  await page.waitForSelector("text=Categories");
+  // Settings is an index of sub-pages; categories live under General.
+  await page.goto("http://localhost:3000/settings/general", { waitUntil: "load" });
+  await page.getByRole("heading", { name: "Categories" }).waitFor({ timeout: 20000 });
   const addCategory = async (name) => {
     await page.click('button:has-text("＋ New expense category")');
     await page.fill('input[placeholder="Category name"]', name);
@@ -204,7 +245,9 @@ try {
   await page.click('button:has-text("E2EActCatA")');
   await page.waitForSelector('input[value="E2EActCatA"]');
   await page.fill('input[value="E2EActCatA"]', "E2EActCatAR");
-  await page.click('button:has-text("Save")');
+  // The only ENABLED Save is the row being edited: Settings > General also
+  // carries a Profile Save, which stays disabled and comes first in the DOM.
+  await page.locator("button:not([disabled])").filter({ hasText: /^Save$/ }).first().click();
   await page.waitForSelector("text=Category renamed");
   await page.waitForSelector('button:has-text("E2EActCatAR")');
   await page.click('button:has-text("E2EActCatAR")');
@@ -217,7 +260,11 @@ try {
 
   // account
   await page.goto("http://localhost:3000/accounts", { waitUntil: "load" });
-  await page.click('button:has-text("＋ Add account")');
+  // #209 moved "＋ Add account" off the Accounts header onto the section's
+  // quick-add, alongside Transfer.
+  await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(500);
+  await page.getByRole("button", { name: /Add account/i }).filter({ visible: true }).first().click();
   await page.waitForSelector('input[placeholder="e.g. HDFC Savings"]');
   await page.fill('input[placeholder="e.g. HDFC Savings"]', "E2EActAcct");
   await page.fill('input[placeholder="0"]', "100");
@@ -253,12 +300,19 @@ try {
 
   // bill create → pay (one-off retires itself)
   await page.goto("http://localhost:3000/bills", { waitUntil: "load" });
-  await page.click('button:has-text("＋ New bill")');
-  await page.waitForSelector('input[placeholder="e.g. ACT Fibernet"]');
+  // The bills page has no add button of its own — the section's FAB is the
+  // entry point, and its single action opens the form directly.
+  await page.getByRole("button", { name: /Add bill/i }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(500);
+  if (!(await page.locator('input[placeholder="e.g. ACT Fibernet"]').isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: /Add bill/i }).filter({ visible: true }).nth(1).click().catch(() => {});
+  }
+  await page.waitForSelector('input[placeholder="e.g. ACT Fibernet"]', { timeout: 15000 });
   await page.fill('input[placeholder="e.g. ACT Fibernet"]', "E2EActBill");
   await page.fill('input[placeholder="0"]', "500");
   await page.locator("select.field").last().selectOption({ label: "One-off" });
-  await page.getByRole("button", { name: "Add bill", exact: true }).click();
+  // Scoped to the open form: the FAB behind it carries the same name.
+  await page.getByRole("dialog").last().getByRole("button", { name: "Add bill", exact: true }).click();
   await page.waitForSelector("text=Bill added");
   await page.waitForTimeout(400);
   const billRow = page.locator("div.flex.items-center", { hasText: "E2EActBill" }).first();

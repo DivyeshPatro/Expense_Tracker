@@ -1,10 +1,22 @@
-// Proves the mobile bottom navigation: an all-in-one horizontally-scrollable
-// row of every section (no "More" sheet, no separate Analytics tab — that's
-// now the Insights tab of Spends), a center-docked Quick Add FAB, the active
-// tab visually distinguished, the Quick Add sheet opening/dismissing and
-// routing each of its choices to the right form, exactly one Quick Add entry
-// point on mobile, Shared reachable directly in the row, and desktop
-// nav/active-state remaining untouched.
+// Mobile navigation, against the contract the app actually has.
+//
+// The previous version of this suite described a design #201/#202 replaced: a
+// single scrollable row holding every section, labels ("Home", "Spends",
+// "Khata", "Audit Log") that no longer exist, and an assertion that there is
+// NO "More" button. The bar is now a fixed number of slots plus a More sheet,
+// on purpose and configurably — so that assertion was the opposite of the
+// intended behaviour, and repairing its selectors would have produced a suite
+// that passed while asserting something false.
+//
+// What it tests now is the contract itself, from NAV_ITEMS and nav-prefs:
+//   • the bar shows `maxTabs - 1` sections plus More (default 6 → 5 + More)
+//   • every remaining section is reachable through the More sheet
+//   • navigation works from both, and the sheet closes behind you
+//   • the current section is marked, in the bar and in the sheet
+//   • nothing is offered twice
+//   • the bar is mobile-only; desktop keeps its sidebar
+//
+// Run: node scripts/db-local.mjs --shell "node scripts/e2e-mobile-nav.mjs"
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -13,182 +25,215 @@ import fs from "node:fs";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHOT = path.join(SCRIPT_DIR, "..", "e2e-output");
 fs.mkdirSync(SHOT, { recursive: true });
+
+const BASE = "http://localhost:3000";
 const results = [];
 const ok = (name, pass, detail = "") => {
   results.push({ name, pass, detail });
   console.log(`${pass ? "PASS" : "FAIL"} — ${name}${detail ? " · " + detail : ""}`);
 };
 
+// The catalogue the product navigates by. Kept here as data rather than as a
+// list of literals scattered through the assertions: when a module is added,
+// this suite should notice it, not silently keep testing twelve of thirteen.
+const DAILY = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/transactions", label: "Spending" },
+  { href: "/people", label: "People" },
+  { href: "/cards", label: "Cards" },
+  { href: "/bills", label: "Bills" },
+];
+const OVERFLOW = [
+  { href: "/lending", label: "Lending" },
+  { href: "/shared", label: "Shared" },
+  { href: "/budgets", label: "Budgets" },
+  { href: "/accounts", label: "Accounts" },
+  { href: "/analytics", label: "Insights" },
+  { href: "/import", label: "Import" },
+  { href: "/activity", label: "Activity" },
+  { href: "/settings", label: "Settings" },
+];
+
 const browser = await chromium.launch({ headless: true });
-const desktop = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-desktop.setDefaultTimeout(15000);
+const desktopCtx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const desktop = await desktopCtx.newPage();
+desktop.setDefaultTimeout(20000);
+
+/** The bottom bar. Mobile-only by design (`md:hidden`). */
+const bar = (page) => page.locator("nav");
+/** The More sheet, by its own accessible name. */
+const moreSheet = (page) => page.getByRole("dialog", { name: "More sections" });
+
+async function signIn(page) {
+  await page.goto(`${BASE}/sign-in`, { waitUntil: "load" });
+  await page.waitForSelector('button[type="submit"]');
+  await page.waitForTimeout(800);
+  await page.fill('input[type="email"]', "arjun@ledgerly.app");
+  await page.fill('input[type="password"]', "ledgerly-demo");
+  await page.click('button[type="submit"]');
+  await page.waitForURL("**/dashboard", { timeout: 30000 });
+}
+
+/** Deterministic readiness: the bar's own first tab, not incidental page copy. */
+async function barReady(page) {
+  await bar(page).getByRole("link", { name: "Dashboard" }).first().waitFor({ state: "visible", timeout: 20000 });
+}
 
 try {
-  await desktop.goto("http://localhost:3000/sign-in");
-  await desktop.fill('input[type="email"]', "arjun@ledgerly.app");
-  await desktop.fill('input[type="password"]', "ledgerly-demo");
-  await desktop.click('button[type="submit"]');
-  await desktop.waitForURL("**/dashboard", { timeout: 15000 });
-  const cookies = await desktop.context().cookies();
+  await signIn(desktop);
+  const cookies = await desktopCtx.cookies();
 
-  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  mobile.setDefaultTimeout(15000);
-  await mobile.context().addCookies(cookies);
-  await mobile.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await mobile.waitForSelector("text=Net standing");
+  const mobileCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await mobileCtx.addCookies(cookies);
+  const mobile = await mobileCtx.newPage();
+  mobile.setDefaultTimeout(20000);
 
-  // ═══════════ all-in-one scrollable bottom nav ═══════════
-  const nav = mobile.locator("nav");
-  ok("mobile bottom nav bar is visible", await nav.isVisible());
+  await mobile.goto(`${BASE}/dashboard`, { waitUntil: "load" });
+  await barReady(mobile);
 
-  const homeLink = nav.getByRole("link", { name: /Home/ });
-  const spendsLink = nav.getByRole("link", { name: /Spends/ });
-  const quickAddBtn = mobile.locator('button[aria-label="Quick add"]');
-  ok("Home tab present", (await homeLink.count()) === 1);
-  ok("Spends tab present (Transactions, relabelled)", (await spendsLink.count()) === 1);
-  ok("center Quick Add button present", await quickAddBtn.isVisible());
+  // ═══════════ the bar: a fixed number of slots, plus More ═══════════
+  ok("the bottom navigation bar is present on mobile", await bar(mobile).isVisible());
 
-  // every section lives in the one scrollable row (no More sheet)
-  const inNav = ["Khata", "Accounts", "Cards", "Budgets", "Bills", "Shared", "Audit Log", "Import", "Settings"];
-  for (const label of inNav) {
-    ok(`nav row includes ${label}`, (await nav.getByRole("link", { name: new RegExp(label) }).count()) === 1);
-  }
-  ok("no 'More' button (every section is in the row)", (await nav.getByRole("button", { name: /^More$/ }).count()) === 0);
-  ok("no dedicated Analytics tab (it's the Insights tab of Spends)", (await nav.getByRole("link", { name: /Analytics/ }).count()) === 0);
+  const barLinks = await bar(mobile).getByRole("link").evaluateAll((els) =>
+    els.map((e) => ({ href: e.getAttribute("href")?.split("?")[0], label: e.textContent?.trim() }))
+  );
+  ok(
+    "the bar shows the five daily sections, in catalogue order",
+    barLinks.length === DAILY.length && DAILY.every((d, i) => barLinks[i].href === d.href),
+    barLinks.map((l) => l.href).join(", ")
+  );
 
-  // touch target sizing (~44px minimum)
-  const qaBox = await quickAddBtn.boundingBox();
-  ok("Quick Add button meets ~44px minimum touch target", qaBox.width >= 44 && qaBox.height >= 44, `${qaBox.width}x${qaBox.height}`);
+  const moreButton = bar(mobile).getByRole("button", { name: "More sections" });
+  ok("the bar reserves its last slot for More", (await moreButton.count()) === 1);
+  ok("More is announced as opening a dialog", (await moreButton.getAttribute("aria-haspopup")) === "dialog");
 
-  // ═══════════ active nav state ═══════════
-  // armStuckNavFallback arms a 500ms grace-period timer per click; clicking a
-  // second nav link inside that window can land back on the first click's
-  // pre-click URL by coincidence and trip its (unrelated, pre-existing)
-  // stuck-nav fallback into a spurious hard reload — wait out the grace
-  // period between clicks so this test isn't flaky because of it.
-  // dispatchEvent rather than click(): in `next dev` the dev-tools "Issues"
-  // badge floats over the bottom-left of the nav and would intercept a real
-  // pointer on the left-most tabs. It doesn't exist in a production build; the
-  // dispatched click drives the same Link navigation without the hit-test.
-  await spendsLink.dispatchEvent("click");
-  await mobile.waitForURL("**/transactions**");
-  const spendsColor = await spendsLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
-  const homeColorAfterNav = await homeLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
-  ok("active tab (Spends) is visually distinguished from inactive tab (Home)", spendsColor !== homeColorAfterNav, `${spendsColor} vs ${homeColorAfterNav}`);
-  await mobile.waitForTimeout(600);
+  // Every section is reachable: nothing may fall out of both surfaces.
+  await moreButton.click();
+  await moreSheet(mobile).waitFor({ state: "visible" });
+  const sheetLinks = await moreSheet(mobile).getByRole("link").evaluateAll((els) =>
+    els.map((e) => e.getAttribute("href")?.split("?")[0])
+  );
+  ok(
+    "the More sheet holds every section the bar could not fit",
+    OVERFLOW.every((o) => sheetLinks.includes(o.href)) && sheetLinks.length === OVERFLOW.length,
+    sheetLinks.join(", ")
+  );
 
-  await homeLink.dispatchEvent("click");
-  await mobile.waitForURL("**/dashboard**");
-  await mobile.waitForSelector("text=Net standing");
-  await mobile.waitForTimeout(600);
+  const barHrefs = barLinks.map((l) => l.href);
+  ok(
+    "no section is offered in both the bar and the sheet",
+    sheetLinks.every((h) => !barHrefs.includes(h)),
+    sheetLinks.filter((h) => barHrefs.includes(h)).join(", ") || "no overlap"
+  );
+  await mobile.screenshot({ path: path.join(SHOT, "mobile-nav-more-sheet.png") });
 
-  // ═══════════ mobile FAB no longer duplicated ═══════════
-  const desktopFab = mobile.locator('button[aria-label="Quick add (desktop)"]');
-  ok("the old floating-corner FAB is not visible on mobile (superseded by center Quick Add)", !(await desktopFab.isVisible().catch(() => false)));
-  const visibleQuickAddButtons = await mobile.locator('button[aria-label="Quick add"]').count();
-  ok("exactly one Quick Add entry point renders on mobile", visibleQuickAddButtons === 1, `found ${visibleQuickAddButtons}`);
-
-  // ═══════════ Quick Add opens + each of the four choices reaches the correct form ═══════════
-  await quickAddBtn.click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]');
-  const quickAddSheet = mobile.locator('[role="dialog"][aria-label="Quick add"]');
-  const sheetBody = await quickAddSheet.textContent();
-  ok("Quick Add sheet lists all four transaction types", ["Expense", "Income", "Transfer", "Split with friends"].every((l) => sheetBody.includes(l)));
-
-  await quickAddSheet.getByRole("button", { name: "🧾 Expense" }).click();
-  await mobile.waitForSelector("text=AMOUNT (₹)");
-  ok("Quick Add → Expense opens the expense form", await mobile.locator('input[placeholder="e.g. Swiggy"]').isVisible());
+  // ═══════════ the sheet closes, both ways ═══════════
   await mobile.keyboard.press("Escape");
-  await mobile.waitForTimeout(300);
+  await moreSheet(mobile).waitFor({ state: "detached" });
+  ok("Escape closes the More sheet", true);
 
-  await quickAddBtn.click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]');
-  await quickAddSheet.getByRole("button", { name: "💰 Income" }).click();
-  await mobile.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
-  ok("Quick Add → Income opens the income form", await mobile.locator('input[placeholder="e.g. Salary · Acme Corp"]').isVisible());
+  await moreButton.click();
+  await moreSheet(mobile).waitFor({ state: "visible" });
+  // Tap the backdrop: the sheet's panel is centred, so the very top of the
+  // overlay is backdrop on any viewport.
+  await mobile.mouse.click(195, 8);
+  await moreSheet(mobile).waitFor({ state: "detached" });
+  ok("tapping outside closes the More sheet", true);
+
+  // ═══════════ navigating from the sheet ═══════════
+  await moreButton.click();
+  await moreSheet(mobile).waitFor({ state: "visible" });
+  await moreSheet(mobile).getByRole("link", { name: "Shared" }).click();
+  await mobile.waitForURL("**/shared**", { timeout: 20000 });
+  ok("a section opens from the More sheet", mobile.url().includes("/shared"));
+  await moreSheet(mobile).waitFor({ state: "detached", timeout: 10000 });
+  ok("the sheet closes behind you rather than covering where you landed", true);
+
+  // ═══════════ the current section is marked ═══════════
+  await barReady(mobile);
+  const moreActiveWhileInside = await bar(mobile)
+    .getByRole("button", { name: "More sections" })
+    .evaluate((el) => getComputedStyle(el.querySelector("span")).color);
+  await moreButton.click();
+  await moreSheet(mobile).waitFor({ state: "visible" });
+  const sharedCurrent = await moreSheet(mobile).getByRole("link", { name: "Shared" }).getAttribute("aria-current");
+  ok("the sheet marks the section you are on", sharedCurrent === "page", String(sharedCurrent));
+  const budgetsCurrent = await moreSheet(mobile).getByRole("link", { name: "Budgets" }).getAttribute("aria-current");
+  ok("and marks nothing else", budgetsCurrent === null, String(budgetsCurrent));
   await mobile.keyboard.press("Escape");
-  await mobile.waitForTimeout(300);
+  await moreSheet(mobile).waitFor({ state: "detached" });
 
-  await quickAddBtn.click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]');
-  await quickAddSheet.getByRole("button", { name: "⇄ Transfer" }).click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="Transfer money"]');
-  const transferText = await mobile.locator('[role="dialog"][aria-label="Transfer money"]').textContent();
-  ok("Quick Add → Transfer opens the transfer form", transferText.includes("FROM") && transferText.includes("TO"));
-  await mobile.keyboard.press("Escape");
-  await mobile.waitForTimeout(300);
+  // ═══════════ navigating from the bar, and its active state ═══════════
+  await bar(mobile).getByRole("link", { name: "Spending" }).click();
+  await mobile.waitForURL("**/transactions**", { timeout: 20000 });
+  await barReady(mobile);
+  ok("a section opens from the bar", mobile.url().includes("/transactions"));
 
-  await quickAddBtn.click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]');
-  await quickAddSheet.getByRole("button", { name: "👥 Split with friends" }).click();
-  await mobile.waitForSelector("text=AMOUNT (₹)");
-  // the split toggle's reveal panel (participant chips + EQUAL/EXACT/PERCENT/
-  // RATIO mode buttons) only renders once split=true — confirms the prefill
-  // pre-enabled it rather than landing on a plain (unsplit) expense form.
-  const splitPreEnabled = await mobile.getByRole("button", { name: "Equal split", exact: true }).isVisible().catch(() => false);
-  ok("Quick Add → Split with friends opens the expense form with split pre-enabled", splitPreEnabled);
-  await mobile.keyboard.press("Escape");
-  await mobile.waitForTimeout(300);
+  const spendingCurrent = await bar(mobile).getByRole("link", { name: "Spending" }).getAttribute("aria-current");
+  const dashboardCurrent = await bar(mobile).getByRole("link", { name: "Dashboard" }).getAttribute("aria-current");
+  ok("the bar marks the section you are on", spendingCurrent === "page", String(spendingCurrent));
+  ok("and only that one", dashboardCurrent === null, String(dashboardCurrent));
 
-  // ═══════════ Quick Add dismisses correctly ═══════════
-  await quickAddBtn.click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]');
-  await mobile.keyboard.press("Escape");
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]', { state: "detached", timeout: 5000 });
-  ok("Quick Add sheet dismisses via Escape", true);
+  // More is highlighted whenever the section you are in lives inside it —
+  // otherwise the bar would claim you are nowhere.
+  const moreColorOutside = await bar(mobile)
+    .getByRole("button", { name: "More sections" })
+    .evaluate((el) => getComputedStyle(el.querySelector("span")).color);
+  ok(
+    "More itself reads as active while you are in one of its sections",
+    moreActiveWhileInside !== moreColorOutside,
+    `${moreActiveWhileInside} inside vs ${moreColorOutside} outside`
+  );
 
-  await quickAddBtn.click();
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]');
-  await mobile.mouse.click(20, 20); // backdrop, outside the panel
-  await mobile.waitForSelector('[role="dialog"][aria-label="Quick add"]', { state: "detached", timeout: 5000 });
-  ok("Quick Add sheet dismisses via backdrop click", true);
+  // ═══════════ the quick-add control ═══════════
+  const fab = bar(mobile).getByRole("button", { name: /quick add|Add expense|Add bill|Add card|Add budget/i });
+  ok("the bar carries exactly one quick-add control", (await fab.count()) === 1, `${await fab.count()}`);
+  const fabBox = await fab.first().boundingBox();
+  ok("quick add meets the ~44px touch target", fabBox.width >= 44 && fabBox.height >= 44, `${fabBox.width}x${fabBox.height}`);
 
-  // ═══════════ Shared reachable directly in the row (no More sheet) ═══════════
-  // Shared sits deep in the scrollable row; clicking auto-scrolls it into view.
-  const sharedLink = nav.getByRole("link", { name: /Shared/ });
-  await sharedLink.dispatchEvent("click");
-  await mobile.waitForURL("**/shared**", { timeout: 60000 }); // first visit cold-compiles under `next dev`
-  ok("Shared is reachable directly from the bottom nav", mobile.url().includes("/shared"));
-  const sharedColorActive = await sharedLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
-  await mobile.waitForTimeout(600); // outlast this click's armStuckNavFallback grace period (see note above)
+  // Every tab is tappable at this width — a scrollable bar can still leave a
+  // slot smaller than a fingertip.
+  const tabBoxes = await bar(mobile).getByRole("link").evaluateAll((els) =>
+    els.map((e) => ({ label: e.textContent?.trim(), h: Math.round(e.getBoundingClientRect().height) }))
+  );
+  ok(
+    "every tab meets the ~44px touch target",
+    tabBoxes.every((t) => t.h >= 44),
+    tabBoxes.map((t) => `${t.label}:${t.h}`).join(" ")
+  );
 
-  await mobile.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await mobile.waitForSelector("text=Net standing");
-  const sharedColorInactive = await sharedLink.locator("span").first().evaluate((el) => getComputedStyle(el).color);
-  ok("Shared tab shows active state while on /shared", sharedColorActive !== sharedColorInactive, `${sharedColorActive} vs ${sharedColorInactive}`);
-
-  // ═══════════ desktop navigation remains unchanged ═══════════
-  await desktop.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await desktop.waitForSelector("text=TOTAL BALANCE");
+  // ═══════════ desktop keeps its sidebar, and only that ═══════════
+  await desktop.goto(`${BASE}/dashboard`, { waitUntil: "load" });
   const sidebar = desktop.locator("aside");
-  ok("desktop sidebar is visible", await sidebar.isVisible());
-  const sidebarText = await sidebar.textContent();
-  const expectedSidebarItems = ["Dashboard", "Transactions", "Accounts", "Budgets", "Bills", "Shared", "Analytics", "Settings"];
-  ok("desktop sidebar still lists all 8 destinations, including Shared as first-class", expectedSidebarItems.every((l) => sidebarText.includes(l)));
+  await sidebar.waitFor({ state: "visible" });
+  ok("desktop shows the sidebar", await sidebar.isVisible());
 
-  const desktopFabBtn = desktop.locator('button[aria-label="Quick add (desktop)"]');
-  ok("desktop still has its quick-add chooser (FAB) in the corner", await desktopFabBtn.isVisible());
-  await desktopFabBtn.click();
-  await desktop.waitForSelector("text=Split with friends");
-  ok("desktop FAB chooser still offers all four transaction types", true);
-  await desktop.keyboard.press("Escape").catch(() => {});
-  await desktopFabBtn.click({ force: true }).catch(() => {}); // toggle closed
-  await desktop.waitForTimeout(200);
+  const sidebarHrefs = await sidebar.getByRole("link").evaluateAll((els) =>
+    els.map((e) => e.getAttribute("href")?.split("?")[0])
+  );
+  ok(
+    "the sidebar lists every section — desktop has room, so nothing overflows",
+    [...DAILY, ...OVERFLOW].every((i) => sidebarHrefs.includes(i.href)),
+    [...DAILY, ...OVERFLOW].filter((i) => !sidebarHrefs.includes(i.href)).map((i) => i.href).join(", ") || "all present"
+  );
 
-  const headerAddExpense = desktop.getByRole("button", { name: "＋ Add expense", exact: true });
-  ok("desktop header ＋ Add expense button is unchanged", await headerAddExpense.isVisible());
+  ok("the mobile bar does not render on desktop", !(await bar(desktop).isVisible().catch(() => false)));
+  ok("there is no More sheet on desktop — nothing overflows", (await desktop.getByRole("button", { name: "More sections" }).count()) === 0);
 
-  const noMobileNavOnDesktop = await desktop.locator("nav").isVisible().catch(() => false);
-  ok("mobile bottom nav bar does not render on desktop", !noMobileNavOnDesktop);
-
-  // active-state check on desktop sidebar
-  await desktop.goto("http://localhost:3000/transactions", { waitUntil: "load" });
-  const activeSidebarLink = desktop.locator("aside a", { hasText: "Transactions" });
+  await desktop.goto(`${BASE}/transactions`, { waitUntil: "load" });
+  const activeSidebarLink = sidebar.getByRole("link", { name: "Spending" });
+  const inactiveSidebarLink = sidebar.getByRole("link", { name: "Budgets" });
+  // The sidebar signals the current section with styling rather than
+  // aria-current — unlike the mobile bar and the More sheet, which both set
+  // it. That asymmetry is a real (small) accessibility gap in the product and
+  // is reported separately; this asserts what the product actually does today
+  // rather than pretending it already sets the attribute.
   const activeBg = await activeSidebarLink.evaluate((el) => getComputedStyle(el).backgroundColor);
-  ok("desktop sidebar active-route highlighting still works", activeBg !== "rgba(0, 0, 0, 0)" && activeBg !== "transparent", activeBg);
+  const inactiveBg = await inactiveSidebarLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+  ok("the sidebar marks the section you are on", activeBg !== inactiveBg, `${activeBg} vs ${inactiveBg}`);
 } catch (e) {
   ok("script error", false, String(e).slice(0, 500));
-  await desktop.screenshot({ path: `${SHOT}/mobile-nav-error.png`, fullPage: true }).catch(() => {});
+  await desktop.screenshot({ path: path.join(SHOT, "mobile-nav-error.png"), fullPage: true }).catch(() => {});
 }
 
 await browser.close();

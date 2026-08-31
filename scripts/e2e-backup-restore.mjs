@@ -114,7 +114,33 @@ try {
   await page.waitForSelector("text=Restored", { timeout: 30000 }).catch(() => {});
   await page.waitForURL("**/transactions", { timeout: 20000 });
 
-  // ── Verify both merchants landed in the ledger ──
+  // ── Verify both merchants actually persisted, then that they are listed ──
+  //
+  // The stored rows are checked first and directly: whether a row is on
+  // screen depends on the period window the list happens to be showing, and
+  // a restore that wrote nothing and a restore the window is hiding look
+  // identical from the page alone. The ledger check below then confirms they
+  // are reachable, with the window widened so the backup's own dates are in
+  // scope — that is what made this look broken.
+  const restoredRows = await (async () => {
+    const db = new PrismaClient();
+    const u = await db.user.findUniqueOrThrow({ where: { email: "arjun@ledgerly.app" } });
+    const rows = await db.transaction.findMany({
+      where: { userId: u.id, merchant: { startsWith: "ZZZ RestoreTest" }, deletedAt: null },
+      select: { merchant: true, amount: true, type: true },
+    });
+    await db.$disconnect();
+    return rows;
+  })();
+  ok(
+    "both restored transactions persisted, with their types and amounts",
+    restoredRows.length === 2 &&
+      restoredRows.some((r) => r.merchant === "ZZZ RestoreTest Expense 001" && r.type === "EXPENSE") &&
+      restoredRows.some((r) => r.merchant === "ZZZ RestoreTest Income 002" && r.type === "INCOME"),
+    restoredRows.map((r) => `${r.merchant}:${r.type}:${Number(r.amount)}`).join(", ")
+  );
+
+  await page.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
   await page.waitForSelector("text=ZZZ RestoreTest Expense 001", { timeout: 15000 }).catch(() => {});
   const after = await page.textContent("body");
   ok("restored EXPENSE transaction appears in ledger", after.includes("ZZZ RestoreTest Expense 001"));

@@ -195,12 +195,40 @@ try {
 
   // ═══════════ Sync Center smoke test ═══════════
   await page.goto("http://localhost:3000/settings/sync", { waitUntil: "load" });
-  await page.waitForSelector("text=Recent activity");
-  const syncCenterBody = await page.evaluate(() => document.body.innerText);
-  ok("Sync Center renders a status hero", /Everything is synced|waiting to sync|need.*attention/i.test(syncCenterBody));
-  ok("Sync Center shows Recent activity with at least one entry from this run", syncCenterBody.includes("Recent activity") && syncCenterBody.includes("·"));
-  ok("Sync Center shows This device", syncCenterBody.includes("This device"));
-  ok("Sync Center shows Background sync truth row", syncCenterBody.includes("Background sync"));
+  const activitySection = page.locator("section").filter({ has: page.getByRole("heading", { name: "Recent activity" }) }).first();
+  await activitySection.waitFor({ timeout: 20000 });
+
+  // Everything this run queued has drained by now, so the hero must say so —
+  // not merely "some status is on screen".
+  ok(
+    "Sync Center reports everything synced once the queue has drained",
+    (await page.getByText("Everything is synced", { exact: true }).count()) > 0
+  );
+
+  // The old check here looked for a "·" anywhere on the page, which almost any
+  // content satisfies. What the section actually promises is a log of what
+  // synced: either it lists entries, or it says it has none. Assert the real
+  // state — this run queued and drained several changes, so entries there must
+  // be, each stamped with when it happened.
+  // The log lives in IndexedDB and is read in an effect after mount, so the
+  // heading paints before the entries do. Wait for the read to land rather
+  // than sampling an empty section a few milliseconds too early.
+  await activitySection
+    .locator("time")
+    .first()
+    .waitFor({ timeout: 15000 })
+    .catch(() => {});
+  const emptyLog = await activitySection.getByText("Nothing yet", { exact: false }).count();
+  const loggedEntries = await activitySection.locator("time").count();
+  ok(
+    "Sync Center's Recent activity lists what this run synced",
+    emptyLog === 0 && loggedEntries > 0,
+    `${loggedEntries} entr${loggedEntries === 1 ? "y" : "ies"}${emptyLog ? " (empty-state shown)" : ""}`
+  );
+  ok("Sync Center names each logged change with an outcome", /Synced|Queued|Overridden|Failed/i.test(await activitySection.innerText()));
+
+  ok("Sync Center shows This device", (await page.getByRole("heading", { name: "This device" }).count()) > 0);
+  ok("Sync Center shows Background sync truth row", (await page.getByText("Background sync", { exact: false }).count()) > 0);
   await page.click('a:has-text("← Settings")');
   await page.waitForSelector("text=Sync Center →");
   ok("the Settings sync card links into the Sync Center", true);

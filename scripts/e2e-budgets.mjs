@@ -21,7 +21,18 @@ const ok = (name, pass, detail = "") => {
 
 const prisma = new PrismaClient();
 const user = await prisma.user.findUnique({ where: { email: "arjun@ledgerly.app" } });
-const monthKey = new Date().toISOString().slice(0, 7);
+// The app reckons months in IST (see toYMD in src/lib/dates.ts), so the
+// fixture must too. Built from UTC, this fixture dated its spending into the
+// PREVIOUS month for the five and a half hours each day when the two calendars
+// disagree — and the budget, which sums the current month, then correctly
+// showed ₹0 spent. A suite that flips red at a month boundary is not one you
+// can trust the rest of the year.
+const monthKey = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date()).slice(0, 7);
 
 async function cleanup() {
   const cats = await prisma.category.findMany({ where: { userId: user.id, name: { contains: "ZZZ " } } });

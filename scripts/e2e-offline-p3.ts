@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { chromium, type Browser, type BrowserContext, type Cookie, type Page } from "playwright";
 import { prisma } from "../src/server/db";
-import { composerOf, saveComposer, setMerchant, typeAmount } from "./e2e-composer.mjs";
+import { composerOf, saveComposer, setMerchant, topSheet, typeAmount } from "./e2e-composer.mjs";
 
 const results: { name: string; pass: boolean; detail?: string }[] = [];
 const ok = (name: string, pass: boolean, detail = "") => {
@@ -71,29 +71,15 @@ async function editAmount(page: Page, newRupees: string) {
   ]);
   if (await composerOf(page).count()) {
     await typeAmount(page, newRupees);
+    // The composer commits on a swipe; an edit is expected to close it, but a
+    // conflict legitimately keeps it up to report, so this does not insist.
+    await saveComposer(page, { expectClose: false });
     return;
   }
   await page.getByLabel("AMOUNT (₹)").fill(newRupees);
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
 }
 
-/** Selects the option matching `optionText` on whichever <select> on the
- * page actually lists it — a <Field> label isn't programmatically tied to
- * its <select>, so scanning every select's own options is the only reliable
- * way to find the right one (Playwright's `:near()` matched the wrong
- * element here more than once). */
-async function selectByOptionText(page: Page, optionText: string): Promise<boolean> {
-  const selects = page.locator("select");
-  const count = await selects.count();
-  for (let i = 0; i < count; i++) {
-    const opts = await selects.nth(i).locator("option").allTextContents();
-    if (opts.some((o) => o.includes(optionText))) {
-      await selects.nth(i).selectOption({ label: opts.find((o) => o.includes(optionText))! });
-      return true;
-    }
-  }
-  return false;
-}
 
 async function main() {
   const user = await prisma.user.findFirst({ where: { email: "arjun@ledgerly.app" } });
@@ -297,14 +283,15 @@ async function main() {
     const { ctx, page } = await newDevice(browser, cookies);
     await openDetail(page, "P3AccountGone");
     await ctx.setOffline(true);
+    // A synced row opens the composer, where the account is a chip that opens
+    // a sheet of payment methods rather than a <select>.
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await page.waitForSelector('input[type="number"]');
-    // find whichever <select> actually lists the scratch account, rather than
-    // guessing DOM position or relying on Playwright's ambiguous :near() —
-    // there's no unique accessible name tying a <select> to its <Field> label
-    await selectByOptionText(page, scratchAccountName);
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
-    await page.waitForSelector("text=Save changes", { state: "detached" }); // the sheet closes on a successful (queued) save
+    await composerOf(page).waitFor({ timeout: 20000 });
+    await composerOf(page).getByRole("button", { name: /^Payment method:|Choose a payment method/ }).click();
+    await page.waitForTimeout(600);
+    await topSheet(page).getByRole("button", { name: new RegExp(scratchAccountName) }).first().click();
+    await page.waitForTimeout(400);
+    await saveComposer(page); // the screen closes on a successful (queued) save
 
     // simulate another device deleting the account before this queued edit gets a chance to sync
     await prisma.account.delete({ where: { id: scratchAccount.id } });
@@ -340,11 +327,13 @@ async function main() {
     await openDetail(page, "P3CategoryGone");
     await ctx.setOffline(true);
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await page.waitForSelector('input[type="number"]');
-    await selectByOptionText(page, scratchCategoryName);
-    await page.fill('input[type="number"]', "45");
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
-    await page.waitForSelector("text=Save changes", { state: "detached" }); // the sheet closes on a successful (queued) save
+    await composerOf(page).waitFor({ timeout: 20000 });
+    await composerOf(page).getByRole("button", { name: /^Category:|Choose a category/ }).click();
+    await page.waitForTimeout(600);
+    await topSheet(page).getByRole("button", { name: new RegExp(scratchCategoryName) }).first().click();
+    await page.waitForTimeout(400);
+    await typeAmount(page, "45");
+    await saveComposer(page); // the screen closes on a successful (queued) save
 
     await prisma.category.delete({ where: { id: scratchCategory.id } });
 

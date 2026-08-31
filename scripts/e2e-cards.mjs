@@ -65,9 +65,24 @@ async function waitFor(fn, label, attempts = 40) {
   return null;
 }
 
-// A card block in the gallery: a direct child of the grid holding the face and
-// its action row. Located by the nickname the face renders.
-const block = (nickname) => page.locator("div.grid > div").filter({ hasText: nickname }).first();
+/**
+ * Open a card's own page, which is where its controls live.
+ *
+ * The wallet is a list of rows linking to /cards/[cardId]; Show details, Edit,
+ * Make default and Delete are on that page under "Manage". They used to sit
+ * inline on a gallery tile, which is what `div.grid > div` was reaching for.
+ */
+const openCard = async (nickname) => {
+  if (!page.url().includes("/cards")) await gotoCards();
+  const row = page.getByRole("link", { name: new RegExp(nickname) });
+  if ((await row.count()) === 0) await gotoCards();
+  await page.getByRole("link", { name: new RegExp(nickname) }).first().click();
+  await page.waitForURL("**/cards/**", { timeout: 20000 });
+  await page.waitForTimeout(600);
+};
+
+/** The open card page. Its heading is the card's nickname. */
+const cardPage = () => page.locator("main").first();
 
 /** The add control, whichever of its two forms this wallet is showing. */
 const addCardButton = () => page.getByRole("button", { name: /Add card|Add your first card/ });
@@ -161,11 +176,12 @@ try {
 
   // ── The face shows the mask, not the number ──
   await gotoCards();
-  const faceText = await block(VISA).innerText();
-  ok("the gallery masks all but the last four", faceText.includes("1111") && !faceText.includes(RAW_NUMBER));
+  const walletText = await page.locator("body").innerText();
+  ok("the wallet masks all but the last four", walletText.includes("1111") && !walletText.includes(RAW_NUMBER));
 
   // ── Reveal is gated: a wrong password is refused ──
-  await openDialogVia(() => block(VISA).getByRole("button", { name: "Show details" }).click(), /Confirm it's you/);
+  await openCard(VISA);
+  await openDialogVia(() => page.getByRole("button", { name: "Show details" }).first().click(), /Confirm it's you/);
   await page.getByRole("dialog").getByLabel("Ledgerly password").fill("definitely-not-it");
   await page.getByRole("dialog").getByRole("button", { name: "Continue" }).click();
   const refused = await waitFor(
@@ -183,16 +199,16 @@ try {
     "the reveal panel"
   );
   ok("the right password reveals the full number and CVV", revealed === true);
-  const panelText = revealed ? await block(VISA).innerText() : "";
+  const panelText = revealed ? await cardPage().innerText() : "";
   ok("the reveal shows a countdown before it auto-hides", /Visible for \d+s/.test(panelText));
 
   // Hide it again (the 30s auto-hide itself is covered by unit tests).
-  await block(VISA).getByRole("button", { name: "Hide now" }).click();
+  await page.getByRole("button", { name: "Hide now" }).first().click();
   await page.waitForTimeout(500);
   ok("Hide now clears the revealed number immediately", !(await page.locator("body").innerText()).includes(NUMBER));
 
   // ── Edit routes through the password prompt ──
-  await openDialogVia(() => block(VISA).getByRole("button", { name: "Edit" }).click(), /Confirm it's you/);
+  await openDialogVia(() => page.getByRole("button", { name: /Edit card/ }).first().click(), /Confirm it's you/);
   await page.getByRole("dialog").getByLabel("Ledgerly password").fill(PASSWORD);
   await page.getByRole("dialog").getByRole("button", { name: "Continue" }).click();
   const editOpened = await page
@@ -221,8 +237,8 @@ try {
   await page.getByRole("dialog").getByRole("button", { name: "Save card" }).click();
   await waitFor(() => prisma.creditCard.findFirst({ where: { userId: user.id, nickname: MC } }), "the second card to save");
 
-  await gotoCards();
-  await block(MC).getByRole("button", { name: "Make default" }).click();
+  await openCard(MC);
+  await page.getByRole("button", { name: /Make default/ }).first().click();
   const promoted = await waitFor(
     async () => ((await prisma.creditCard.findFirst({ where: { userId: user.id, nickname: MC } }))?.isDefault ? true : null),
     "the default to move"
@@ -232,11 +248,11 @@ try {
   ok("exactly one of my cards is the default", defaults === 1, `${defaults} default(s)`);
 
   // ── Delete ──
-  await gotoCards();
-  await block(MC).getByRole("button", { name: "Delete" }).click();
+  await openCard(MC);
+  await page.getByRole("button", { name: /Delete card/ }).first().click();
   await page.waitForTimeout(500);
-  // Confirm inside the same block ("Delete" appears again in the confirmation).
-  await block(MC).getByRole("button", { name: "Delete" }).last().click();
+  // The confirmation's own Delete, which is a second control with that name.
+  await page.getByRole("button", { name: "Delete", exact: true }).last().click();
   const deleted = await waitFor(
     async () => ((await prisma.creditCard.count({ where: { userId: user.id, nickname: MC } })) === 0 ? true : null),
     "the delete to save"

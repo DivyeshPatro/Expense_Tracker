@@ -173,4 +173,10 @@ async function main() {
   process.exit(failed.length > 0 ? 1 : 0);
 }
 
-main();
+// A throw inside main() must fail the suite loudly, not vanish into an
+// unhandled rejection whose only trace is a stack with no check summary —
+// which is what "the suite must fail when its own execution throws" means.
+main().catch((e) => {
+  console.log(`FAIL — script error · ${String(e).slice(0, 500)}`);
+  process.exit(1);
+});

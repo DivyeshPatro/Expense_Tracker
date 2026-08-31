@@ -7,6 +7,7 @@
 // second device would) with Playwright (real browser outbox + drain).
 // Run: npx tsx scripts/e2e-offline-p2-softheal.ts
 import { chromium } from "playwright";
+import { composerOf, saveComposer, setMerchant, topSheet, typeAmount } from "./e2e-composer.mjs";
 import { prisma } from "../src/server/db";
 
 const results: { name: string; pass: boolean; detail?: string }[] = [];
@@ -38,23 +39,16 @@ async function main() {
     await page.getByText(/^(TOTAL BALANCE|BALANCE · .+)$/).first().waitFor({ timeout: 20000 });
 
     await context.setOffline(true);
+    // The composer: the category is a sheet of buttons rather than a <select>,
+    // and the create confirms with its success wash rather than a toast.
     await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "80");
-    await page.fill('input[placeholder="e.g. Swiggy"]', "P2SoftHeal");
-    await page.selectOption("select:near(:text(\"CATEGORY\"))", { label: "🧪 P2SoftHealProbe" }).catch(async () => {
-      const selects = page.locator("select");
-      const count = await selects.count();
-      for (let i = 0; i < count; i++) {
-        const opts = await selects.nth(i).locator("option").allTextContents();
-        if (opts.some((o) => o.includes("P2SoftHealProbe"))) {
-          await selects.nth(i).selectOption({ label: "🧪 P2SoftHealProbe" });
-          break;
-        }
-      }
-    });
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Expense added");
+    await typeAmount(page, "80");
+    await setMerchant(page, "P2SoftHeal");
+    await composerOf(page).getByRole("button", { name: /^Category:|Choose a category/ }).click();
+    await page.waitForTimeout(600);
+    await topSheet(page).getByRole("button", { name: /P2SoftHealProbe/ }).first().click();
+    await page.waitForTimeout(400);
+    await saveComposer(page);
 
     // still offline: the queued intent references `category`, which we now
     // delete server-side directly — simulating another device deleting it
@@ -70,7 +64,14 @@ async function main() {
     ok("it auto-healed to uncategorized rather than parking as needs-attention", tx?.categoryId === null);
 
     await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-    await page.fill('input[placeholder^="Search"]', "P2SoftHeal");
+    // Search is a collapsed <details> — opt-in, so open it before typing.
+    {
+      const field = page.locator('input[placeholder^="Search"]');
+      if (!(await field.isVisible())) await page.locator("summary").filter({ hasText: "Search" }).first().click();
+      await field.waitFor({ state: "visible", timeout: 15000 });
+      await page.waitForTimeout(200);
+      await field.fill("P2SoftHeal");
+    }
     await page.waitForTimeout(600);
     const stillPending = (await page.evaluate(() => document.body.innerText)).includes("Needs your attention");
     ok("no needs-attention badge shown for the soft-healed item", !stillPending);
