@@ -75,7 +75,13 @@ export function BottomSheet({
   useFocusTrap(ref, true);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // This sheet is the topmost layer, so it is the one Escape is for.
+      // app-shell's global handler listens on `window` and would otherwise
+      // also close whatever this opened from — the modal or the composer
+      // underneath — losing everything entered there.
+      e.stopPropagation();
+      onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
