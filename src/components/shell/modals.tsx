@@ -28,6 +28,7 @@ import type { OpenLoanRow } from "@/server/services/lending";
 import { AccountOptions } from "./account-options";
 import { DateField } from "./date-field";
 import { TransactionComposer } from "./transaction-composer";
+import { LendingComposer } from "./lending-composer";
 import { createRuleFor, RepeatBlock, useRepeat } from "./repeat-block";
 import { AdvancedFields, AmountInput, ErrorNote, Field, SubmitButton, useSubmit } from "./form-primitives";
 import { MerchantInput } from "./merchant-input";
@@ -57,6 +58,7 @@ const TITLES: Record<string, string> = {
   pendingDetail: "Transaction",
   lendingEntry: "Lending entry",
   compose: "Add transaction",
+  lendCompose: "Lending entry",
   lendingContact: "Contact",
   loanDetail: "Loan details",
   accountCardDetails: "Card details",
@@ -133,7 +135,12 @@ export function Modals() {
   // The composer is a screen, not a sheet: it renders itself edge to edge and
   // supplies its own close control, so it must not be wrapped in the panel,
   // header and backdrop every other modal shares.
-  if (modal.type === "compose") return <TransactionComposer />;
+  // Prefill carries the Shared entry points' group through, so opening the
+  // composer from a group page lands in that group with its members and split
+  // already set up rather than in Personal.
+  if (modal.type === "compose") return <TransactionComposer prefill={modal.prefill} />;
+  // Lending's own screen — same shell, its own fields and its own service.
+  if (modal.type === "lendCompose") return <LendingComposer prefill={modal.prefill} />;
 
   return (
     <div
@@ -1054,7 +1061,7 @@ function Line({ label, value, tone, strong }: { label: string; value: string; to
 
 // ─────────── Lending (Phase 1): "You Gave" / "You Got" ───────────
 
-const NEW_CONTACT = "__new__";
+export const NEW_CONTACT = "__new__";
 
 function LendingEntryForm({ prefill }: { prefill?: ModalPrefill }) {
   const { refData } = useUI();
@@ -1260,7 +1267,7 @@ function DuplicateContactWarning({
   );
 }
 
-function NewContactInline({
+export function NewContactInline({
   onCreated,
   onCancel,
   existingContacts = [],
@@ -1340,7 +1347,7 @@ function NewContactInline({
  * entirely (returns null) when the contact has no open loans to allocate
  * against — the repayment is just recorded as an ordinary balance
  * reduction, same as Phase 1. */
-function LoanAllocationPicker({
+export function LoanAllocationPicker({
   participantId,
   repaymentAmountRupees,
   mode,

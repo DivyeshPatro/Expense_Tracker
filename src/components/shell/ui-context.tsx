@@ -15,6 +15,7 @@ export type ModalType =
   // (see modals.tsx) because it owns the whole screen rather than sitting in a
   // sheet, so it takes no title and no chrome from the shell.
   | "compose"
+  | "lendCompose"
   | "group"
   | "txDetail"
   | "pendingDetail"
@@ -26,6 +27,11 @@ export type ModalType =
 
 export interface ModalPrefill {
   split?: boolean;
+  /** Which half of the composer to open on. "Add income" used to be its own
+   *  form, so picking it WAS picking the type; with one composer behind both
+   *  actions, that choice has to travel with the request or every income
+   *  entry point quietly lands on Debit. */
+  composeKind?: "EXPENSE" | "INCOME";
   participantId?: string;
   participantName?: string;
   direction?: "TO_OWNER" | "FROM_OWNER";
