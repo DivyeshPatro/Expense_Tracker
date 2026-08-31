@@ -42,7 +42,7 @@ export function FirstRunCard({ state }: { state: FirstRunState }) {
       title: "Record something",
       detail: "An amount and a merchant is enough — Ledgerly fills in the rest next time.",
       cta: (
-        <button onClick={() => openModal("exp")} className="btn-primary text-[12.5px] font-bold px-3.5 min-h-[40px]">
+        <button onClick={() => openModal("compose")} className="btn-primary text-[12.5px] font-bold px-3.5 min-h-[40px]">
           Add an expense
         </button>
       ),

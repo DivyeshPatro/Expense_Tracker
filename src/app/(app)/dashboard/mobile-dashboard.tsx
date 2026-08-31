@@ -171,9 +171,9 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
       {/* QUICK ACTIONS */}
       <Eyebrow>Quick actions</Eyebrow>
       <div className="grid grid-cols-4 gap-2.5">
-        <QuickAction label="Expense" tint="red" onClick={() => openModal("exp")} d="M12 19V5M5 12l7 7 7-7" />
-        <QuickAction label="Income" tint="green" onClick={() => openModal("inc")} d="M12 5v14M5 12l7-7 7 7" />
-        <QuickAction label="Lend" tint="acc" onClick={() => openModal("lendingEntry")} d="M8 7h11M8 7l3-3M8 7l3 3M16 17H5M16 17l-3-3M16 17l-3 3" />
+        <QuickAction label="Expense" tint="red" onClick={() => openModal("compose")} d="M12 19V5M5 12l7 7 7-7" />
+        <QuickAction label="Income" tint="green" onClick={() => openModal("compose", { composeKind: "INCOME" })} d="M12 5v14M5 12l7-7 7 7" />
+        <QuickAction label="Lend" tint="acc" onClick={() => openModal("lendCompose")} d="M8 7h11M8 7l3-3M8 7l3 3M16 17H5M16 17l-3-3M16 17l-3 3" />
         <QuickAction label="Bills" tint="amber" href="/bills" d="M6 3h12v18l-3-2-3 2-3-2-3 2z" />
       </div>
 
@@ -197,7 +197,7 @@ export function MobileDashboard({ data }: { data: MobileDashboardData }) {
             </div>
           ) : (
             <button
-              onClick={() => openModal("exp")}
+              onClick={() => openModal("compose")}
               className="rounded-[20px] bg-card border border-line border-dashed px-4 py-6 flex flex-col items-center gap-1.5 text-center cursor-pointer w-full active:scale-[.99] transition-transform"
             >
               <span className="text-[22px]">🧾</span>

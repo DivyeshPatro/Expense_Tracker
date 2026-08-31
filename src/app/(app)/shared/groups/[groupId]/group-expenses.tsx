@@ -36,7 +36,7 @@ export function GroupExpenses({ expenses, groupId }: { expenses: GroupExpenseLis
           Expenses{expenses.length > 0 && <span className="text-mut2 font-semibold"> · {expenses.length}</span>}
         </h2>
         <OpenModalButton
-          type="exp"
+          type="compose"
           prefill={{ split: true, dupGroupId: groupId }}
           className="text-[12px] font-semibold text-acc cursor-pointer px-3 min-h-[36px] rounded-[9px] bg-transparent border border-line2 hover:bg-accsoft"
         >
@@ -51,7 +51,7 @@ export function GroupExpenses({ expenses, groupId }: { expenses: GroupExpenseLis
           detail="Add one and split it — it'll show up here, and everyone's balance updates straight away."
           compact
           action={
-            <OpenModalButton type="exp" prefill={{ split: true, dupGroupId: groupId }} className="btn-primary">
+            <OpenModalButton type="compose" prefill={{ split: true, dupGroupId: groupId }} className="btn-primary">
               ＋ Add expense
             </OpenModalButton>
           }

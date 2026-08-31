@@ -130,13 +130,13 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
         action={
           <div className="flex gap-2">
             <button
-              onClick={() => openModal("lendingEntry", { participantId, loanKind: "GAVE" })}
+              onClick={() => openModal("lendCompose", { participantId, loanKind: "GAVE" })}
               className="px-3.5 py-2 rounded-[10px] text-[13px] font-bold text-white cursor-pointer border-none bg-acc hover:brightness-108"
             >
               You gave money
             </button>
             <button
-              onClick={() => openModal("lendingEntry", { participantId, loanKind: "GOT" })}
+              onClick={() => openModal("lendCompose", { participantId, loanKind: "GOT" })}
               className="px-3.5 py-2 rounded-[10px] text-[13px] font-bold text-white cursor-pointer border-none bg-green hover:brightness-108"
             >
               You got money
@@ -212,14 +212,14 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
           {entries.length > 0 && <ContactSummaryCard summary={summary} />}
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GAVE" })}
+              onClick={() => openModal("lendCompose", { participantId, participantName: name, loanKind: "GAVE" })}
               className="p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
               style={{ background: "var(--acc)" }}
             >
               + You gave
             </button>
             <button
-              onClick={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GOT" })}
+              onClick={() => openModal("lendCompose", { participantId, participantName: name, loanKind: "GOT" })}
               className="p-2.5 rounded-[10px] text-[12.5px] font-bold text-center cursor-pointer border-none text-white hover:brightness-108"
               style={{ background: "var(--green)" }}
             >
@@ -228,7 +228,7 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
             {Math.abs(net) > 100 && (
               <button
                 onClick={() =>
-                  openModal("lendingEntry", {
+                  openModal("lendCompose", {
                     participantId,
                     participantName: name,
                     loanKind: net > 0 ? "GOT" : "GAVE",
@@ -285,7 +285,7 @@ export function ContactLedgerView({ participantId, onClose }: { participantId: s
           visibleCount={visibleCount}
           setVisibleCount={setVisibleCount}
           contactName={name}
-          onQuickAdd={() => openModal("lendingEntry", { participantId, participantName: name, loanKind: "GAVE" })}
+          onQuickAdd={() => openModal("lendCompose", { participantId, participantName: name, loanKind: "GAVE" })}
           net={net}
         />
       )}

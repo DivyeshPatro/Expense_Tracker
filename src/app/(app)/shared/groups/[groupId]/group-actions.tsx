@@ -38,7 +38,7 @@ export function GroupQuickActions({
   return (
     <>
       <div className={`grid gap-2.5 ${canRecordSettlements ? "grid-cols-4" : "grid-cols-3"}`}>
-        <ActionButton label="Add expense" tint="acc" onClick={() => openModal("exp", { split: true, dupGroupId: groupId })} d="M12 5v14M5 12h14" />
+        <ActionButton label="Add expense" tint="acc" onClick={() => openModal("compose", { split: true, dupGroupId: groupId })} d="M12 5v14M5 12h14" />
         {canRecordSettlements && (
           <ActionButton label="Settle up" tint="green" onClick={() => setSheet("settle")} d="M7 17 17 7M8 7h9v9" />
         )}

@@ -422,7 +422,7 @@ export function TransactionsList({
             icon="🧾"
             title="Track where your money goes"
             detail="Record an expense, income, or transfer and it lands here — searchable, categorised, and reconciled across your accounts."
-            action={<button onClick={() => openModal("exp")} className="btn-primary">Add your first expense</button>}
+            action={<button onClick={() => openModal("compose")} className="btn-primary">Add your first expense</button>}
           />
         )
       )}

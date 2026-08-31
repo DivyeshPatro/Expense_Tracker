@@ -34,7 +34,7 @@ export function RecentTxList({ rows }: { rows: RecentTxRow[] }) {
         title="No transactions yet"
         detail="Add one and it shows up here, on your budgets, and in Insights."
         action={
-          <button onClick={() => openModal("exp")} className="btn-primary text-[12.5px] font-bold px-3.5 min-h-[40px]">
+          <button onClick={() => openModal("compose")} className="btn-primary text-[12.5px] font-bold px-3.5 min-h-[40px]">
             Add your first expense
           </button>
         }

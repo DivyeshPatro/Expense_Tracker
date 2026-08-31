@@ -151,7 +151,7 @@ function ShellInner({
             // "+ Add" experience from the reference and lives on the FAB; this
             // desktop button is also how splits, paid-by, the date picker and
             // the offline flows are reached, none of which the composer has.
-            onClick={() => openModal("exp")}
+            onClick={() => openModal("compose")}
             className="btn-primary hidden md:block shadow-[0_2px_8px_color-mix(in_oklab,var(--acc)_40%,transparent)]"
           >
             ＋ Add expense
@@ -459,7 +459,7 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
       label: "Add expense",
       actions: [
         { icon: "🧾", label: "Add expense", run: () => openModal("compose") },
-        { icon: "💰", label: "Add income", run: () => openModal("compose") },
+        { icon: "💰", label: "Add income", run: () => openModal("compose", { composeKind: "INCOME" }) },
         { icon: "⇄", label: "Transfer money", run: () => openModal("tr") },
       ],
     };
@@ -467,8 +467,8 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
     return {
       label: "Lending",
       actions: [
-        { icon: "💸", label: "You gave money", run: () => openModal("lendingEntry", { loanKind: "GAVE" }) },
-        { icon: "💰", label: "You got money", run: () => openModal("lendingEntry", { loanKind: "GOT" }) },
+        { icon: "💸", label: "You gave money", run: () => openModal("lendCompose", { loanKind: "GAVE" }) },
+        { icon: "💰", label: "You got money", run: () => openModal("lendCompose", { loanKind: "GOT" }) },
         // A contact could only be created part-way through recording a loan,
         // via "+ New Contact" in that form's picker. That still works and is
         // the right path mid-flow; this is for the other half of the job —
@@ -477,7 +477,7 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
         { icon: "👤", label: "Add contact", run: () => openModal("friend") },
       ],
     };
-  if (at("/shared")) return { label: "Add shared expense", actions: [{ icon: "👥", label: "Add shared expense", run: () => openModal("exp", { split: true }) }] };
+  if (at("/shared")) return { label: "Add shared expense", actions: [{ icon: "👥", label: "Add shared expense", run: () => openModal("compose", { split: true }) }] };
   if (at("/cards")) return { label: "Add card", actions: [{ icon: "💳", label: "Add credit card", run: openCard }] };
   if (at("/bills")) return { label: "Add bill", actions: [{ icon: "🧾", label: "Add bill", run: () => openModal("bill") }] };
   if (at("/budgets")) return { label: "Add budget", actions: [{ icon: "◔", label: "Add budget", run: () => openModal("budget") }] };
@@ -501,7 +501,7 @@ function quickAddConfig(pathname: string, openModal: (t: ModalType, p?: ModalPre
       label: "Add",
       actions: [
         { icon: "🧾", label: "Add expense", run: () => openModal("compose") },
-        { icon: "💰", label: "Add income", run: () => openModal("compose") },
+        { icon: "💰", label: "Add income", run: () => openModal("compose", { composeKind: "INCOME" }) },
         { icon: "⇄", label: "Transfer money", run: () => openModal("tr") },
       ],
     };

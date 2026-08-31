@@ -116,7 +116,7 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
   function handleDuplicate() {
     if (!detail) return;
     closeModal();
-    openModal("lendingEntry", {
+    openModal("lendCompose", {
       participantId: detail.participantId,
       participantName: detail.participantName,
       loanKind: detail.kind,
@@ -197,7 +197,7 @@ export function LoanDetailModal({ loanEntryId }: { loanEntryId: string }) {
       {detail.remainingAmount > 0 && (
         <button
           onClick={() =>
-            openModal("lendingEntry", {
+            openModal("lendCompose", {
               participantId: detail.participantId,
               participantName: detail.participantName,
               loanKind: "GOT",
