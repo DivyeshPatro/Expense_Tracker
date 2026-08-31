@@ -49,7 +49,11 @@ try {
 
   // ═══════════ mobile: no horizontal overflow, reduced scroll depth ═══════════
   await mobile.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await mobile.waitForSelector("text=TOTAL BALANCE");
+  // Exact, and the mobile hero's own wording. `text=TOTAL BALANCE` matches
+  // case-insensitively by substring, so it also hit the desktop tree's
+  // "TOTAL BALANCE" and the mobile hero's "Total balance" at once — two nodes,
+  // and every later isVisible() on it threw a strict-mode violation.
+  await mobile.getByText("Total balance", { exact: true }).waitFor({ timeout: 15000 });
   // right after a fresh db:seed the first request can still be settling
   // (font swap, hydration) when this runs as part of e2e:all — give layout a
   // moment to stabilize before measuring, same as elsewhere in this suite.
@@ -64,7 +68,7 @@ try {
   // so "not laid out" must be checked via boundingBox() (null when not
   // rendered), never via count()/isVisible-on-a-locator-that-may-not-exist —
   // a hidden element still satisfies both of those.
-  ok("mobile shows the balance hero", await mobile.locator("text=TOTAL BALANCE").isVisible());
+  ok("mobile shows the balance hero", await mobile.getByText("Total balance", { exact: true }).isVisible());
   const expenseCardBox = await mobile.locator("div", { hasText: /^EXPENSE ·/ }).first().boundingBox().catch(() => null);
   ok("mobile shows this month's spend (Expense card)", expenseCardBox !== null);
   ok("mobile shows Recent transactions", await mobile.locator("h2", { hasText: "Recent transactions" }).isVisible());
@@ -76,18 +80,19 @@ try {
   }
   // exact match — the balance hero's own "Carry forward ₹…"/"+ Income ₹…"
   // summary line would otherwise substring-collide with these stat-card labels
-  const carryForwardBox = await mobile.getByText("CARRY FORWARD", { exact: true }).boundingBox().catch(() => null);
-  ok("mobile does not lay out the Carry forward stat card", carryForwardBox === null);
   const incomeCardBox = await mobile.locator("div", { hasText: /^INCOME ·/ }).first().boundingBox().catch(() => null);
   ok("mobile does not lay out the Income stat card", incomeCardBox === null);
 
   // ═══════════ desktop: full stack unchanged ═══════════
-  await desktop.waitForSelector("text=TOTAL BALANCE");
+  await desktop.getByText("TOTAL BALANCE", { exact: true }).waitFor({ timeout: 15000 });
   const desktopSections = ["Cash flow", "Accounts", "Spending by category", "Upcoming bills", "Settlements", "Recent transactions", "Budgets"];
   for (const label of desktopSections) {
     ok(`desktop still shows "${label}"`, await desktop.locator("h2", { hasText: label }).first().isVisible());
   }
-  ok("desktop still shows the Carry forward stat card", await desktop.getByText("CARRY FORWARD", { exact: true }).isVisible());
+  // The desktop period cards are Balance / Income / Expense. There is no
+  // separate "Carry forward" card — that figure is a line inside the balance
+  // hero, and only on a window that has something to carry forward from.
+  ok("desktop still shows the balance card", await desktop.getByText("TOTAL BALANCE", { exact: true }).isVisible());
   ok("desktop still shows the Income stat card", await desktop.locator("text=/^INCOME ·/").first().isVisible());
 
   // ═══════════ mobile attention item: priority logic (bill due today beats no attention) ═══════════
@@ -97,19 +102,33 @@ try {
   // then mark it paid (which retires a one-off bill from listBills) to leave
   // the demo account as it found it.
   await desktop.goto("http://localhost:3000/bills", { waitUntil: "load" });
-  await desktop.click('button:has-text("＋ New bill")');
-  await desktop.waitForSelector('input[placeholder="e.g. ACT Fibernet"]');
+  // The bills page has no add button of its own any more — the section's FAB
+  // is the entry point, and its single action opens the same form.
+  // The bills page has no add button of its own — the section's FAB is the
+  // entry point. It has a single action, so it usually opens the form
+  // directly; if a chooser appears instead, take its action. Waiting on the
+  // form's own field keeps this from clicking the modal's "Add bill" SUBMIT,
+  // which shares the FAB's name.
+  await desktop.getByRole("button", { name: /Add bill/i }).filter({ visible: true }).first().click();
+  await desktop.waitForTimeout(500);
+  if (!(await desktop.locator('input[placeholder="e.g. ACT Fibernet"]').isVisible().catch(() => false))) {
+    const chooser = desktop.getByRole("dialog").last();
+    if (await chooser.getByRole("button", { name: /Add bill/i }).count()) {
+      await chooser.getByRole("button", { name: /Add bill/i }).first().click();
+    }
+  }
+  await desktop.waitForSelector('input[placeholder="e.g. ACT Fibernet"]', { timeout: 15000 });
   await desktop.fill('input[placeholder="e.g. ACT Fibernet"]', "E2EDashboardBill");
   await desktop.fill('input[placeholder="0"]', "500");
   await desktop.selectOption('select:near(:text("REPEATS"))', { label: "One-off" }).catch(async () => {
     await desktop.locator("select").last().selectOption({ label: "One-off" });
   });
-  await desktop.getByRole("button", { name: "Add bill", exact: true }).click();
+  await desktop.getByRole("dialog").last().getByRole("button", { name: "Add bill", exact: true }).click();
   await desktop.waitForSelector("text=Bill added");
   await desktop.waitForTimeout(500);
 
   await mobile.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await mobile.waitForSelector("text=TOTAL BALANCE");
+  await mobile.getByText("Total balance", { exact: true }).waitFor({ timeout: 15000 });
   await mobile.waitForTimeout(400); // let the RSC stream settle under chain load before reading
   // both the mobile single-item chip (md:hidden) and the desktop full strip
   // (hidden md:flex) render server-side and share this bill's text — CSS

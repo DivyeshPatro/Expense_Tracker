@@ -34,7 +34,8 @@ async function main() {
     await page.fill('input[type="password"]', "ledgerly-demo");
     await page.click('button[type="submit"]');
     await page.waitForURL("**/dashboard", { timeout: 15000 });
-    await page.waitForSelector("text=TOTAL BALANCE");
+    // Exact: a loose match also resolves the mobile hero's "Total balance".
+    await page.getByText(/^(TOTAL BALANCE|BALANCE · .+)$/).first().waitFor({ timeout: 20000 });
 
     await context.setOffline(true);
     await page.click('button:has-text("＋ Add expense")');

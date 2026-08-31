@@ -2,6 +2,7 @@
 // using a synthetic Indian-bank-statement-style CSV (Debit/Credit columns,
 // DD/MM/YYYY dates, one deliberately broken row).
 import { chromium } from "playwright";
+import { choosePeriod } from "./e2e-period.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -40,22 +41,36 @@ try {
   }
   if (!signedIn) throw new Error("Could not sign in after 3 attempts (hydration race)");
 
-  // ── Settings: export ──
-  await page.goto("http://localhost:3000/settings");
-  await page.waitForSelector("text=Export data");
-  const [csvDownload] = await Promise.all([page.waitForEvent("download"), page.click("text=Export transactions (CSV)")]);
+  // ── Settings → Backup & data: export ──
+  // Settings is an index of sub-pages now; import, export and import history
+  // all live on /settings/backup. Target the export link by role and name
+  // rather than by the old "Export data" heading, which no longer exists.
+  await page.goto("http://localhost:3000/settings/backup");
+  await page.getByRole("heading", { name: "Export" }).waitFor({ timeout: 20000 });
+  const [csvDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("link", { name: "Transactions (CSV)" }).click(),
+  ]);
   const csvPath = await csvDownload.path();
   const csvText = await (await import("fs")).promises.readFile(csvPath, "utf8");
   ok("CSV export downloads real transaction rows", csvText.split("\n").length > 5 && csvText.includes("Swiggy"), `${csvText.split("\n").length} lines`);
 
-  const [jsonDownload] = await Promise.all([page.waitForEvent("download"), page.click("text=Export everything (JSON)")]);
+  // The export links are named for what they contain, not for the verb —
+  // "Everything (JSON)" sits beside "Transactions (CSV)" under the same
+  // Export heading. Addressed by role and accessible name.
+  const [jsonDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("link", { name: "Everything (JSON)" }).click(),
+  ]);
   const jsonPath = await jsonDownload.path();
   const jsonText = await (await import("fs")).promises.readFile(jsonPath, "utf8");
   const parsed = JSON.parse(jsonText);
   ok("JSON export is valid and includes accounts+transactions", Array.isArray(parsed.accounts) && Array.isArray(parsed.transactions) && parsed.accounts.length === 5);
 
   // ── Settings: clear all transactions ──
-  await page.click("text=Clear all transactions");
+  // Settings is an index of sub-pages; the danger zone lives under Advanced.
+  await page.goto("http://localhost:3000/settings/advanced");
+  await page.getByRole("button", { name: "Clear all transactions" }).click();
   await page.waitForSelector("text=Type CLEAR to confirm");
   await page.getByLabel("Confirmation text").fill("CLEAR");
   await page.click('button:has-text("Clear all transactions?")');
@@ -75,7 +90,7 @@ try {
   ok("clear transactions empties the ledger", txBody.includes("Nothing matches") || !txBody.includes("Swiggy"));
 
   await page.goto("http://localhost:3000/dashboard");
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page.getByText("TOTAL BALANCE", { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 20000 });
   const dashBody = await page.textContent("body");
   ok("account balances reset to opening balance (₹0 for the demo seed) after clear, not a stale number", dashBody.includes("TOTAL BALANCE₹0") || /TOTAL BALANCE\s*₹0/.test(dashBody));
 
@@ -113,6 +128,10 @@ try {
   await page.click("text=/Import \\d+ transaction/");
   await page.waitForSelector("text=Imported", { timeout: 10000 }).catch(() => {});
   await page.waitForURL("**/transactions", { timeout: 10000 });
+  // The list defaults to a recent window and these rows come from a bank
+  // statement dated well before it, so they are out of scope until the window
+  // is widened — the same reason the Monito suite widens it.
+  await choosePeriod(page);
   await page.waitForSelector("text=Swiggy", { timeout: 8000 }).catch(() => {});
   const afterImportBody = await page.textContent("body");
   ok("imported rows appear in the transaction list", afterImportBody.includes("Swiggy") && afterImportBody.includes("BigBasket") && afterImportBody.includes("Uber"));
@@ -133,8 +152,8 @@ try {
   ok("re-importing the same file flags rows as duplicates", dupBody.includes("4 duplicates"), dupBody.match(/\d+ new|\d+ duplicates|\d+ invalid/g)?.join(", "));
 
   // ── Undo the first import via Settings, confirm rows disappear ──
-  await page.goto("http://localhost:3000/settings");
-  await page.waitForSelector("text=IMPORT HISTORY");
+  await page.goto("http://localhost:3000/settings/backup");
+  await page.getByRole("heading", { name: "Backup & data" }).waitFor({ timeout: 30000 });
   await page.locator('button:has-text("Undo")').first().click();
   // Undo reports what it reversed ("Removed 4 transactions", plus any
   // accounts/categories a backup restore created) rather than "Import undone".
@@ -145,8 +164,8 @@ try {
   ok("undo import removes the imported rows", !afterUndoBody.includes("BigBasket"));
 
   // ── Delete-account danger action is gated behind confirmation text ──
-  await page.goto("http://localhost:3000/settings");
-  await page.click("text=Delete my account");
+  await page.goto("http://localhost:3000/settings/advanced");
+  await page.getByRole("button", { name: "Delete my account" }).click();
   await page.waitForSelector("text=Type DELETE to confirm");
   const deleteBtn = page.locator('button:has-text("Delete your account?")');
   await expectDisabled(deleteBtn, ok, "delete-account button stays disabled until DELETE is typed");

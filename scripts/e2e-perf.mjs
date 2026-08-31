@@ -2,6 +2,7 @@
 // that the transactions list actually paginates server-side rather than
 // loading everything (against the ~2900-row stress file).
 import { chromium } from "playwright";
+import { choosePeriod } from "./e2e-period.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -52,18 +53,23 @@ try {
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
 
-  // ── Dashboard period cards (Current Balance / Carry forward / Income / Expense) ──
-  await page.waitForSelector("text=CARRY FORWARD");
+  // ── Dashboard period cards (Balance / Income / Expense) ──
+  // There is no separate "Carry forward" card: the period cards are Balance,
+  // Income and Expense, and carry-forward is a line inside the balance hero on
+  // a window that has something to carry forward from.
+  await page.getByText("TOTAL BALANCE", { exact: true }).waitFor({ timeout: 15000 });
   const dashBody = await page.textContent("body");
   ok(
-    "dashboard shows Carry forward / Income / Expense cards for the current month by default",
-    dashBody.includes("CARRY FORWARD") && dashBody.includes("INCOME ·") && dashBody.includes("EXPENSE ·") && dashBody.includes("TOTAL BALANCE")
+    "dashboard shows Balance / Income / Expense cards for the default window",
+    dashBody.includes("TOTAL BALANCE") && dashBody.includes("INCOME ·") && dashBody.includes("EXPENSE ·")
   );
 
-  await page.click('button:has-text("To date")');
-  await page.waitForSelector("text=BALANCE · TO DATE", { timeout: 8000 });
+  await choosePeriod(page);
+  await page.getByText("BALANCE · TO DATE", { exact: true }).waitFor({ timeout: 15000 });
   const allBody = await page.textContent("body");
-  ok("'To date' period shows all-time balance with opening-balance carry forward", allBody.includes("opening balances before tracking began"));
+  // All-time is the window where money that predates tracking shows up, and
+  // the hero states it as a carry-forward line rather than a card.
+  ok("the all-time window carries the opening balances forward", /Carry forward/i.test(allBody), (allBody.match(/Carry forward[^\n]{0,24}/i) ?? ["not found"])[0]);
 
   const prevKey = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 7);
   await page.goto(`http://localhost:3000/dashboard?p=${prevKey}`);
@@ -71,17 +77,26 @@ try {
   ok("a specific past month can be selected and relabels the cards", true);
 
   await page.goto("http://localhost:3000/dashboard?from=2026-01-01&to=2026-03-31");
-  await page.waitForSelector("text=CARRY FORWARD", { timeout: 8000 });
+  // A custom range labels its cards "BALANCE · <range>", not "TOTAL BALANCE",
+  // and there is no separate carry-forward card in any window.
+  await page.getByText(/^BALANCE · .+$/).first().waitFor({ timeout: 15000 });
   const customBody = await page.textContent("body");
   ok("custom date range renders period cards", customBody.includes("balance at the end of this period"));
 
   // ── Category rename ──
-  await page.goto("http://localhost:3000/settings");
-  await page.waitForSelector("text=Categories");
+  // Settings is an index of sub-pages; categories live under General.
+  await page.goto("http://localhost:3000/settings/general");
+  await page.getByRole("heading", { name: "Categories" }).waitFor({ timeout: 20000 });
   await page.click('button:has-text("🍔 Food")');
   await page.waitForSelector('input[value="Food"]');
+  // Scope Save to the row being edited: the page carries a Save per section,
+  // and the first on the page is the Profile one, which is disabled. React
+  // sets the value PROPERTY when typing, so the [value="Food"] attribute still
+  // identifies this row afterwards.
   await page.fill('input[value="Food"]', "Eating Out");
-  await page.click('button:has-text("Save")');
+  // The only ENABLED Save is the row being edited: the Profile one above it
+  // stays disabled until its own fields change, and it comes first in the DOM.
+  await page.locator("button:not([disabled])").filter({ hasText: /^Save$/ }).first().click();
   await page.waitForSelector("text=Category renamed");
   await page.waitForSelector('button:has-text("Eating Out")', { timeout: 8000 });
   const afterRename = await page.textContent("body");
@@ -91,7 +106,7 @@ try {
   await page.click('button:has-text("Eating Out")');
   await page.waitForSelector('input[value="Eating Out"]');
   await page.fill('input[value="Eating Out"]', "Food");
-  await page.click('button:has-text("Save")');
+  await page.locator("button:not([disabled])").filter({ hasText: /^Save$/ }).first().click();
   await page.waitForSelector("text=Category renamed");
 
   // ── Category kind switch (Expense <-> Income tabs) ──

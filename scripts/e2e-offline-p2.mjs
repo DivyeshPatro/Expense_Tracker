@@ -10,6 +10,7 @@
 // Plus: pending cancel+undo, category soft-heal (INVALID_REF_SOFT), and a
 // Sync Center smoke test, since those are the other Phase 2 deliverables.
 import { chromium } from "playwright";
+import { composerOf, saveComposer, setMerchant, typeAmount } from "./e2e-composer.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -27,16 +28,21 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 900 
 const page = await context.newPage();
 page.setDefaultTimeout(20000);
 
+// Adding a Debit is the full-screen composer. The outbox underneath is
+// untouched, so every queueing assertion below still measures what it did.
 const addExpenseViaModal = async (merchant, rupees) => {
   await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[placeholder="0"]', String(rupees));
-  await page.fill('input[placeholder="e.g. Swiggy"]', merchant);
-  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  await typeAmount(page, rupees);
+  await setMerchant(page, merchant);
+  await saveComposer(page);
 };
 
 async function rowCount(merchant) {
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
+  // Search is a collapsed <details> — opt-in, so it has to be opened first.
+  const field = page.locator('input[placeholder^="Search"]');
+  if (!(await field.isVisible())) await page.locator("summary").filter({ hasText: "Search" }).first().click();
+  await field.waitFor({ state: "visible", timeout: 15000 });
   await page.fill('input[placeholder^="Search"]', merchant);
   await page.waitForTimeout(600);
   return page.locator(`button:has-text("${merchant}")`).count();
@@ -45,6 +51,9 @@ async function rowCount(merchant) {
 async function deleteAllRows(merchant) {
   for (let i = 0; i < 5; i++) {
     await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
+    const field = page.locator('input[placeholder^="Search"]');
+    if (!(await field.isVisible())) await page.locator("summary").filter({ hasText: "Search" }).first().click();
+    await field.waitFor({ state: "visible", timeout: 15000 });
     await page.fill('input[placeholder^="Search"]', merchant);
     await page.waitForTimeout(500);
     const row = page.locator(`button:has-text("${merchant}")`).first();
@@ -64,19 +73,32 @@ try {
   await page.fill('input[type="password"]', "ledgerly-demo");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
-  await page.waitForSelector("text=/TOTAL BALANCE|BALANCE ·/");
+  // The eyebrow reads "TOTAL BALANCE" on a live window and "BALANCE · <period>"
+  // otherwise. Either means the dashboard has painted; exact matching keeps it
+  // from also resolving the mobile hero's "Total balance".
+  await page
+    .getByText(/^(TOTAL BALANCE|BALANCE · .+)$/)
+    .first()
+    .waitFor({ timeout: 20000 });
 
   // ═══════════ universal write-behind: instant even while ONLINE, and not gated by network latency ═══════════
   const cdp = await context.newCDPSession(page);
   await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 2500, downloadThroughput: -1, uploadThroughput: -1 });
+  // Time the COMMIT, not the typing. Entering an amount and a merchant is a
+  // handful of taps and a sheet, none of which touches the network; timing it
+  // measured the test's own keystrokes. What the claim is about is what
+  // happens after the gesture: the write must land locally and the screen must
+  // move on without waiting for a 2.5s round trip.
+  await page.click('button:has-text("＋ Add expense")');
+  await typeAmount(page, 45);
+  await setMerchant(page, "P2Instant");
   const t0 = Date.now();
-  await addExpenseViaModal("P2Instant", 45);
-  await page.waitForSelector("text=Expense added");
+  await saveComposer(page);
   const visibleMs = Date.now() - t0;
   ok(
     "online create is visible without waiting on the network (write-behind, not gated by a 2.5s-latency link)",
-    visibleMs < 1500,
-    `${visibleMs}ms (network latency was throttled to 2500ms)`
+    visibleMs < 2500,
+    `${visibleMs}ms, including the composer's own ~900ms success wash (network latency was throttled to 2500ms)`
   );
   await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
   await page.waitForTimeout(1500); // let the throttled drain land before continuing
@@ -85,18 +107,24 @@ try {
 
   // ═══════════ double-tap submit produces exactly one intent ═══════════
   await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[placeholder="0"]', "77");
-  await page.fill('input[placeholder="e.g. Swiggy"]', "P2DoubleTap");
-  // raw coordinate clicks, back to back, skip Playwright's per-click
-  // actionability re-check (which — correctly — refuses a second click once
-  // the button's own disabled state has already landed) so this exercises
-  // the real defense: React setting busy=true synchronously in the handler
-  const submitBtn = page.getByRole("button", { name: "Add expense", exact: true });
-  const box = await submitBtn.boundingBox();
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForSelector("text=Expense added");
+  await typeAmount(page, "77");
+  await setMerchant(page, "P2DoubleTap");
+  // The composer commits on a swipe, so "double tap" is two completed drags
+  // back to back. The defence is the same shape as the button's was and is
+  // what this measures: a `submitting` ref set synchronously in the handler,
+  // plus the track locking itself once the gesture has been honoured. Raw
+  // pointer moves, so nothing re-checks actionability between them.
+  const track = composerOf(page).locator("div[role='slider']");
+  const box = await track.boundingBox();
+  const y = box.y + box.height / 2;
+  const end = box.x + box.width - 31;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.mouse.move(box.x + 30, y);
+    await page.mouse.down();
+    await page.mouse.move(end, y);
+    await page.mouse.up();
+  }
+  await composerOf(page).waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
   await page.waitForTimeout(1200);
   ok("double-tap submit produces exactly one transaction (not two)", (await rowCount("P2DoubleTap")) === 1);
   await deleteAllRows("P2DoubleTap");
@@ -104,11 +132,8 @@ try {
   // ═══════════ batch endpoint: 3 queued offline all land correctly ═══════════
   await context.setOffline(true);
   await addExpenseViaModal("P2Batch1", 10);
-  await page.waitForSelector("text=Expense added");
   await addExpenseViaModal("P2Batch2", 20);
-  await page.waitForSelector("text=Expense added");
   await addExpenseViaModal("P2Batch3", 30);
-  await page.waitForSelector("text=Expense added");
   await context.setOffline(false);
   await page.waitForSelector("text=Waiting to sync", { state: "detached", timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1000);
@@ -123,12 +148,13 @@ try {
   // ═══════════ coalesced edit produces exactly one eventual server mutation ═══════════
   await context.setOffline(true);
   await addExpenseViaModal("P2Coalesce", 50);
-  await page.waitForSelector("text=Expense added");
   await page.click('button:has-text("P2Coalesce")');
   await page.waitForSelector("text=Edit");
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[type="number"]', "65");
+  // The amount field is deliberately type="text" — a number input silently
+  // refuses the "+" an expression needs — so it is addressed by its label.
+  await page.getByLabel("AMOUNT (₹)").fill("65");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.waitForSelector("text=Save changes", { state: "detached" }); // editPending() closes the whole sheet on success
   await context.setOffline(false);
@@ -148,7 +174,6 @@ try {
   // ═══════════ pending cancel + undo (local only, never touches the server) ═══════════
   await context.setOffline(true);
   await addExpenseViaModal("P2Cancel", 90);
-  await page.waitForSelector("text=Expense added");
   await page.click('button:has-text("P2Cancel")');
   await page.waitForSelector("text=Remove");
   await page.getByRole("button", { name: "Remove", exact: true }).click();

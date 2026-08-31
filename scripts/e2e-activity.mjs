@@ -334,8 +334,8 @@ try {
   );
 
   // undo the import now that tap-through is proven, then confirm the event
-  await page.goto("http://localhost:3000/settings", { waitUntil: "load" });
-  await page.waitForSelector("text=IMPORT HISTORY");
+  await page.goto("http://localhost:3000/settings/backup", { waitUntil: "load" });
+  await page.getByRole("heading", { name: "Backup & data" }).waitFor({ timeout: 30000 });
   await page.locator('button:has-text("Undo")').first().click();
   await page.waitForTimeout(800);
   await page.goto("http://localhost:3000/activity", { waitUntil: "load" });

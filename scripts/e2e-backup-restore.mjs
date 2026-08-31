@@ -121,8 +121,11 @@ try {
   ok("restored INCOME transaction appears in ledger", after.includes("ZZZ RestoreTest Income 002"));
 
   // ── Undo via Settings → Import history (the source is "Ledgerly Backup") ──
-  await gotoRetry(`${BASE}/settings`);
-  await page.waitForSelector("text=IMPORT HISTORY", { timeout: 20000 });
+  await gotoRetry(`${BASE}/settings/backup`);
+  // Settings is an index of sub-pages now; import history sits under
+  // "Backup & data". Wait on that page's own heading — a real landmark —
+  // rather than on the uppercase label above the list.
+  await page.getByRole("heading", { name: "Backup & data" }).waitFor({ timeout: 20000 });
   await page.locator("text=Ledgerly Backup").first().waitFor({ timeout: 10000 });
   // Wait for hydration so the React onClick is attached before clicking (the
   // Undo button has no explicit type, so a too-early click fires a native no-op).

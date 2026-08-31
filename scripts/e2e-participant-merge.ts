@@ -93,7 +93,8 @@ async function main() {
     // the Balances list as a payment row — that is one person being
     // named twice on the page, not two identities, so counting whole-page text
     // would be the wrong assertion.
-    const splitAt = afterText.indexOf("Group Settlement");
+    // The page splits at the payment plan, whose section is headed "Settle up".
+    const splitAt = afterText.indexOf("Settle up");
     const membersSection = splitAt > 0 ? afterText.slice(0, splitAt) : afterText;
     const suggestionSection = splitAt > 0 ? afterText.slice(splitAt) : "";
     const memberOccurrences = (membersSection.match(new RegExp(NAME, "g")) ?? []).length;

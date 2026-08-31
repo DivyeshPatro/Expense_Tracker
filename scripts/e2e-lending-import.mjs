@@ -127,8 +127,8 @@ try {
   if (batch) {
     // Undo from Import History (where the report's "View Import History" leads),
     // targeting this batch's own row so ordering can't undo the wrong one.
-    await page.goto(`${BASE}/settings`, { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForSelector("text=IMPORT HISTORY", { timeout: 30000 });
+    await page.goto(`${BASE}/settings/backup`, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.getByRole("heading", { name: "Backup & data" }).waitFor({ timeout: 30000 });
     await page.waitForTimeout(1000);
     const row = page.locator("div").filter({ hasText: "khatabook-sample.csv" }).filter({ has: page.locator('button:has-text("Undo")') }).last();
     await row.getByRole("button", { name: "Undo" }).click();

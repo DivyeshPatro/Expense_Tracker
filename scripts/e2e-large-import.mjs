@@ -2,6 +2,7 @@
 // (multi-year Monito-shaped history) in one commit — well past what the
 // default 5s transaction timeout could survive under the old code.
 import { chromium } from "playwright";
+import { choosePeriod } from "./e2e-period.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -51,8 +52,8 @@ try {
   await page.fill('input[type="password"]', "ledgerly-demo");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
-  await page.click('button:has-text("To date")');
-  await page.waitForSelector("text=BALANCE · TO DATE", { timeout: 8000 });
+  await choosePeriod(page);
+  await page.getByText("BALANCE · TO DATE", { exact: true }).waitFor({ timeout: 20000 });
   const balanceBefore = (await page.textContent("body")).match(/(?:TOTAL BALANCE|BALANCE · TO DATE)(−?₹[\d,.]+)/)?.[1];
 
   await page.goto("http://localhost:3000/import");
@@ -86,14 +87,17 @@ try {
   // when the two suites run back-to-back — this is what makes the suites
   // composable from a single documented command without a manual reseed
   // between them.
-  await page.goto("http://localhost:3000/settings");
-  await page.waitForSelector("text=IMPORT HISTORY");
+  await page.goto("http://localhost:3000/settings/backup");
+  await page.getByRole("heading", { name: "Backup & data" }).waitFor({ timeout: 30000 });
   await page.locator('button:has-text("Undo")').first().click();
-  await page.waitForSelector("text=Import undone", { timeout: 60_000 });
+  // Undo reports what it actually reversed ("Removed N transactions") and only
+  // falls back to "Import undone" when the server sends no message — the same
+  // thing e2e-import.mjs already notes. Accept either.
+  await page.getByText(/Import undone|Removed \d+ transaction/).first().waitFor({ timeout: 60_000 });
 
   await page.goto("http://localhost:3000/dashboard");
-  await page.click('button:has-text("To date")');
-  await page.waitForSelector("text=BALANCE · TO DATE", { timeout: 8000 });
+  await choosePeriod(page);
+  await page.getByText("BALANCE · TO DATE", { exact: true }).waitFor({ timeout: 20000 });
   const balanceAfter = (await page.textContent("body")).match(/(?:TOTAL BALANCE|BALANCE · TO DATE)(−?₹[\d,.]+)/)?.[1];
   ok(
     "large import cleans up after itself (undo reverses the balance effect, leaving the DB as it found it)",

@@ -84,12 +84,16 @@ async function main() {
   try {
     await signIn(page);
     await page.goto(`${BASE}/shared/groups/${group.id}?p=all`, { waitUntil: "load" });
-    await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
+    // The payment plan's section is headed "Settle up" — addressed by its
+    // heading rather than by a bare text match, so it stays pinned to the
+    // section that actually owns the plan.
+    const heading = page.getByRole("heading", { name: "Settle up" });
+    await heading.first().waitFor({ timeout: 30000 });
 
-    const card = page.locator("section", { hasText: "Group Settlement" }).first();
+    const card = page.locator("section").filter({ has: heading }).first();
     const cardText = await card.innerText();
 
-    ok("1. the plan leads the section", cardText.includes("Group Settlement"));
+    ok("1. the plan leads the section", cardText.startsWith("Settle up"));
     ok("2. it counts the payments in plain language", /\d+ payments? to settle everything/.test(cardText), cardText.match(/\d+ payments? to settle everything/)?.[0]);
 
     // Rows as displayed. Target the row container class directly — filtering
@@ -149,7 +153,7 @@ async function main() {
     for (const w of [360, 390, 430, 1440]) {
       await page.setViewportSize({ width: w, height: w >= 1440 ? 900 : 844 });
       await page.goto(`${BASE}/shared/groups/${group.id}?p=all`, { waitUntil: "load" });
-      await page.waitForSelector("text=Group Settlement", { timeout: 30000 });
+      await page.getByRole("heading", { name: "Settle up" }).first().waitFor({ timeout: 30000 });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       const shareVisible = await page.getByRole("button", { name: "Share settlement" }).isVisible();
       ok(`14. ${w}px: plan renders without overflow and Share stays reachable`, !overflow && shareVisible, `overflow=${overflow} share=${shareVisible}`);

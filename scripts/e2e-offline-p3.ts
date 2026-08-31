@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { chromium, type Browser, type BrowserContext, type Cookie, type Page } from "playwright";
 import { prisma } from "../src/server/db";
+import { composerOf, saveComposer, setMerchant, typeAmount } from "./e2e-composer.mjs";
 
 const results: { name: string; pass: boolean; detail?: string }[] = [];
 const ok = (name: string, pass: boolean, detail = "") => {
@@ -21,7 +22,10 @@ async function signIn(page: Page) {
   await page.fill('input[type="password"]', "ledgerly-demo");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 20000 });
-  await page.waitForSelector("text=/TOTAL BALANCE|BALANCE ·/");
+  // The eyebrow reads "TOTAL BALANCE" on a live window and "BALANCE · <period>"
+  // otherwise. Either means the dashboard has painted; exact matching keeps it
+  // from also resolving the mobile hero's "Total balance".
+  await page.getByText(/^(TOTAL BALANCE|BALANCE · .+)$/).first().waitFor({ timeout: 20000 });
 }
 
 /** A fresh context (own IndexedDB → own device identity) authenticated by
@@ -34,13 +38,21 @@ async function newDevice(browser: Browser, cookies: Cookie[]): Promise<{ ctx: Br
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await page.waitForSelector("text=/TOTAL BALANCE|BALANCE ·/");
+  // The eyebrow reads "TOTAL BALANCE" on a live window and "BALANCE · <period>"
+  // otherwise. Either means the dashboard has painted; exact matching keeps it
+  // from also resolving the mobile hero's "Total balance".
+  await page.getByText(/^(TOTAL BALANCE|BALANCE · .+)$/).first().waitFor({ timeout: 20000 });
   return { ctx, page };
 }
 
 async function openDetail(page: Page, merchant: string) {
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.fill('input[placeholder^="Search"]', merchant);
+  // Search is a collapsed <details> — opt-in, so it has to be opened first.
+  const field = page.locator('input[placeholder^="Search"]');
+  if (!(await field.isVisible())) await page.locator("summary").filter({ hasText: "Search" }).first().click();
+  await field.waitFor({ state: "visible", timeout: 15000 });
+  await page.waitForTimeout(200);
+  await field.fill(merchant);
   await page.waitForTimeout(600);
   await page.locator(`button:has-text("${merchant}")`).first().click();
   // a healthy transaction shows Edit/Delete; a needs-attention one shows
@@ -50,8 +62,18 @@ async function openDetail(page: Page, merchant: string) {
 
 async function editAmount(page: Page, newRupees: string) {
   await page.getByRole("button", { name: "Edit", exact: true }).click();
-  await page.waitForSelector('input[type="number"]');
-  await page.fill('input[type="number"]', newRupees);
+  // A queued row still opens the classic pending form (its amount field is
+  // deliberately type="text", so it is addressed by label); a synced one opens
+  // the composer, whose amount is a keypad.
+  await Promise.race([
+    composerOf(page).waitFor({ timeout: 20000 }),
+    page.getByLabel("AMOUNT (₹)").waitFor({ timeout: 20000 }),
+  ]);
+  if (await composerOf(page).count()) {
+    await typeAmount(page, newRupees);
+    return;
+  }
+  await page.getByLabel("AMOUNT (₹)").fill(newRupees);
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
 }
 
@@ -394,11 +416,9 @@ async function main() {
 
     await page.route("**/api/sync", (route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "AUTH_EXPIRED" }) }));
     await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', "22");
-    await page.fill('input[placeholder="e.g. Swiggy"]', "P3AuthExpired");
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await page.waitForSelector("text=Expense added");
+    await typeAmount(page, "22");
+    await setMerchant(page, "P3AuthExpired");
+    await saveComposer(page);
     await page.waitForTimeout(1200);
 
     const bannerBody = await page.evaluate(() => document.body.innerText);

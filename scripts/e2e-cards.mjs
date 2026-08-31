@@ -69,9 +69,15 @@ async function waitFor(fn, label, attempts = 40) {
 // its action row. Located by the nickname the face renders.
 const block = (nickname) => page.locator("div.grid > div").filter({ hasText: nickname }).first();
 
+/** The add control, whichever of its two forms this wallet is showing. */
+const addCardButton = () => page.getByRole("button", { name: /Add card|Add your first card/ });
+
 async function gotoCards() {
   await page.goto(`${BASE}/cards`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.getByRole("button", { name: /Add card/ }).first().waitFor({ timeout: 30000 });
+  // An empty wallet labels it "Add your first card"; a populated one
+  // "＋ Add card". Both open the same form, and which one is on screen
+  // depends on data this suite has not created yet.
+  await addCardButton().first().waitFor({ timeout: 30000 });
   await page.waitForTimeout(2500); // hydration before clicking anything
 }
 
@@ -127,7 +133,7 @@ try {
   await gotoCards();
   // Deliberately without ticking "default": the first card should still become
   // the default on its own.
-  await openDialogVia(() => page.getByRole("button", { name: /Add card/ }).first().click(), /Add card/);
+  await openDialogVia(() => addCardButton().first().click(), /Add card/);
   await fillCardForm({ nickname: VISA, bank: "HDFC Bank", cardholder: "TEST HOLDER" });
   await page.getByRole("dialog").getByRole("button", { name: "Save card" }).click();
 
@@ -210,7 +216,7 @@ try {
 
   // ── Set default across two cards ──
   await gotoCards();
-  await openDialogVia(() => page.getByRole("button", { name: /Add card/ }).first().click(), /Add card/);
+  await openDialogVia(() => addCardButton().first().click(), /Add card/);
   await fillCardForm({ nickname: MC, bank: "ICICI Bank", cardholder: "TEST HOLDER" });
   await page.getByRole("dialog").getByRole("button", { name: "Save card" }).click();
   await waitFor(() => prisma.creditCard.findFirst({ where: { userId: user.id, nickname: MC } }), "the second card to save");

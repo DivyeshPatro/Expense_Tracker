@@ -33,23 +33,69 @@ async function newSession(browser: Browser, cookies: { name: string; value: stri
   const page = await ctx.newPage();
   page.setDefaultTimeout(20000);
   await page.goto(`${BASE}/dashboard`, { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  // Exact: a loose `text=` also matches the mobile hero's "Total balance".
+  await page.getByText("TOTAL BALANCE", { exact: true }).waitFor({ timeout: 20000 });
   return { ctx, page };
 }
 
-async function selectByOptionText(page: Page, optionText: string): Promise<boolean> {
-  const selects = page.locator("select");
-  const count = await selects.count();
-  for (let i = 0; i < count; i++) {
-    const opts = await selects.nth(i).locator("option").allTextContents();
-    const match = opts.find((o) => o.includes(optionText));
-    if (match) {
-      await selects.nth(i).selectOption({ label: match });
-      return true;
-    }
+// Alice owns these transactions, so her create and edit both open the
+// full-screen composer. Bob does not, so his edit still opens the classic
+// CollaborativeEditForm — which is the path §PhaseA.2 is actually about.
+const composer = (page: Page) => page.locator("div[data-composer]");
+const topSheet = (page: Page) => page.getByRole("dialog").last();
+
+async function typeAmount(page: Page, amount: string) {
+  await composer(page).waitFor({ timeout: 20000 });
+  await composer(page).getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of amount) {
+    await composer(page).getByRole("button", { name: ch, exact: true }).click();
+    await page.waitForTimeout(50);
   }
-  return false;
 }
+
+async function setMerchant(page: Page, merchant: string) {
+  await composer(page).getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(400);
+  await topSheet(page).locator("input").first().fill(merchant);
+  await topSheet(page).getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(350);
+}
+
+async function sheetDone(page: Page) {
+  const done = topSheet(page).getByRole("button", { name: "Done", exact: true });
+  if (await done.count()) {
+    await done.click();
+    await page.waitForTimeout(350);
+  }
+}
+
+/** Drag the confirm handle the whole way — the composer has no Save button. */
+async function saveComposer(page: Page, { expectClose = true }: { expectClose?: boolean } = {}) {
+  await sheetDone(page);
+  const track = composer(page).locator("div[role='slider']");
+  const box = (await track.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  if (expectClose) await composer(page).waitFor({ state: "detached", timeout: 20000 });
+  await page.waitForTimeout(500);
+}
+
+/** Choose a group via the composer's Personal|Group control. */
+async function selectComposerGroup(page: Page, groupName: string) {
+  await composer(page).getByRole("group", { name: "Personal or group" }).getByRole("button").last().click();
+  await page.waitForTimeout(600);
+  await topSheet(page).getByRole("button", { name: new RegExp(groupName) }).first().click();
+  await page.waitForTimeout(700);
+  await sheetDone(page);
+}
+
 
 async function openTxByDeepLink(page: Page, txId: string) {
   await page.goto(`${BASE}/transactions?tx=${txId}`, { waitUntil: "load" });
@@ -103,16 +149,31 @@ async function main() {
     // ═══════════════════════ §PhaseA.2: a split CREATE now carries a real intent ═══════════════════════
     await alicePage.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
     await alicePage.click('button:has-text("＋ Add expense")');
-    await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await alicePage.fill('input[placeholder="0"]', "600");
-    await alicePage.fill('input[placeholder="e.g. Swiggy"]', `PhaseASplit-${suffix}`);
-    await alicePage.click("text=👥 Split with friends");
+    await typeAmount(alicePage, "600");
+    await setMerchant(alicePage, `PhaseASplit-${suffix}`);
+    // People first, then the group: choosing the group narrows the picker to
+    // its own roster, and Karan is not a member of it.
+    await alicePage
+      .locator("div[data-composer]")
+      .getByRole("button", { name: /people ·|Choose who's splitting|Split with someone/ })
+      .click();
+    await alicePage.waitForTimeout(600);
+    const aliceSplitSheet = topSheet(alicePage);
+    if ((await aliceSplitSheet.locator('[role="switch"]').first().getAttribute("aria-checked")) !== "true") {
+      await aliceSplitSheet.getByText("👥 Split with friends").first().click();
+      await alicePage.waitForTimeout(300);
+    }
     await alicePage.waitForSelector("text=Karan");
-    await alicePage.locator(".fixed.inset-0.z-\\[60\\] button", { hasText: "Karan" }).first().click();
-    await selectByOptionText(alicePage, groupName);
-    await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
-    await alicePage.waitForSelector("text=Split expense added");
-    await alicePage.waitForTimeout(500);
+    for (const b of await aliceSplitSheet.locator('button[aria-pressed="true"]').all()) {
+      if (!(await b.innerText()).includes("Karan")) await b.click();
+      await alicePage.waitForTimeout(100);
+    }
+    const karanRow = aliceSplitSheet.locator("button").filter({ hasText: "Karan" }).first();
+    if ((await karanRow.getAttribute("aria-pressed")) !== "true") await karanRow.click();
+    await alicePage.waitForTimeout(300);
+    await sheetDone(alicePage);
+    await selectComposerGroup(alicePage, groupName);
+    await saveComposer(alicePage);
 
     const splitTx = await prisma.transaction.findFirstOrThrow({ where: { merchant: `PhaseASplit-${suffix}` } });
     txIds.push(splitTx.id);
@@ -128,7 +189,9 @@ async function main() {
     // into her form's local state) but does not save yet.
     await openTxByDeepLink(alicePage, splitTx.id);
     await alicePage.getByRole("button", { name: "Edit", exact: true }).click();
-    await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
+    // The owner's edit is the composer, which captures version=1 into its own
+    // state exactly as the classic form did.
+    await composer(alicePage).waitFor({ timeout: 20000 });
 
     // Bob (a different real actor) edits the SAME transaction and saves —
     // server version 1 -> 2. This uses the ALREADY-intent-tracked
@@ -147,8 +210,10 @@ async function main() {
     // Before this fix, her split-edit carried no intent/baseVersion at all
     // and would have applied BLINDLY, silently discarding Bob's edit with no
     // signal to either person.
-    await alicePage.fill('input[placeholder="e.g. Swiggy"]', `PhaseASplit-${suffix}-alice-stale`);
-    await alicePage.getByRole("button", { name: "Save changes", exact: true }).click();
+    await setMerchant(alicePage, `PhaseASplit-${suffix}-alice-stale`);
+    // Expected to be REFUSED — that is the assertion below — so the composer
+    // stays up and reports the conflict rather than closing.
+    await saveComposer(alicePage, { expectClose: false });
     await alicePage.waitForTimeout(1000);
 
     const aliceErrorBody = await alicePage.evaluate(() => document.body.innerText);
@@ -192,11 +257,9 @@ async function main() {
     // Alice's own solo edit, for contrast, should show no attribution at all
     await alicePage.goto(`${BASE}/transactions?p=all`, { waitUntil: "load" });
     await alicePage.click('button:has-text("＋ Add expense")');
-    await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await alicePage.fill('input[placeholder="0"]', "120");
-    await alicePage.fill('input[placeholder="e.g. Swiggy"]', `PhaseASolo-${suffix}`);
-    await alicePage.getByRole("button", { name: "Add expense", exact: true }).click();
-    await alicePage.waitForSelector("text=Expense added");
+    await typeAmount(alicePage, "120");
+    await setMerchant(alicePage, `PhaseASolo-${suffix}`);
+    await saveComposer(alicePage);
     await alicePage.waitForTimeout(800);
     const soloTx = await prisma.transaction.findFirstOrThrow({ where: { merchant: `PhaseASolo-${suffix}` } });
     txIds.push(soloTx.id);
@@ -205,9 +268,9 @@ async function main() {
     // click + text-match, which raced the background outbox drain's refresh
     await openTxByDeepLink(alicePage, soloTx.id);
     await alicePage.getByRole("button", { name: "Edit", exact: true }).click();
-    await alicePage.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await alicePage.fill('input[placeholder="e.g. Swiggy"]', `PhaseASolo-${suffix}-edited`);
-    await alicePage.getByRole("button", { name: "Save changes", exact: true }).click();
+    await composer(alicePage).waitFor({ timeout: 20000 });
+    await setMerchant(alicePage, `PhaseASolo-${suffix}-edited`);
+    await saveComposer(alicePage);
     await alicePage.waitForSelector("text=Transaction updated", { timeout: 8000 });
     await alicePage.waitForTimeout(800);
 

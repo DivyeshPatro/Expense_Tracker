@@ -6,6 +6,7 @@
 // left by a killed app drains on reopen, and the Settings sync card reports
 // truthfully.
 import { chromium } from "playwright";
+import { composerOf, openSplitSheet, saveComposer, setMerchant, topSheet, typeAmount } from "./e2e-composer.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -35,7 +36,9 @@ try {
   await page.fill('input[type="password"]', "ledgerly-demo");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard", { timeout: 15000 });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  // This suite runs at 390px, where the hero reads "Total balance"; the
+  // desktop eyebrow is in the DOM but hidden. Ask for whichever is on screen.
+  await page.getByText(/^(TOTAL BALANCE|Total balance)$/).filter({ visible: true }).first().waitFor({ timeout: 20000 });
 
   const swState = await page.evaluate(async () => {
     const reg = await navigator.serviceWorker.ready;
@@ -72,33 +75,46 @@ try {
 
   await context.setOffline(false);
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE", { timeout: 15000 });
+  // This suite runs at 390px, where the hero reads "Total balance"; the
+  // desktop eyebrow is in the DOM but hidden. Ask for whichever is on screen.
+  await page.getByText(/^(TOTAL BALANCE|Total balance)$/).filter({ visible: true }).first().waitFor({ timeout: 20000 });
   ok("back online: navigations are network-first (fresh page, not a cached shell)", true);
 
   // ═══════════ Phase 1: offline create, local echo, drain, paise-exact ═══════════
   const heroPaise = async () => {
-    const t = await page.locator("text=TOTAL BALANCE").first().locator("..").innerText();
+    // Exact: a loose match also resolves the mobile hero's "Total balance",
+    // and reading the wrong hero's figure would silently compare the wrong
+    // numbers rather than fail outright.
+    const t = await page
+      .getByText(/^(TOTAL BALANCE|Total balance)$/)
+      .filter({ visible: true })
+      .first()
+      .locator("..")
+      .innerText();
     const m = t.match(/(−?₹[\d,]+)/);
     return Math.round(Number(m[1].replace(/₹|,|\s/g, "").replace(/−/g, "-")) * 100);
   };
+  // Adding a Debit is the full-screen composer. The offline path underneath is
+  // unchanged — same outbox, same queueing — so every assertion below still
+  // measures what it always did.
   const addExpenseViaModal = async (merchant, rupees) => {
     await page.click('button:has-text("＋ Add expense")');
-    await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-    await page.fill('input[placeholder="0"]', String(rupees));
-    await page.fill('input[placeholder="e.g. Swiggy"]', merchant);
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
+    await typeAmount(page, rupees);
+    await setMerchant(page, merchant);
+    await saveComposer(page);
   };
 
   await page.setViewportSize({ width: 1280, height: 900 }); // desktop: header add button + roomy asserts
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  // This suite runs at 390px, where the hero reads "Total balance"; the
+  // desktop eyebrow is in the DOM but hidden. Ask for whichever is on screen.
+  await page.getByText(/^(TOTAL BALANCE|Total balance)$/).filter({ visible: true }).first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(400); // let hydration settle after the viewport/nav change
   const base = await heroPaise();
 
   // online control write (goes through the same intent-tagged path);
   // router.refresh() needs a moment to land — poll rather than guess
   await addExpenseViaModal("P1Control", 111);
-  await page.waitForSelector("text=Expense added");
   let afterControl = base;
   for (let i = 0; i < 20 && afterControl === base; i++) {
     await page.waitForTimeout(500);
@@ -112,7 +128,6 @@ try {
   // Phase 2: universal write-behind means every create shows the normal
   // success toast immediately (online or not) — the ⏳ row badge is the sole
   // ambient pending signal now (spec §17 Phase 2 toast-copy simplification)
-  await page.waitForSelector("text=Expense added");
   await page.waitForSelector("text=/includes 1 unsynced change/");
   const offlineHero = await heroPaise();
   ok("offline create: hero balance includes the pending amount immediately", offlineHero === afterControl - 22200, `${afterControl} -> ${offlineHero}`);
@@ -137,10 +152,15 @@ try {
 
   // local echo on an open transactions list
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.waitForSelector('input[placeholder^="Search"]');
+  // Search is a collapsed <details> now — the list is the page's job and the
+  // field is opt-in — so it has to be opened before it can be used.
+  {
+    const field = page.locator('input[placeholder^="Search"]');
+    if (!(await field.isVisible())) await page.locator("summary").filter({ hasText: "Search" }).first().click();
+    await field.waitFor({ state: "visible", timeout: 15000 });
+  }
   await context.setOffline(true);
   await addExpenseViaModal("P1EchoRow", 55);
-  await page.waitForSelector("text=Expense added");
   await page.waitForSelector("text=Waiting to sync");
   const echo = await page.evaluate(() => document.body.innerText);
   ok("offline create shows a ⏳ local-echo row on the open list", echo.includes("P1EchoRow") && echo.includes("Waiting for internet"));
@@ -154,21 +174,27 @@ try {
   // split expenses refuse the queue with honest copy (P1 is solo-only)
   await context.setOffline(true);
   await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[placeholder="0"]', "900");
-  await page.click("text=👥 Split with friends");
+  await typeAmount(page, "900");
+  await openSplitSheet(page);
   await page.waitForSelector("text=Equal split");
-  // scope to the modal — the ledger behind it has seeded rows mentioning Karan
-  const splitModal = page.locator(".fixed.inset-0.z-\\[60\\]").first();
-  await splitModal.locator('button:has-text("Karan")').first().click();
-  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  // Scope to the split sheet — the ledger behind it has seeded rows
+  // mentioning Karan.
+  await topSheet(page).locator('button:has-text("Karan")').first().click();
+  await page.waitForTimeout(300);
+  // The swipe is expected to be REFUSED: a split touches other people's
+  // balances and needs the server, so the composer stays up and says so.
+  await saveComposer(page, { expectClose: false });
   await page.waitForSelector("text=Split expenses need internet");
   ok("split expense offline is refused with honest copy (solo-only P1)", true);
   await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  if (await composerOf(page).count()) {
+    await composerOf(page).getByRole("button", { name: "Close" }).click();
+    await page.waitForTimeout(300);
+  }
 
   // killed-app recovery: queue an intent, destroy the page, reopen → drains on mount
   await addExpenseViaModal("P1Killed", 333);
-  await page.waitForSelector("text=Expense added");
   await page.close(); // app "killed" with the intent still queued in IndexedDB
   await context.setOffline(false);
   const page2 = await context.newPage();
@@ -197,10 +223,9 @@ try {
   await page2.waitForSelector("text=Everything is synced");
   await context.setOffline(true);
   await page2.click('button:has-text("＋ Add expense")');
-  await page2.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page2.fill('input[placeholder="0"]', "44");
-  await page2.fill('input[placeholder="e.g. Swiggy"]', "P1Settings");
-  await page2.getByRole("button", { name: "Add expense", exact: true }).click();
+  await typeAmount(page2, "44");
+  await setMerchant(page2, "P1Settings");
+  await saveComposer(page2);
   await page2.waitForSelector("text=1 waiting to sync");
   ok("settings sync card reports pending truthfully while offline", true);
   await page2.screenshot({ path: `${SHOT}/offline-settings-card.png` });
@@ -212,6 +237,11 @@ try {
   // ── cleanup: remove the four test transactions ──
   for (const merchant of ["P1Control", "P1Offline", "P1EchoRow", "P1Killed", "P1Settings"]) {
     await page2.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
+    {
+      const field = page2.locator('input[placeholder^="Search"]');
+      if (!(await field.isVisible())) await page2.locator("summary").filter({ hasText: "Search" }).first().click();
+      await field.waitFor({ state: "visible", timeout: 15000 });
+    }
     await page2.fill('input[placeholder^="Search"]', merchant);
     await page2.waitForTimeout(500);
     const row = page2.locator(`button:has-text("${merchant}")`).first();

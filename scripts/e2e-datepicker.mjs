@@ -28,6 +28,61 @@ page.setDefaultTimeout(20000);
 const modal = () => page.locator(".fixed.inset-0.z-\\[60\\]").first();
 const dateTriggerIn = (scope) => scope.locator('button[aria-haspopup="dialog"]').first();
 
+// Adding or editing a Debit/Credit is the full-screen composer, whose date
+// chip opens a sheet holding the SAME DateField. The popover's obligation is
+// unchanged and is what this suite measures either way: it must portal out to
+// <body> rather than live inside the scrolling container that opened it.
+const composer = () => page.locator("div[data-composer]");
+const sheet = () => page.getByRole("dialog").last();
+
+/** Open the composer from Spending and tap an amount into its keypad. */
+async function openComposer(rupees) {
+  await page.click('button:has-text("＋ Add expense")');
+  await composer().waitFor({ timeout: 20000 });
+  await composer().getByRole("button", { name: "Clear amount" }).click();
+  for (const ch of String(rupees)) {
+    await composer().getByRole("button", { name: ch, exact: true }).click();
+    await page.waitForTimeout(50);
+  }
+}
+
+/** The merchant lives behind the composer's "Who's it for?" line. */
+async function setComposerMerchant(merchant) {
+  await composer().getByRole("button", { name: "Merchant and notes" }).click();
+  await page.waitForTimeout(400);
+  await sheet().locator("input").first().fill(merchant);
+  await sheet().getByRole("button", { name: "Done", exact: true }).click();
+  await page.waitForTimeout(350);
+}
+
+/** Drag the confirm handle the whole way — the composer has no Save button. */
+async function saveComposer() {
+  const done = sheet().getByRole("button", { name: "Done", exact: true });
+  if (await done.count()) {
+    await done.click();
+    await page.waitForTimeout(350);
+  }
+  const track = composer().locator("div[role='slider']");
+  const box = await track.boundingBox();
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 30, y);
+  await page.mouse.down();
+  const end = box.x + 30 + (box.width - 62);
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(box.x + 30 + ((end - box.x - 30) * i) / 12, y);
+    await page.waitForTimeout(18);
+  }
+  await page.mouse.up();
+  await composer().waitFor({ state: "detached", timeout: 20000 });
+  await page.waitForTimeout(400);
+}
+
+/** Open the composer's date sheet, where the DateField lives. */
+async function openComposerDateSheet() {
+  await composer().getByRole("button", { name: /^Date:/ }).click();
+  await page.waitForTimeout(500);
+}
+
 async function openDateDialog(triggerLocator) {
   await triggerLocator.click();
   await page.waitForSelector('[role="dialog"][aria-label="Choose date"]');
@@ -47,22 +102,27 @@ try {
 
   // ══════════════ 1. Portal + no-scrollbar, from the Add Expense modal ══════════════
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await openDateDialog(dateTriggerIn(modal()));
+  await openComposer("100");
+  await openComposerDateSheet();
+  await openDateDialog(dateTriggerIn(sheet()));
   await portalCheck('[role="dialog"][aria-label="Choose date"]', "Add Expense");
-  const isInsideModal = await page.evaluate(() => {
-    const dialog = document.querySelector('[role="dialog"][aria-label="Choose date"]');
-    const modalPanel = document.querySelector(".fixed.inset-0.z-\\[60\\]");
-    return modalPanel ? modalPanel.contains(dialog) : null;
+  // The container that must not swallow it is the date SHEET now — that is
+  // the scrolling panel the trigger sits inside. Same bug, same shape: a
+  // calendar rendered as a child of a scroll container either clips or
+  // inflates it.
+  const isInsideSheet = await page.evaluate(() => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"]')];
+    const cal = document.querySelector('[role="dialog"][aria-label="Choose date"]');
+    const host = dialogs.find((d) => d !== cal && d.getAttribute("aria-label") === "Date");
+    return host ? host.contains(cal) : null;
   });
-  ok("Add Expense: popover is NOT a DOM descendant of the modal panel", isInsideModal === false, `contains=${isInsideModal}`);
+  ok("Add Expense: popover is NOT a DOM descendant of the sheet that opened it", isInsideSheet === false, `contains=${isInsideSheet}`);
   const scrollInfo = await page.evaluate(() => {
-    const panel = document.querySelector(".fixed.inset-0.z-\\[60\\] > div");
+    const panel = [...document.querySelectorAll('[role="dialog"]')].find((d) => d.getAttribute("aria-label") === "Date");
     return panel ? { scrollHeight: panel.scrollHeight, clientHeight: panel.clientHeight } : null;
   });
   ok(
-    "Add Expense: opening the calendar never inflates the modal panel's scrollHeight",
+    "Add Expense: opening the calendar never inflates the sheet's scrollHeight",
     scrollInfo && scrollInfo.scrollHeight <= scrollInfo.clientHeight + 1,
     JSON.stringify(scrollInfo)
   );
@@ -86,8 +146,22 @@ try {
   // hide rules the header's own buttons have.
   await page.setViewportSize({ width: 1280, height: 650 });
   await page.goto("http://localhost:3000/bills", { waitUntil: "load" });
-  await page.click('button:has-text("＋ New bill")');
-  await page.waitForSelector('input[placeholder="e.g. ACT Fibernet"]');
+  // The bills page has no add button of its own any more — the section's FAB
+  // is the entry point, and its single action opens the same form.
+  // The bills page has no add button of its own — the section's FAB is the
+  // entry point. It has a single action, so it usually opens the form
+  // directly; if a chooser appears instead, take its action. Waiting on the
+  // form's own field keeps this from clicking the modal's "Add bill" SUBMIT,
+  // which shares the FAB's name.
+  await page.getByRole("button", { name: /Add bill/i }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(500);
+  if (!(await page.locator('input[placeholder="e.g. ACT Fibernet"]').isVisible().catch(() => false))) {
+    const chooser = page.getByRole("dialog").last();
+    if (await chooser.getByRole("button", { name: /Add bill/i }).count()) {
+      await chooser.getByRole("button", { name: /Add bill/i }).first().click();
+    }
+  }
+  await page.waitForSelector('input[placeholder="e.g. ACT Fibernet"]', { timeout: 15000 });
   await openDateDialog(dateTriggerIn(modal()));
   await page.waitForTimeout(150); // let the layout-effect position settle
   const flipRects = await page.evaluate(() => {
@@ -107,8 +181,22 @@ try {
   // ══════════════ 3. Shift: reduced viewport width clamps the popover to stay on-screen ══════════════
   await page.setViewportSize({ width: 420, height: 900 });
   await page.goto("http://localhost:3000/bills", { waitUntil: "load" });
-  await page.click('button:has-text("＋ New bill")');
-  await page.waitForSelector('input[placeholder="e.g. ACT Fibernet"]');
+  // The bills page has no add button of its own any more — the section's FAB
+  // is the entry point, and its single action opens the same form.
+  // The bills page has no add button of its own — the section's FAB is the
+  // entry point. It has a single action, so it usually opens the form
+  // directly; if a chooser appears instead, take its action. Waiting on the
+  // form's own field keeps this from clicking the modal's "Add bill" SUBMIT,
+  // which shares the FAB's name.
+  await page.getByRole("button", { name: /Add bill/i }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(500);
+  if (!(await page.locator('input[placeholder="e.g. ACT Fibernet"]').isVisible().catch(() => false))) {
+    const chooser = page.getByRole("dialog").last();
+    if (await chooser.getByRole("button", { name: /Add bill/i }).count()) {
+      await chooser.getByRole("button", { name: /Add bill/i }).first().click();
+    }
+  }
+  await page.waitForSelector('input[placeholder="e.g. ACT Fibernet"]', { timeout: 15000 });
   ok("Bills: no native date/month input anywhere in the form", (await modal().locator('input[type="date"], input[type="month"]').count()) === 0);
   await openDateDialog(dateTriggerIn(modal()));
   await portalCheck('[role="dialog"][aria-label="Choose date"]', "Bills");
@@ -129,7 +217,11 @@ try {
   // sub-view with a data-month grid; custom range is another sub-view. No part
   // of it uses a native <input type=month|date>.
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page
+    .getByText(/^(TOTAL BALANCE|BALANCE · .+)$/)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 20000 });
   ok("no native type=month/date input anywhere on Dashboard", (await page.locator('input[type="date"], input[type="month"]').count()) === 0);
   await page.getByRole("button", { name: "Change period" }).click();
   await page.waitForSelector('[role="dialog"][aria-label="Select period"]');
@@ -144,7 +236,11 @@ try {
 
   // ══════════════ 5. Period picker: custom range (Start/End), min/max enforcement ══════════════
   await page.goto("http://localhost:3000/dashboard", { waitUntil: "load" });
-  await page.waitForSelector("text=TOTAL BALANCE");
+  await page
+    .getByText(/^(TOTAL BALANCE|BALANCE · .+)$/)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 20000 });
   await page.getByRole("button", { name: "Change period" }).click();
   await page.waitForSelector('[role="dialog"][aria-label="Select period"]');
   await page.getByRole("button", { name: /Custom range/ }).click();
@@ -177,10 +273,20 @@ try {
   async function createAndEdit(kind, setup, merchantOrLabel) {
     await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
     await setup();
-    await page.waitForSelector(kind === "income" ? "text=Income added" : kind === "transfer" ? "text=Transfer added" : "text=Expense added");
+    // The composer confirms a create with its success wash rather than a
+    // toast; `setup()` already waited for it to close. Transfers still open
+    // the classic form and still raise one.
+    if (kind === "transfer") await page.waitForSelector("text=Transfer added");
     await page.waitForTimeout(600);
     await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-    await page.fill('input[placeholder^="Search"]', merchantOrLabel);
+    // Search is a collapsed <details> — opt-in, so it has to be opened first.
+    {
+      const field = page.locator('input[placeholder^="Search"]');
+      if (!(await field.isVisible())) await page.locator("summary").filter({ hasText: "Search" }).first().click();
+      await field.waitFor({ state: "visible", timeout: 15000 });
+      await page.waitForTimeout(200);
+      await field.fill(merchantOrLabel);
+    }
     await page.waitForTimeout(500);
     await page.locator(`button:has-text("${merchantOrLabel}")`).first().click();
     await page.getByRole("button", { name: "Edit", exact: true }).waitFor();
@@ -190,42 +296,61 @@ try {
   await createAndEdit(
     "expense",
     async () => {
-      await page.click('button:has-text("＋ Add expense")');
-      await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-      await page.fill('input[placeholder="0"]', "111");
-      await page.fill('input[placeholder="e.g. Swiggy"]', `DPExpense-${suffix}`);
-      await page.getByRole("button", { name: "Add expense", exact: true }).click();
+      await openComposer("111");
+      await setComposerMerchant(`DPExpense-${suffix}`);
+      await saveComposer();
     },
     `DPExpense-${suffix}`
   );
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  ok("Edit Expense: date field has no native input", (await modal().locator('input[type="date"]').count()) === 0);
-  await openDateDialog(dateTriggerIn(modal()));
+  await composer().waitFor({ timeout: 20000 });
+  ok("Edit Expense: date field has no native input", (await page.locator('input[type="date"]').count()) === 0);
+  await openComposerDateSheet();
+  await openDateDialog(dateTriggerIn(sheet()));
   await portalCheck('[role="dialog"][aria-label="Choose date"]', "Edit Expense");
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(200);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
+  if (await composer().count()) {
+    await composer().getByRole("button", { name: "Close" }).click();
+    await page.waitForTimeout(300);
+  }
 
   await createAndEdit(
     "income",
     async () => {
-      await page.click('button[aria-label="Quick add (desktop)"]');
-      await page.getByRole("button", { name: "💰 Income" }).click();
-      await page.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
-      await page.fill('input[placeholder="0"]', "222");
-      await page.fill('input[placeholder="e.g. Salary · Acme Corp"]', `DPIncome-${suffix}`);
-      await page.getByRole("button", { name: "Add income", exact: true }).click();
+      await page.click('button:has-text("＋ Add expense")');
+      await composer().waitFor({ timeout: 20000 });
+      // Credit is one tap inside the composer — the same screen, the other
+      // half of its type control.
+      await composer().getByRole("button", { name: /Credit/ }).click();
+      await page.waitForTimeout(300);
+      await composer().getByRole("button", { name: "Clear amount" }).click();
+      for (const ch of "222") {
+        await composer().getByRole("button", { name: ch, exact: true }).click();
+        await page.waitForTimeout(50);
+      }
+      await setComposerMerchant(`DPIncome-${suffix}`);
+      await saveComposer();
     },
     `DPIncome-${suffix}`
   );
-  await page.waitForSelector('input[placeholder="e.g. Salary · Acme Corp"]');
-  ok("Edit Income: date field has no native input", (await modal().locator('input[type="date"]').count()) === 0);
-  await openDateDialog(dateTriggerIn(modal()));
+  await composer().waitFor({ timeout: 20000 });
+  ok("Edit Income: date field has no native input", (await page.locator('input[type="date"]').count()) === 0);
+  await openComposerDateSheet();
+  await openDateDialog(dateTriggerIn(sheet()));
   await portalCheck('[role="dialog"][aria-label="Choose date"]', "Edit Income");
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(200);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
+  if (await composer().count()) {
+    await composer().getByRole("button", { name: "Close" }).click();
+    await page.waitForTimeout(300);
+  }
 
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-  await page.click('button[aria-label="Quick add (desktop)"]');
+  await page.getByRole("button", { name: /quick add/i }).filter({ visible: true }).first().click();
   await page.getByRole("button", { name: "⇄ Transfer" }).click();
   await page.waitForSelector('input[placeholder="0"]');
   await page.fill('input[placeholder="0"]', "333");
@@ -264,12 +389,9 @@ try {
   // would fail the load itself; the outbox only kicks in for in-page actions
   await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
   await context.setOffline(true);
-  await page.click('button:has-text("＋ Add expense")');
-  await page.waitForSelector('input[placeholder="e.g. Swiggy"]');
-  await page.fill('input[placeholder="0"]', "444");
-  await page.fill('input[placeholder="e.g. Swiggy"]', `DPPending-${suffix}`);
-  await page.getByRole("button", { name: "Add expense", exact: true }).click();
-  await page.waitForSelector("text=Expense added");
+  await openComposer("444");
+  await setComposerMerchant(`DPPending-${suffix}`);
+  await saveComposer();
   await page.waitForTimeout(500);
   await page.click(`button:has-text("DPPending-${suffix}")`);
   await page.waitForSelector("text=Edit");
@@ -289,7 +411,11 @@ try {
   // cleanup: delete every transaction this script created
   for (const label of [`DPExpense-${suffix}`, `DPIncome-${suffix}`, `DPPending-${suffix}`]) {
     await page.goto("http://localhost:3000/transactions?p=all", { waitUntil: "load" });
-    await page.fill('input[placeholder^="Search"]', label);
+    const search = page.locator('input[placeholder^="Search"]');
+    if (!(await search.isVisible())) await page.locator("summary").filter({ hasText: "Search" }).first().click();
+    await search.waitFor({ state: "visible", timeout: 15000 });
+    await page.waitForTimeout(200);
+    await search.fill(label);
     await page.waitForTimeout(500);
     const row = page.locator(`button:has-text("${label}")`).first();
     if (await row.isVisible().catch(() => false)) {

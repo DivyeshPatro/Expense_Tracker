@@ -158,8 +158,8 @@ try {
   ok("month-based rules are anchored to the start day", rule.anchorDay === Number(txYmd.slice(8, 10)), `anchorDay=${rule.anchorDay}`);
 
   // ── It appears in Settings ──
-  await page.goto(`${BASE}/settings`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForSelector("text=Recurring transactions", { timeout: 30000 });
+  await page.goto(`${BASE}/settings/dashboard`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.getByRole("heading", { name: "Recurring transactions" }).waitFor({ timeout: 30000 });
   await page.waitForTimeout(2500);
   const listed = await settingsSection().innerText();
   ok("the rule is listed in Settings with its cadence", listed.includes(MERCHANT) && /Every month/.test(listed));
@@ -171,8 +171,11 @@ try {
   // Wait on the badge itself: the database write and the router refresh that
   // re-renders the list complete independently, so a fixed pause between them
   // reads a stale row often enough to fail intermittently.
+  // Exact and case-sensitive: the row carries a "PAUSED" badge AND the word
+  // "Paused" on its detail line, so a loose match resolves both and the
+  // strict-mode throw was being swallowed into a plain "not found".
   const badge = await ruleRow()
-    .getByText("PAUSED")
+    .getByText("PAUSED", { exact: true })
     .waitFor({ timeout: 15000 })
     .then(() => true)
     .catch(() => false);

@@ -1,6 +1,7 @@
 // Proves the import wizard against the user's actual Monito export shape:
 // banner rows, a month-section label, Category type/name split, blank notes.
 import { chromium } from "playwright";
+import { choosePeriod } from "./e2e-period.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -16,7 +17,16 @@ const ok = (name, pass, detail = "") => {
 };
 
 async function fillSearchStable(page, text) {
-  await page.fill('input[placeholder*="Search merchant"]', text);
+  // Search is a collapsed <details> now — the list is the page's job and the
+  // field is opt-in — so it has to be opened before it can be typed into.
+  // Without this the input is in the DOM but never actionable, and fill()
+  // waits out its whole timeout on an element it can see.
+  const field = page.locator('input[placeholder*="Search merchant"]');
+  if (!(await field.isVisible())) {
+    await page.locator("summary").filter({ hasText: "Search" }).first().click();
+    await field.waitFor({ state: "visible", timeout: 15000 });
+  }
+  await field.fill(text);
   await page.waitForTimeout(500);
 }
 
@@ -92,10 +102,11 @@ try {
   await page.waitForURL("**/transactions", { timeout: 10000 });
   await page.waitForTimeout(800);
 
-  // Transactions defaults to "this month" now (the shared period picker) — a
-  // March 2023 row needs "To date" before it's in scope at all, same as any
-  // other period-aware page.
-  await page.click("text=To date");
+  // Transactions defaults to a recent window (the shared period picker), so a
+  // March 2023 row is out of scope until the window is widened. The choice is
+  // called "All Time" and lives in the picker's sheet — driven by role here,
+  // through the same helper every period-aware suite uses.
+  await choosePeriod(page);
   await page.waitForURL(/p=all/, { timeout: 8000 });
   // the period switch is a fresh server navigation (client TransactionsList
   // resyncs its local search/tab state to it) — wait for that round trip to
